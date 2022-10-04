@@ -1,0 +1,20 @@
+import net
+import nsoapi.proto
+
+actor MaapiSession(env: Env, port: int):
+    def on_connect(c):
+        print("MaapiSession connected.")
+
+    def on_receive(c, data):
+        print("MaapiSession recv:", data)
+
+    def on_error(c, msg):
+        print("MaapiSession error:", msg)
+
+    listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
+    conn = net.TCPIPConnection(listen_auth, "127.0.0.1", port, on_connect, on_receive, on_error)
+
+# actor main(env):
+#     print("Starting up...")
+#     sess = MaapiSession(env, 4569)
+#     #await async env.exit(0)
