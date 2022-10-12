@@ -1,20 +1,198 @@
 import net
-import nsoapi.proto
+from nsoapi.proto import *
 
-actor MaapiSession(env: Env, port: int):
-    def on_connect(c):
-        print("MaapiSession connected.")
+class MaapiException(Exception):
+    def __init__(self):
+        pass
 
-    def on_receive(c, data):
-        print("MaapiSession recv:", data)
+class ProtoError(MaapiException):
+    def __init__(self):
+        pass
 
-    def on_error(c, msg):
-        print("MaapiSession error:", msg)
+class ServerVersionError(MaapiException):
+    def __init__(self):
+        pass
+
+def addr_to_eobject(addr: str) -> EObject:
+    if addr != "127.0.0.1":
+        raise Exception("NOT IMPLEMENTED!") # NotImplementedError()
+    else:
+        return ETuple([EInt(127), EInt(0), EInt(0), EInt(1)])
+
+class UserSessionDescription:
+    user: str
+    src_addr: str
+    context: str
+    groups: list[str]
+    proto: int
+    vendor: ?str
+    product: ?str
+    version: ?str
+    client_id: str
+
+    def __init__(self, user, src_addr, context, groups, proto, vendor, product, version, client_id):
+        self.user = user
+        self.src_addr = src_addr
+        self.context = context
+        self.groups = groups
+        self.proto = proto
+        self.vendor = vendor
+        self.product = product
+        self.version = version
+        self.client_id = client_id
+
+    @staticmethod
+    def from_eobject() -> UserSessionDescription:
+        user = ""
+        src_addr = ""
+        context = ""
+        groups = []
+        proto = 0
+        vendor = None
+        product = None
+        version = None
+        client_id = "acton-streamer"
+        return UserSessionDescription(user, src_addr, context, groups, proto, vendor, product, version, client_id)
+
+    def to_eobject(self, server_vsn) -> EObject:
+        if server_vsn > 0x06020000:
+            elems = []
+            elems.append(EBinary(self.user.encode()))
+            return ETuple(elems)
+        else:
+            raise Exception("NOT IMPLEMENTED!") # NotImplementedError()
+
+actor MaapiConnection(env: Env, port: int):
+    IA_CLIENT_MAAPI = 7
+    PROTOVSN = 78
+    LIBVSN = 0x07080000
 
     listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
-    conn = net.TCPIPConnection(listen_auth, "127.0.0.1", port, on_connect, on_receive, on_error)
+    input_stream: BufferReader = BufferReader()
 
-# actor main(env):
-#     print("Starting up...")
-#     sess = MaapiSession(env, 4569)
-#     #await async env.exit(0)
+    var recv_queue: list[(() -> ?value, (?value) -> None)] = [] # TODO: Proper queue with O(1) pop_front & push_back
+
+    proto_vsn = 0
+    server_vsn = 0
+
+    # Workaround compiler ordering issue
+    var _on_connect = lambda c: None
+    var _on_receive = lambda c,d: None
+    var _on_error = lambda c,m: None
+
+    def _new_connection():
+        return net.TCPIPConnection(listen_auth, "127.0.0.1", port,
+            lambda c: _on_connect(c), lambda c, d: _on_receive(c, d), lambda c, m: _on_error(c, m))
+
+    var conn = _new_connection()
+
+    def _reconnect():
+        conn = _new_connection()
+
+    def _write_conn(data: bytes):
+        print("MaapiConnection TCP send:", data)
+        return conn.write(data)
+
+    def _connect_maapi_cb():
+        input_stream.assert_unread_bytes(9)
+
+        d = input_stream.read_uint8()
+        _proto_vsn = input_stream.read_int16_be()
+        _server_vsn = input_stream.read_int32_be()
+
+        if isinstance(d, int) and isinstance(_proto_vsn, int) and isinstance(_server_vsn, int):
+            if d == 0:
+                pass
+            elif d == 1:
+                raise ServerVersionError()
+            elif d == 2:
+                # TODO: For non maapi sessions
+                pass
+
+            input_stream.skip_bytes(2) # What's here?
+
+            proto_vsn = _proto_vsn
+            server_vsn = _server_vsn
+
+            print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", server_vsn: ", server_vsn)
+        else:
+            raise ProtoError()
+
+    def _connect_maapi():
+        w = BufferWriter()
+
+        w.write_uint8(IA_CLIENT_MAAPI) # TODO: Support access-secret-challenge
+        w.write_int16_be(PROTOVSN)
+        w.write_int32_be(LIBVSN)
+        w.write_int16_be(0)
+
+        _write_conn(w.to_bytes())
+
+        _add_recv(_connect_maapi_cb, lambda o: None)
+
+    def _add_recv(recv: () -> ?value, done: (?value) -> None):
+        recv_queue.append((recv, done))
+
+    def _pop_recv():
+        #return recv_queue.pop(0)
+        res = recv_queue[0]
+        recv_queue = recv_queue[1:]
+        return res
+
+    # def _poll_recv():
+    #     if len(recv_queue) >= 1:
+    #         recv, done = recv_queue[0]
+    #         try:
+    #             result = recv()
+    #         except IncompleteReadError:
+    #             pass
+    #         else:
+    #             _pop_recv()
+    #             done(result)
+    #     else:
+    #         # TODO: If received unexpected data, reconnect?
+    #         pass
+
+    def _poll_recv():
+        if len(recv_queue) >= 1:
+            recv, done = recv_queue[0]
+            # recv: () -> ?value = recv_queue[0].0
+            # done: (?value) -> None = recv_queue[0].1
+            result: ?value = recv()
+            if result is not None and isinstance(result, IncompleteReadError):
+                return
+            _pop_recv()
+            done(result)
+        else:
+            # TODO: If received unexpected data, reconnect?
+            pass
+
+    def __on_connect(c):
+        _connect_maapi()
+
+    def __on_receive(c, data):
+        print("MaapiConnection TCP recv:", data)
+        input_stream.append_data(data)
+        _poll_recv()
+
+    def __on_error(c, msg):
+        print("MaapiConnection TCP error:", msg)
+        input_stream.consume()
+        # TODO: (re)consider backoff
+        after 1: _reconnect()
+
+    # Workaround compiler ordering issue
+    _on_connect = __on_connect
+    _on_receive = __on_receive
+    _on_error = __on_error
+
+    def start_user_session(session_descr: UserSessionDescription):
+        pass
+
+    def _start_user_session_cb(result):
+        pass
+
+actor main(env):
+    print("Starting up...")
+    sess = MaapiConnection(env, 4569)
+    #await async env.exit(0)

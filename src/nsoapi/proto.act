@@ -22,7 +22,22 @@ Version = 131 # version number used to mark serialized E terms
 # class ELimits:
 IntMax = (1 << 27) - 1 # largest value that can be encoded as an integer
 IntMin = -(1 << 27) # smallest value that can be encoded as an integer
-AtomLengthMax = 255 # longest allowed Erland atom length
+AtomLengthMax = 255 # longest allowed Erlang atom length
+
+class IncompleteReadError(Exception):
+    def __init__(self):
+        pass
+
+    # @staticmethod
+    # def as_instance(x: ?value) -> ?IncompleteReadError:
+    #     # if isinstance(x, IncompleteReadError):
+    #     #     return x
+    #     NotImplemented
+
+    # @staticmethod
+    # def is_instance(x: ?value) -> bool:
+    #     # return isinstance(x, IncompleteReadError)
+    #     NotImplemented
 
 class BufferWriter(object):
     parts : list[bytes]
@@ -40,7 +55,7 @@ class BufferWriter(object):
         if v >= 0 and v <= 255:
             self.write_bytes(bytes([SmallInt, v]))
         elif v >= IntMin and v <= IntMax:
-            self.write_uint8(Int)
+            self.write_tag(Int)
             self.write_int32_be(v)
         else:
             if v < 0:
@@ -66,46 +81,88 @@ class BufferWriter(object):
     def write_int32_be(self, v):
         self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF]))
 
+    def write_tag(self, tag: int):
+        self.write_uint8(tag)
+
     def write_atom(self, v: str):
         b = v.encode()
-        self.write_uint8(Atom)
+        self.write_tag(Atom)
         self.write_int16_be(len(b))
         self.write_bytes(b)
 
     def write_binary(self, v: bytes):
-        self.write_uint8(Bin)
+        self.write_tag(Bin)
         self.write_int32_be(len(v))
         self.write_bytes(v)
 
     def write_list_header(self, size):
         if size > 0:
-            self.write_uint8(List)
+            self.write_tag(List)
             self.write_int32_be(size)
         else:
-            self.write_uint8(Nil)
+            self.write_tag(Nil)
 
     def write_list_footer(self, size):
         if size <= 0:
-            self.write_uint8(Nil)
+            self.write_tag(Nil)
 
     def write_tuple_header(self, size):
         if size < 0xFF: # Why exclude 0xFF? Doing as java-maapi does just in case...
             self.write_bytes(bytes([SmallTuple, size]))
         else:
-            self.write_uint8(LargeTuple)
+            self.write_tag(LargeTuple)
             self.write_int32_be(size)
 
 class BufferReader(object):
     parts: list[bytes]
     i: int
     j: int
+    total_bytes: int
+    unread_bytes: int
 
     def __init__(self):
         self.parts = []
         self.i = 0
         self.j = 0
+        self.total_bytes = 0
+        self.unread_bytes = 0
 
-    def read_bytes(self, count):
+    def append_data(self, data: bytes):
+        l = len(data)
+        self.parts.append(data)
+        self.total_bytes += l
+        self.unread_bytes += l
+
+    def consume(self):
+        if self.i > 0:
+            # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
+            self.parts = self.parts[self.i:]
+            self.i = 0
+        if self.j > 0:
+            if len(self.parts) > 0:
+                #self.parts[0] = self.parts[0][self.j:]
+                parts: list[bytes] = self.parts # Workaround type-checker bug?
+                parts[0] = parts[0][self.j:]
+            self.j = 0
+        self.total_bytes = 0
+        self.unread_bytes = 0
+
+    def rewind(self):
+        self.unread_bytes = self.total_bytes
+
+    def assert_unread_bytes(self, count: int) -> value: # (bool | IncompleteReadError)
+        # if self.unread_bytes < count:
+        #     raise IncompleteReadError()
+        if self.unread_bytes < count:
+            return IncompleteReadError()
+        else:
+            return True
+
+    def read_bytes(self, count: int) -> value: # (bytes | IncompleteReadError)
+        # if count > self.unread_bytes:
+        #     raise IncompleteReadError()
+        if count > self.unread_bytes:
+            return IncompleteReadError()
         remaining = count
         acc = []
         parts: list[bytes] = self.parts # Workaround type-checker bug?
@@ -120,175 +177,441 @@ class BufferReader(object):
                 self.i += 1
                 next_j = 0
             self.j = next_j
+            acc.append(chunk)
+        self.unread_bytes -= count
         return bytes([]).join(acc)
 
-    def read_uint8(self) -> int:
-        return self.read_bytes(1)[0]
+    def skip_bytes(self, count: int) -> value: # (bool | IncompleteReadError):
+        if count > self.unread_bytes:
+            return IncompleteReadError()
+        remaining = count
+        parts: list[bytes] = self.parts # Workaround type-checker bug?
+        while remaining > 0:
+            #part = self.parts[self.i]
+            part = parts[self.i]
+            part_len = len(part)
+            part_remain = part_len - self.j
+            if remaining < part_remain:
+                self.j += remaining
+                break
+            remaining -= part_remain
+            self.i += 0
+            self.j = 0
+        self.unread_bytes -= count
+        return True
 
-    def read_int16_be(self) -> int:
+    def read_uint8(self) -> value: # (int | IncompleteReadError)
+        b = self.read_bytes(1)
+        if isinstance(b, bytes):
+            return b[0]
+        return b
+
+    def read_int16_be(self) -> value: # (int | IncompleteReadError)
         return self.read_intn_be(2)
 
-    def read_int32_be(self) -> int:
+    def read_int32_be(self) -> value: # (int | IncompleteReadError)
         return self.read_intn_be(4)
 
-    def read_intn_be(self, size) -> int:
+    def read_intn_be(self, size: int) -> value: # (int | IncompleteReadError)
+        # b = self.read_bytes(size)
+        # if not isinstance(b, bytes):
+        #     return b
+        # v = 0
+        # for x in b:
+        #     v <<= 8
+        #     v |= x
+        # if size > 0 and b[size-1] & 0x80 != 0:
+        #     v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+        # return v
         b = self.read_bytes(size)
-        v = 0
-        for x in b:
-            v <<= 8
-            v |= x
-        if size > 0 and b[size-1] & 0x80 != 0:
-            v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
-        return v
+        if isinstance(b, bytes):
+            v = 0
+            for x in b:
+                v <<= 8
+                v |= x
+            if size > 0 and b[size-1] & 0x80 != 0:
+                v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+            return v
+        return b
 
-    def read_intn_le(self, size) -> int:
-        b = self.read_bytes(size)
-        v: int = 0
-        for i in range(0, size, 1):
-            v |= b[i] << (size-1-i) * 8
-        if size > 0 and b[size-1] & 0x80 != 0:
-            v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
-        return v
+    # def read_intn_le(self, size) -> value: # (int | IncompleteReadError)
+    #     b = self.read_bytes(size)
+    #     if not isinstance(b, bytes):
+    #         return b
+    #     v: int = 0
+    #     for i in range(0, size, 1):
+    #         v |= b[i] << (size-1-i) * 8
+    #     if size > 0 and b[size-1] & 0x80 != 0:
+    #         v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+    #     return v
 
-    def read_int(self, tag) -> int:
+    def read_tag(self) -> value: # (int | IncompleteReadError)
+        return self.read_uint8()
+
+    def read_int(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
+        # if tag == Version:
+        #     tag = self.read_uint8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # if tag == SmallInt:
+        #     return self.read_uint8()
+        # elif tag == Int:
+        #     return self.read_int32_be()
+        # elif tag == SmallBig:
+        #     size = self.read_uint8()
+        #     if not isinstance(size, int):
+        #         return size
+
+        #     if size > 8:
+        #         #raise ValueError("Invalid SmallBig `int` size: " + str(size))
+        #         return ValueError("Invalid SmallBig `int` size: " + str(size))
+        #     sign = self.read_uint8()
+        #     if not isinstance(sign, int):
+        #         return sign
+        #     b = self.read_bytes(size)
+        #     if not isinstance(b, bytes):
+        #         return b
+        #     v = 0
+        #     for i in range(0, size, 1):
+        #         v |= b[i] << (size-1-i) * 8
+        #     return v if sign == 0 else -v
+        # else:
+        #     #raise ValueError("Invalid `int` tag: " + str(tag))
+        #     return ValueError("Invalid `int` tag: " + str(tag))
         if tag == Version:
-            tag = self.read_uint8()
-
-        v = 0 # Must init even if always overwritten before read
+            t = self.read_uint8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
 
         if tag == SmallInt:
-            v = self.read_uint8()
+            return self.read_uint8()
         elif tag == Int:
-            v = self.read_int32_be()
+            return self.read_int32_be()
         elif tag == SmallBig:
             size = self.read_uint8()
-            if size > 8:
-                raise ValueError("Invalid SmallBig `int` size: " + str(size))
-            sign = self.read_uint8()
-            b = self.read_bytes(size)
-            v = 0
-            for i in range(0, size, 1):
-                v |= b[i] << (size-1-i) * 8
-            v = v if sign == 0 else -v
+            if isinstance(size, int):
+                if size > 8:
+                    return ValueError("Invalid SmallBig `int` size: " + str(size))
+                sign = self.read_uint8()
+                if isinstance(sign, int):
+                    b = self.read_bytes(size)
+                    if isinstance(b, bytes):
+                        v = 0
+                        for i in range(0, size, 1):
+                            v |= b[i] << (size-1-i) * 8
+                        return v if sign == 0 else -v
+                    else:
+                        return b
+                else:
+                    return sign
+            else:
+                return size
         else:
-            raise ValueError("Invalid `int` tag: " + str(tag))
+            return ValueError("Invalid `int` tag: " + str(tag))
 
-        return v
+    def read_atom(self, tag: int) -> value: # (str | IncompleteReadError)
+        # if tag == Version:
+        #     tag = self.read_uint8()
+        #     if not isinstance(tag, int):
+        #         return tag
 
-    def read_atom(self, tag) -> str:
+        # size = self.read_int16_be()
+        # if not isinstance(size, int):
+        #     return size
+
+        # b = self.read_bytes(size)
+        # if not isinstance(b, bytes):
+        #     return b
+        # return b.decode()
         if tag == Version:
-            tag = self.read_uint8()
+            t = self.read_uint8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
 
         size = self.read_int16_be()
-        return self.read_bytes(size).decode()
+        if isinstance(size, int):
+            b = self.read_bytes(size)
+            if isinstance(b, bytes):
+                return b.decode()
+            else:
+                return b
+        else:
+            return size
 
-    def read_binary(self, tag) -> bytes:
+    def read_binary(self, tag: int) -> value: # (bytes | IncompleteReadError)
+        # if tag == Version:
+        #     tag = self.read_uint8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # size = self.read_int32_be()
+        # if not isinstance(size, int):
+        #     return size
+
+        # return self.read_bytes(size)
         if tag == Version:
-            tag = self.read_uint8()
+            t = self.read_uint8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
 
         size = self.read_int32_be()
-        return self.read_bytes(size)
-
-    def read_tuple_size(self, tag) -> int:
-        if tag == Version:
-            tag = self.read_uint8()
-
-        size = 0 # Must init even if always overwritten before read
-        if tag == SmallTuple:
-            size = self.read_uint8()
-        elif tag == LargeTuple:
-            size = self.read_int32_be()
+        if isinstance(size, int):
+            return self.read_bytes(size)
         else:
-            raise ValueError("Invalid `tuple` tag: " + str(tag))
-        return size
+            return size
 
-    def read_list_size(self, tag):
+    def read_tuple_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
+        # if tag == Version:
+        #     tag = self.read_uint8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # if tag == SmallTuple:
+        #     return self.read_uint8()
+        # elif tag == LargeTuple:
+        #     return self.read_int32_be()
+        # else:
+        #     #raise ValueError("Invalid `tuple` tag: " + str(tag))
+        #     return ValueError("Invalid `tuple` tag: " + str(tag))
         if tag == Version:
-            tag = self.read_uint8()
+            t = self.read_uint8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
+
+        if tag == SmallTuple:
+            return self.read_uint8()
+        elif tag == LargeTuple:
+            return self.read_int32_be()
+        else:
+            return ValueError("Invalid `tuple` tag: " + str(tag))
+
+    def read_list_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
+        # if tag == Version:
+        #     tag = self.read_uint8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # if tag == Nil:
+        #     return 0
+        # elif tag == String: # ???
+        #     return self.read_int16_be()
+        # elif tag == List:
+        #     return self.read_int32_be()
+        # else:
+        #     #raise ValueError("Invalid `list` tag: " + str(tag))
+        #     return ValueError("Invalid `list` tag: " + str(tag))
+        if tag == Version:
+            t = self.read_uint8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
 
         if tag == Nil:
-            size = 0
+            return 0
         elif tag == String: # ???
-            size = self.read_int16_be()
+            return self.read_int16_be()
         elif tag == List:
-            size = self.read_int32_be()
+            return self.read_int32_be()
         else:
-            raise ValueError("Invalid `list` tag: " + str(tag))
+            return ValueError("Invalid `list` tag: " + str(tag))
 
 class EObject:
     def __init__(self):
-        pass
+        pass # raise ValueError("To be abstract class when issue#### is fixed.")
 
     def encode(self, writer):
         pass
 
     @staticmethod
-    def decode(reader) -> EObject:
-        return EObject()
+    def decode_tagged(reader) -> value: # (EObject | IncompleteReadError | ValueError)
+        tag = reader.read_tag()
+        if isinstance(tag, int):
+            if tag == Version:
+                t = reader.read_tag()
+                if isinstance(t, int):
+                    tag = t
+                else:
+                    return tag
+
+            if tag == SmallInt:
+                return EInt.decode(reader, tag)
+            if tag == Int:
+                return EInt.decode(reader, tag)
+            if tag == SmallBig:
+                return EInt.decode(reader, tag)
+
+            # if tag == LargeBig:
+
+            if tag == Atom:
+                return EAtom.decode(reader, tag)
+
+            # if tag == Float:
+            # if tag == Double:
+
+            # if tag == Ref:
+            # if tag == NewRef:
+
+            # if tag == String:
+
+            if tag == List:
+                return EList.decode(reader, tag)
+            if tag == Nil:
+                return EList.decode(reader, tag)
+
+            if tag == SmallTuple:
+                return EList.decode(reader, tag)
+            if tag == LargeTuple:
+                return EList.decode(reader, tag)
+
+            if tag == Bin:
+                return EBinary.decode(reader, tag)
+
+            # if tag == Pid:
+
+            # if tag == Compressed:
+
+            return ValueError("Invalid `EObject` tag: " + str(tag))
+        return tag
+
+    @staticmethod
+    def as_instance(x: ?value) -> ?EObject:
+        # if isinstance(x, EObject):
+        #     return x
+        NotImplemented
 
 class EList(EObject):
-    def __init__(self):
-        pass
+    elems: list[EObject]
+
+    def __init__(self, elems):
+        self.elems = elems
 
     def encode(self, writer):
-        pass
+        size = len(self.elems)
+        writer.write_list_header(size)
+        for elem in self.elems:
+            elem.encode(writer)
+        writer.write_list_footer(size)
 
     @staticmethod
-    def decode(reader):
-        return EList()
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError | ValueError)
+        elems: list[EObject] = []
+        size = reader.read_list_size(tag)
+        if isinstance(size, int):
+            for i in range(0, size, 1):
+                # elem = EObject.decode_tagged(reader)
+                # if isinstance(elem, EObject):
+                #     elems.append(elem)
+                # else:
+                #     return elem
+                e = EObject.decode_tagged(reader)
+                elem = EObject.as_instance(e)
+                if elem is not None:
+                    elems.append(elem)
+                else:
+                    return e
+            return EList(elems)
+        else:
+            return size
 
 class ETuple(EObject):
-    def __init__(self):
-        pass
+    elems: list[EObject]
+
+    def __init__(self, elems):
+        self.elems = elems
 
     def encode(self, writer):
-        pass
+        size = len(self.elems)
+        writer.write_tuple_header(size)
+        for elem in self.elems:
+            elem.encode(writer)
 
     @staticmethod
-    def decode(reader):
-        return ETuple()
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError | ValueError)
+        elems: list[EObject] = []
+        size = reader.read_tuple_size(tag)
+        if isinstance(size, int):
+            for i in range(0, size, 1):
+                # elem = EObject.decode_tagged(reader)
+                # if isinstance(elem, EObject):
+                #     elems.append(elem)
+                # else:
+                #     return elem
+                e = EObject.decode_tagged(reader)
+                elem = EObject.as_instance(e)
+                if elem is not None:
+                    elems.append(elem)
+                else:
+                    return e
+            return ETuple(elems)
+        else:
+            return size
 
 class EBinary(EObject):
-    def __init__(self):
-        pass
+    data: bytes
+
+    def __init__(self, data):
+        self.data = data
 
     def encode(self, writer):
-        pass
+        writer.write_binary(self.data)
 
     @staticmethod
-    def decode(reader):
-        return EBinary()
+    def decode(reader, tag) -> value: # (EObject | IncompleteReadError)
+        b = reader.read_binary(tag)
+        if isinstance(b, bytes):
+            return EBinary(b)
+        return b
 
 class EAtom(EObject):
-    def __init__(self):
-        pass
+    val: str
+
+    def __init__(self, val):
+        self.val = val
 
     def encode(self, writer):
-        pass
+        writer.write_atom(self.val)
 
     @staticmethod
-    def decode(reader):
-        return EAtom()
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError)
+        a = reader.read_atom(tag)
+        if isinstance(a, str):
+            return EAtom(a)
+        return a
 
 class EInt(EObject):
-    def __init__(self):
-        pass
+    val: int
+
+    def __init__(self, val):
+        self.val = val
 
     def encode(self, writer):
-        pass
+        writer.write_int(self.val)
 
     @staticmethod
-    def decode(reader):
-        return EInt()
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError)
+        v = reader.read_int(tag)
+        if isinstance(v, int):
+            return EInt(v)
+        return v
 
-#
-# def _force_ext():
-#     """Force compilation using .ext.c
 
-#     Only top level functions are recognized as externally defined by actonc
-#     TODO: fix in actonc and remove this
-#     """
-#     NotImplemented
+def _force_ext():
+    """Force compilation using .ext.c
+
+    Only top level functions are recognized as externally defined by actonc
+    TODO: fix in actonc and remove this
+    """
+    NotImplemented
 
 # # EObject
 # protocol EObject:
