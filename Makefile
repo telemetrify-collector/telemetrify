@@ -4,8 +4,8 @@ all: build
 
 build:
 	# Workaround https://github.com/actonlang/acton/issues/956
-	actonc src/nsoapi/proto.act
-	actonc build
+	actonc --dev src/nsoapi/proto.act
+	actonc build --dev
 
 .PHONY: build
 
