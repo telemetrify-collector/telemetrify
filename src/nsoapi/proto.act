@@ -20,8 +20,10 @@ NewRef = 114 # new style references
 Version = 131 # version number used to mark serialized E terms
 
 # class ELimits:
-IntMax = (1 << 27) - 1 # largest value that can be encoded as an integer
-IntMin = -(1 << 27) # smallest value that can be encoded as an integer
+#IntMax = (1 << 27) - 1 # largest value that can be encoded as an integer
+IntMax = pow(2, 27) - 1 # largest value that can be encoded as an integer
+#IntMin = -(1 << 27) # smallest value that can be encoded as an integer
+IntMin = -pow(2, 27) # smallest value that can be encoded as an integer
 AtomLengthMax = 255 # longest allowed Erlang atom length
 
 CDB_REL_FLAG_MASK = 0x80000000
@@ -43,7 +45,8 @@ class IncompleteReadError(Exception):
     #     NotImplemented
 
 class BufferWriter(object):
-    parts : list[bytes]
+    @property
+    parts: list[bytes]
 
     def __init__(self):
         self.parts = []
@@ -54,12 +57,12 @@ class BufferWriter(object):
     def write_bytes(self, b: bytes):
         self.parts.append(b)
 
-    def write_int(self, v):
+    def write_int(self, v: int):
         if v >= 0 and v <= 255:
             self.write_bytes(bytes([SmallInt, v]))
         elif v >= IntMin and v <= IntMax:
             self.write_tag(Int)
-            self.write_int32_be(v)
+            self.write_i32_be(v)
         else:
             if v < 0:
                 b = -v
@@ -70,38 +73,44 @@ class BufferWriter(object):
             d = []
             while b != 0:
                 # Little-endian
-                d.append(b & 0xFF)
-                b >>= 8
+                # BUG: Runtime error on bitwise operations
+                # d.append(b & 0xFF)
+                # b >>= 8
+                d.append(b % 0x100)
+                b //= 0x100
             self.write_bytes(bytes([SmallBig, len(d), s]))
             self.write_bytes(bytes(d))
 
-    def write_uint8(self, v):
-        self.write_bytes(bytes([v & 0xFF]))
+    def write_u8(self, v):
+        # self.write_bytes(bytes([v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([v % 0x100]))
 
-    def write_int16_be(self, v):
-        self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF]))
+    def write_i16_be(self, v: int):
+        # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
 
-    def write_int32_be(self, v):
-        self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF]))
+    def write_i32_be(self, v):
+        # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
 
     def write_tag(self, tag: int):
-        self.write_uint8(tag)
+        self.write_u8(tag)
 
     def write_atom(self, v: str):
         b = v.encode()
         self.write_tag(Atom)
-        self.write_int16_be(len(b))
+        self.write_i16_be(len(b))
         self.write_bytes(b)
 
     def write_binary(self, v: bytes):
         self.write_tag(Bin)
-        self.write_int32_be(len(v))
+        self.write_i32_be(len(v))
         self.write_bytes(v)
 
     def write_list_header(self, size):
         if size > 0:
             self.write_tag(List)
-            self.write_int32_be(size)
+            self.write_i32_be(size)
         else:
             self.write_tag(Nil)
 
@@ -114,13 +123,18 @@ class BufferWriter(object):
             self.write_bytes(bytes([SmallTuple, size]))
         else:
             self.write_tag(LargeTuple)
-            self.write_int32_be(size)
+            self.write_i32_be(size)
 
 class BufferReader(object):
+    @property
     parts: list[bytes]
+    @property
     i: int
+    @property
     j: int
+    @property
     total_bytes: int
+    @property
     unread_bytes: int
 
     def __init__(self):
@@ -217,37 +231,58 @@ class BufferReader(object):
         #print("SKIP0!", self.i, self.j)
         return True
 
-    def read_uint8(self) -> value: # (int | IncompleteReadError)
+    def read_u8(self) -> value: # (int | IncompleteReadError)
         b = self.read_bytes(1)
         if isinstance(b, bytes):
             return b[0]
         return b
 
-    def read_int16_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_intn_be(2)
+    def read_u16_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ux_be(2)
 
-    def read_int32_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_intn_be(4)
+    def read_u32_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ux_be(4)
 
-    def read_intn_be(self, size: int) -> value: # (int | IncompleteReadError)
-        # b = self.read_bytes(size)
-        # if not isinstance(b, bytes):
-        #     return b
-        # v = 0
-        # for x in b:
-        #     v <<= 8
-        #     v |= x
-        # if size > 0 and b[size-1] & 0x80 != 0:
-        #     v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
-        # return v
+    def read_ux_be(self, size: int) -> value: # (int | IncompleteReadError)
         b = self.read_bytes(size)
         if isinstance(b, bytes):
-            v = 0
-            for x in b:
-                v <<= 8
-                v |= x
-            if size > 0 and b[size-1] & 0x80 != 0:
-                v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+            v: int = 0
+            # BUG: Runtime error on bitwise operations
+            # for x in b:
+            #     v <<= 8
+            #     v |= x
+            if size > 0:
+                v = b[0]
+                for x in b[1:]:
+                    v *= 0x100
+                    v += x
+            return v
+        return b
+
+    def read_i16_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ix_be(2)
+
+    def read_i32_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ix_be(4)
+
+    def read_ix_be(self, size: int) -> value: # (int | IncompleteReadError)
+        b = self.read_bytes(size)
+        if isinstance(b, bytes):
+            v: int = 0
+            # BUG: Runtime error on bitwise operations
+            # for x in b:
+            #     v <<= 8
+            #     v |= x
+            # if size > 0 and b[0] & 0x80 != 0:
+            #     v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+            if size > 0:
+                v = b[0]
+                is_neg = v >= 0x80
+                for x in b[1:]:
+                    v *= 0x100
+                    v += x
+                if is_neg:
+                    v = pow(0x100, size) - v
             return v
         return b
 
@@ -263,27 +298,27 @@ class BufferReader(object):
     #     return v
 
     def read_tag(self) -> value: # (int | IncompleteReadError)
-        return self.read_uint8()
+        return self.read_u8()
 
     def read_int(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
         # if tag == Version:
-        #     tag = self.read_uint8()
+        #     tag = self.read_u8()
         #     if not isinstance(tag, int):
         #         return tag
 
         # if tag == SmallInt:
-        #     return self.read_uint8()
+        #     return self.read_u8()
         # elif tag == Int:
-        #     return self.read_int32_be()
+        #     return self.read_i32_be()
         # elif tag == SmallBig:
-        #     size = self.read_uint8()
+        #     size = self.read_u8()
         #     if not isinstance(size, int):
         #         return size
 
         #     if size > 8:
         #         #raise ValueError("Invalid SmallBig `int` size: " + str(size))
         #         return ValueError("Invalid SmallBig `int` size: " + str(size))
-        #     sign = self.read_uint8()
+        #     sign = self.read_u8()
         #     if not isinstance(sign, int):
         #         return sign
         #     b = self.read_bytes(size)
@@ -297,28 +332,32 @@ class BufferReader(object):
         #     #raise ValueError("Invalid `int` tag: " + str(tag))
         #     return ValueError("Invalid `int` tag: " + str(tag))
         if tag == Version:
-            t = self.read_uint8()
+            t = self.read_u8()
             if isinstance(t, int):
                 tag = t
             else:
                 return t
 
         if tag == SmallInt:
-            return self.read_uint8()
+            return self.read_u8()
         elif tag == Int:
-            return self.read_int32_be()
+            return self.read_i32_be()
         elif tag == SmallBig:
-            size = self.read_uint8()
+            size = self.read_u8()
             if isinstance(size, int):
                 if size > 8:
                     return ValueError("Invalid SmallBig `int` size: " + str(size))
-                sign = self.read_uint8()
+                sign = self.read_u8()
                 if isinstance(sign, int):
                     b = self.read_bytes(size)
                     if isinstance(b, bytes):
                         v = 0
-                        for i in range(0, size, 1):
-                            v |= b[i] << (size-1-i) * 8
+                        # BUG: Runtime error on bitwise operations
+                        # for i in range(0, size, 1):
+                        #     v |= b[i] << (size-1-i) * 8
+                        for i in range(size-1, -1, -1):
+                            v *= 0x100
+                            v += b[i]
                         return v if sign == 0 else -v
                     else:
                         return b
@@ -331,11 +370,11 @@ class BufferReader(object):
 
     def read_atom(self, tag: int) -> value: # (str | IncompleteReadError)
         # if tag == Version:
-        #     tag = self.read_uint8()
+        #     tag = self.read_u8()
         #     if not isinstance(tag, int):
         #         return tag
 
-        # size = self.read_int16_be()
+        # size = self.read_i16_be()
         # if not isinstance(size, int):
         #     return size
 
@@ -344,13 +383,13 @@ class BufferReader(object):
         #     return b
         # return b.decode()
         if tag == Version:
-            t = self.read_uint8()
+            t = self.read_u8()
             if isinstance(t, int):
                 tag = t
             else:
                 return t
 
-        size = self.read_int16_be()
+        size = self.read_i16_be()
         if isinstance(size, int):
             b = self.read_bytes(size)
             if isinstance(b, bytes):
@@ -362,23 +401,23 @@ class BufferReader(object):
 
     def read_binary(self, tag: int) -> value: # (bytes | IncompleteReadError)
         # if tag == Version:
-        #     tag = self.read_uint8()
+        #     tag = self.read_u8()
         #     if not isinstance(tag, int):
         #         return tag
 
-        # size = self.read_int32_be()
+        # size = self.read_i32_be()
         # if not isinstance(size, int):
         #     return size
 
         # return self.read_bytes(size)
         if tag == Version:
-            t = self.read_uint8()
+            t = self.read_u8()
             if isinstance(t, int):
                 tag = t
             else:
                 return t
 
-        size = self.read_int32_be()
+        size = self.read_i32_be()
         if isinstance(size, int):
             return self.read_bytes(size)
         else:
@@ -386,48 +425,48 @@ class BufferReader(object):
 
     def read_tuple_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
         # if tag == Version:
-        #     tag = self.read_uint8()
+        #     tag = self.read_u8()
         #     if not isinstance(tag, int):
         #         return tag
 
         # if tag == SmallTuple:
-        #     return self.read_uint8()
+        #     return self.read_u8()
         # elif tag == LargeTuple:
-        #     return self.read_int32_be()
+        #     return self.read_i32_be()
         # else:
         #     #raise ValueError("Invalid `tuple` tag: " + str(tag))
         #     return ValueError("Invalid `tuple` tag: " + str(tag))
         if tag == Version:
-            t = self.read_uint8()
+            t = self.read_u8()
             if isinstance(t, int):
                 tag = t
             else:
                 return t
 
         if tag == SmallTuple:
-            return self.read_uint8()
+            return self.read_u8()
         elif tag == LargeTuple:
-            return self.read_int32_be()
+            return self.read_i32_be()
         else:
             return ValueError("Invalid `tuple` tag: " + str(tag))
 
     def read_list_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
         # if tag == Version:
-        #     tag = self.read_uint8()
+        #     tag = self.read_u8()
         #     if not isinstance(tag, int):
         #         return tag
 
         # if tag == Nil:
         #     return 0
         # elif tag == String: # ???
-        #     return self.read_int16_be()
+        #     return self.read_i16_be()
         # elif tag == List:
-        #     return self.read_int32_be()
+        #     return self.read_i32_be()
         # else:
         #     #raise ValueError("Invalid `list` tag: " + str(tag))
         #     return ValueError("Invalid `list` tag: " + str(tag))
         if tag == Version:
-            t = self.read_uint8()
+            t = self.read_u8()
             if isinstance(t, int):
                 tag = t
             else:
@@ -436,9 +475,9 @@ class BufferReader(object):
         if tag == Nil:
             return 0
         elif tag == String: # ???
-            return self.read_int16_be()
+            return self.read_i16_be()
         elif tag == List:
-            return self.read_int32_be()
+            return self.read_i32_be()
         else:
             return ValueError("Invalid `list` tag: " + str(tag))
 
@@ -511,14 +550,13 @@ class EObject:
         NotImplemented
 
 class EList(EObject):
-    elems: list[EObject]
+    # elems: list[EObject]
 
     def __init__(self, elems):
         self.elems = elems
 
-    #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
-        # return self.elems.__str__()
+    def __str__(self) -> str:
+        # return str(self.elems)
         sl = []
         for e in self.elems:
             sl.append(e.__str())
@@ -553,18 +591,16 @@ class EList(EObject):
             return size
 
 class ETuple(EObject):
-    @property
-    elems: list[EObject]
+    # elems: list[EObject]
 
-    def __init__(self, elems):
+    def __init__(self, elems: list[EObject]):
         self.elems = elems
 
-    # #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
-        # return "(" + ", ".join([e.__str() for e in self.elems]) + ")"
+    def __str__(self) -> str:
+        # return "(" + ", ".join([str(e) for e in self.elems]) + ")"
         sl = []
         for e in self.elems:
-            sl.append(e.__str())
+            sl.append(str(e))
         return "(" + ", ".join(sl) + ")"
 
     def encode(self, writer):
@@ -595,13 +631,12 @@ class ETuple(EObject):
             return size
 
 class EBinary(EObject):
-    data: bytes
+    # data: bytes
 
-    def __init__(self, data):
+    def __init__(self, data: bytes):
         self.data = data
 
-    #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
+    def __str__(self) -> str:
         return self.data.decode()
 
     def encode(self, writer):
@@ -615,13 +650,12 @@ class EBinary(EObject):
         return b
 
 class EAtom(EObject):
-    val: str
+    # val: str
 
-    def __init__(self, val):
+    def __init__(self, val: str):
         self.val = val
 
-    #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
+    def __str__(self) -> str:
         return self.val
 
     def encode(self, writer):
@@ -635,13 +669,12 @@ class EAtom(EObject):
         return a
 
 class EInt(EObject):
-    val: int
+    # val: int
 
-    def __init__(self, val):
+    def __init__(self, val: int):
         self.val = val
 
-    #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
+    def __str__(self) -> str:
         return self.val.__str__()
 
     def encode(self, writer):
@@ -677,8 +710,7 @@ class ConfResponse(object):
         self.error_code = error_code
         self.error_msg = error_msg
 
-    #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
+    def __str__(self) -> str:
         # return "ConfResponse(op=" + str(self.op) + ", term=" + str(self.term) + \
         #     ", err" + str(self.is_error) + ", errcode" + str(self.error_code) + ", errstr" + str(self.error_msg) + ")"
 
@@ -693,30 +725,22 @@ class ConfResponse(object):
         return "ConfResponse(op=" + self.op.__str__() + ", term=" + term_str + \
             ", err=" + self.is_error.__str__() + ", errcode=" + self.error_code.__str__() + ", errstr=" + error_msg + ")"
 
-def _force_ext():
-    """Force compilation using .ext.c
+# # # EObject
+# # protocol EObject:
+# #     encode: (BufferWriter) -> None
 
-    Only top level functions are recognized as externally defined by actonc
-    TODO: fix in actonc and remove this
-    """
-    NotImplemented
+# #     @staticmethod
+# #     decode: (BufferReader) -> Self
 
-# # EObject
-# protocol EObject:
-#     encode: (BufferWriter) -> None
+# # # EList
+# # class EList:
+# #     def __init__(self):
+# #         pass
 
-#     @staticmethod
-#     decode: (BufferReader) -> Self
+# # extension EList(EObject):
+# #     def encode(self, writer):
+# #         pass
 
-# # EList
-# class EList:
-#     def __init__(self):
-#         pass
-
-# extension EList(EObject):
-#     def encode(self, writer):
-#         pass
-
-#     @staticmethod
-#     def decode(reader):
-#         return EList()
+# #     @staticmethod
+# #     def decode(reader):
+# #         return EList()

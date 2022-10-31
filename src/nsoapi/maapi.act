@@ -18,23 +18,24 @@ class MaapiException(ProtoError):
         self.error_msg = error_msg
         self.conf_path = conf_path
 
-    #def __str__(self) -> str: # Unable to override __str__ ?
-    def __str(self) -> str:
+    def __str__(self) -> str:
         # return "ConfResponse(op=" + str(self.op) \
-        #     + ", errcode=" + str(self.error_code) + ", errstr=" + str(error_msg) + ")" \
-        #     + ", path=" + str(conf_path)
+        #     + ", errcode=" + str(self.error_code) \
+        #     + ", errstr=" + str(self.error_msg) \
+        #     + ", path=" + str(self.conf_path) + ")"
 
         error_msg: str = ""
         _error_msg: ?str = self.error_msg
         if _error_msg is not None:
             error_msg = _error_msg
-        conf_path: str = ""
+        conf_path: str = "None"
         _conf_path: ?str = self.conf_path
         if _conf_path is not None:
             conf_path = _conf_path
-        return "ConfResponse(op=" + self.op.__str__() \
-            + ", errcode=" + self.error_code.__str__() + ", errstr=" + error_msg + ")" \
-            + ", path=" + conf_path
+        return "ConfResponse(op=" + str(self.op) \
+            + ", errcode=" + str(self.error_code) \
+            + ", errstr=" + error_msg \
+            + ", path=" + conf_path + ")"
 
 class ServerVersionError(ProtoError):
     def __init__(self):
@@ -47,10 +48,10 @@ def addr_to_eobject(addr: str) -> EObject:
         return ETuple([EInt(127), EInt(0), EInt(0), EInt(1)])
 
 class UserIdentity:
-    vendor: ?str
-    product: ?str
-    version: ?str
-    client_id: ?str
+    # vendor: ?str
+    # product: ?str
+    # version: ?str
+    # client_id: ?str
 
     def __init__(self, vendor, product, version, client_id):
         self.vendor = vendor
@@ -103,12 +104,12 @@ class UserIdentity:
             return ETuple(elems)
 
 class UserSessionDescription:
-    user: str
-    src_addr: str
-    context: str
-    groups: list[str]
-    proto: ?int
-    user_identity: UserIdentity
+    # user: str
+    # src_addr: str
+    # context: str
+    # groups: list[str]
+    # proto: ?int
+    # user_identity: UserIdentity
 
     def __init__(self, user, src_addr, context, groups, proto, user_ident: UserIdentity):
         self.user = user
@@ -173,42 +174,35 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
     input_stream: BufferReader = BufferReader()
 
-    var recv_queue: list[action() -> ?value] = [] # TODO: Proper queue with O(1) pop_front & push_back
+    var recv_queue: list[proc() -> ?value] = [] # TODO: Proper queue with O(1) pop_front & push_back
 
     proto_vsn = 0
     server_vsn = 0
 
     # Workaround compiler ordering issue
-    var _on_tcp_connect = lambda c: None
-    var _on_tcp_receive = lambda c,d: None
-    var _on_tcp_error = lambda c,m: None
+    var conn: ?net.TCPIPConnection = None
 
     def self() -> MaapiConnection:
         NotImplemented
 
-    def _new_connection():
-        return net.TCPIPConnection(listen_auth, "127.0.0.1", port,
-            lambda c: _on_tcp_connect(c), lambda c, d: _on_tcp_receive(c, d), lambda c, m: _on_tcp_error(c, m))
-
-    var conn = _new_connection()
-
-    def _reconnect():
-        conn = _new_connection()
-
-    action def _write_conn(data: bytes):
+    def _write(data: bytes):
         print("MaapiConnection TCP send:", data)
-        #conn.write(data)
-        # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
-        await async conn.write(data)
+        if conn is not None:
+            # conn.write(data)
+            # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
+            await async conn.write(data)
+        else:
+            # `conn` is made nullable only to workaround compiler ordering issue
+            raise ValueError("Attempting to write without valid connection")
 
-    action def _connect_maapi_cb():
+    def _connect_maapi_cb() -> ?value:
         e = input_stream.assert_unread_bytes(9)
         if isinstance(e, IncompleteReadError):
             return e
 
-        d = input_stream.read_uint8()
-        _proto_vsn = input_stream.read_int16_be()
-        _server_vsn = input_stream.read_int32_be()
+        d = input_stream.read_u8()
+        _proto_vsn = input_stream.read_i16_be()
+        _server_vsn = input_stream.read_i32_be()
 
         if isinstance(d, int) and isinstance(_proto_vsn, int) and isinstance(_server_vsn, int):
             if d == 0:
@@ -229,26 +223,27 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         else:
             raise ProtoError()
 
-    action def _connect_maapi():
+    def _connect_maapi():
         w = BufferWriter()
+        w.write_u8(IA_CLIENT_MAAPI) # TODO: Support access-secret-challenge
+        w.write_i16_be(CLIENT_PROTO_VSN)
+        w.write_i32_be(CLIENT_VSN)
+        w.write_i16_be(0)
 
-        w.write_uint8(IA_CLIENT_MAAPI) # TODO: Support access-secret-challenge
-        w.write_int16_be(CLIENT_PROTO_VSN)
-        w.write_int32_be(CLIENT_VSN)
-        w.write_int16_be(0)
-
-        _write_conn(w.to_bytes())
+        _write(w.to_bytes())
 
         _add_recv(_connect_maapi_cb)
 
-    def _add_recv(recv: action() -> ?value):
+    def _add_recv(recv: proc() -> ?value):
         recv_queue.append(recv)
 
     def _pop_recv():
         #return recv_queue.pop(0)
         res = recv_queue[0]
-        recv_queue = recv_queue[1:]
-        return res
+        recv_queue = recv_queue[1:] # TODO: Proper queue with O(1) pop_front
+        # We arent't allowed to return a proc(), even for use internally in the actor,
+        # presumably due to a general safeguard to avoid leaking non-action-effect or just proc/mut methods?
+        # return res
 
     # def _poll_recv():
     #     if len(recv_queue) >= 1:
@@ -264,45 +259,48 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     #         # TODO: If received unexpected data, reconnect?
     #         pass
 
-    action def _poll_recv():
+    def _poll_recv():
         if len(recv_queue) >= 1:
             recv = recv_queue[0]
             result: ?value = recv()
             if result is not None and isinstance(result, IncompleteReadError):
                 input_stream.rewind()
-                return
-            input_stream.consume()
-            _pop_recv()
+            else:
+                input_stream.consume()
+                _pop_recv()
         else:
             # If received unexpected data, reconnect.
             # self._on_tcp_error(self.conn, "Received unexpected data.")
             pass
 
-    action def __on_tcp_connect(c):
+    def _on_tcp_connect(c):
+        print("MaapiConnection TCP connected")
         _connect_maapi()
 
-    action def __on_tcp_receive(c, data):
+    def _on_tcp_receive(c, data):
         print("MaapiConnection TCP recv:", data)
         input_stream.append_data(data)
         _poll_recv()
 
-    action def __on_tcp_error(c, msg):
+    def _on_tcp_error(c, msg):
         print("MaapiConnection TCP error:", msg)
         input_stream.consume()
         # TODO: (re)consider backoff
         after 1: _reconnect()
 
-    # Workaround compiler ordering issue
-    _on_tcp_connect = __on_tcp_connect
-    _on_tcp_receive = __on_tcp_receive
-    _on_tcp_error = __on_tcp_error
+    def _new_connection():
+        return net.TCPIPConnection(listen_auth, "127.0.0.1", port, _on_tcp_connect, _on_tcp_receive, _on_tcp_error)
 
-    action def _send_maapi_request(op: ?int, thandle: ?int, req: ?EObject,
-                                    result_filter: (ConfResponse) -> ?value,
-                                    result_cb: action(MaapiConnection, ?value) -> None):
+    def _reconnect():
+        conn = _new_connection()
+
+    # Workaround compiler ordering issue
+    conn = _new_connection()
+
+    action def _send_maapi_request(op: ?int, thandle: ?int, req: ?EObject, response_cb: action(?value) -> None):
         payload_writer = BufferWriter()
         if isinstance(req, EObject):
-            print("ENC EObject:", req.__str())
+            print("ENC EObject:", str(req))
             payload_writer.write_tag(ERL_EXTERN_FMT)
             req.encode(payload_writer)
         payload_data = payload_writer.to_bytes()
@@ -312,45 +310,43 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         r.append_data(payload_data)
         d = eobject_decode_tagged(r)
         if isinstance(d, EObject):
-            print("DEC EObject:", d.__str())
+            print("DEC EObject:", str(d))
         else:
             print("DEC EObject: <decode failed>")
         #
 
         header_writer = BufferWriter()
         if op is not None:
-            header_writer.write_int32_be(op)
+            header_writer.write_i32_be(op)
             if thandle is not None:
-                header_writer.write_int32_be(thandle)
+                header_writer.write_i32_be(thandle)
         header_data = header_writer.to_bytes()
 
         len_writer = BufferWriter()
         header_payload_len = len(header_data) + len(payload_data)
-        len_writer.write_int32_be(header_payload_len)
+        len_writer.write_i32_be(header_payload_len)
         len_data = len_writer.to_bytes()
 
-        _add_recv(lambda: _maapi_request_cb(op, result_filter, result_cb))
+        _add_recv(lambda: _maapi_response_cb(op, response_cb))
 
-        # _write_conn(len_data + header_data + payload_data)
-        _write_conn(len_data)
-        _write_conn(header_data)
-        _write_conn(payload_data)
+        # _write(len_data + header_data + payload_data)
+        _write(len_data)
+        _write(header_data)
+        _write(payload_data)
 
-    action def _maapi_request_cb(op: ?int,
-                                    result_filter: (ConfResponse) -> ?value,
-                                    result_cb: action(MaapiConnection, ?value) -> None) -> ?value:
+    def _maapi_response_cb(op: ?int, response_cb: action(?value) -> None) -> ?value:
         result = ConfResponse(op if op is not None else -1, None, False, 0, None)
         retval: ?value = result
-        _response_len = input_stream.read_int32_be()
+        _response_len = input_stream.read_i32_be()
         if isinstance(_response_len, int):
             response_len: int = _response_len
             e = input_stream.assert_unread_bytes(response_len)
             if isinstance(e, IncompleteReadError):
                 return e
-            e2 = __maapi_request_cb_read_content(op, result, response_len)
+            e2 = __maapi_response_read_content(op, result, response_len)
             if e2 is not None:
                 if isinstance(e2, IncompleteReadError):
-                    return
+                    return e2
                 retval = e2
             else:
                 actual_len = input_stream.read_bytes_count() - 4
@@ -361,38 +357,33 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             if isinstance(_response_len, IncompleteReadError):
                 return _response_len
             retval = _response_len
-        # if retval is result:
-        #     retval = result_filter(result)
-        # result_cb(self(), retval)
-        if isinstance(retval, ConfResponse):
-            result_cb(self(), result_filter(result))
-        else:
-            result_cb(self(), retval)
+        response_cb(retval)
 
-    def __maapi_request_cb_read_content(op: ?int, result, response_len: int) -> ?value:
+    def __maapi_response_read_content(op: ?int, result, response_len: int) -> ?value:
         if op is None:
-            return __maapi_request_cb_read_term(result)
+            return __maapi_response_read_term(result)
         else:
-            _res_op = input_stream.read_int32_be()
+            _res_op = input_stream.read_u32_be()
             if isinstance(_res_op, int):
                 result.op = _res_op
-                if result.op & CDB_ERROR_FLAG_MASK != 0:
+                #if result.op & CDB_ERROR_FLAG_MASK != 0: # BUG: Runtime error on bitwise operations
+                if (result.op // CDB_ERROR_FLAG_MASK) % 2 == 1:
                     result.is_error = True
-                    _error_code = input_stream.read_int32_be()
+                    _error_code = input_stream.read_i32_be()
                     if isinstance(_error_code, int):
                         result.error_code = _error_code
                         _error_obj = eobject_decode_tagged(input_stream)
                         if isinstance(_error_obj, EObject):
                             if isinstance(_error_obj, EBinary):
                                 #result.error_msg = str(_error_obj)
-                                result.error_msg = _error_obj.__str()
+                                result.error_msg = str(_error_obj)
                             elif isinstance(_error_obj, ETuple):
                                 # {String, AppTag} ?
                                 if len(_error_obj.elems) >= 1:
                                     e = _error_obj.elems[0]
                                     if isinstance(e, EBinary):
                                         #result.error_msg = str(e)
-                                        result.error_msg = e.__str()
+                                        result.error_msg = str(e)
                             else:
                                 result.error_msg = str(_error_obj)
                             return
@@ -402,14 +393,14 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
                         return _error_code
                 else:
                     if input_stream.read_bytes_count() < response_len:
-                        return __maapi_request_cb_read_term(result)
+                        return __maapi_response_read_term(result)
                     else:
                         return
             else:
                 return _res_op
             return
 
-    def __maapi_request_cb_read_term(result) -> ?value:
+    def __maapi_response_read_term(result) -> ?value:
         # _response = EObject.decode_tagged(input_stream)
         _response = eobject_decode_tagged(input_stream)
         if isinstance(_response, EObject):
@@ -422,42 +413,38 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             return MaapiException(resp.op, resp.error_code, resp.error_msg, None)
         return None
 
-    def _none_result_filter(resp: ConfResponse) -> ?value:
-        print(resp.__str())
-        ex = try_to_maapi_exception(resp)
-        if ex is not None:
-            return ex
-        return None
+    def _none_result_cb(resp: ?value, result_cb: action(MaapiConnection, ?Exception) -> None):
+        retval: ?Exception = None
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                retval = try_to_maapi_exception(resp)
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self(), retval)
 
-    def start_user_session(session_descr: UserSessionDescription, result_cb: action(MaapiConnection, ?value) -> None):
+    def start_user_session(session_descr: UserSessionDescription, result_cb: action(MaapiConnection, ?Exception) -> None):
         e = session_descr.to_eobject(server_vsn)
         if isinstance(e, EObject):
-            _send_maapi_request(MAAPI_START_USER_SESSION, None, e, _none_result_filter, result_cb)
-        else:
+            _send_maapi_request(MAAPI_START_USER_SESSION, None, e, lambda v: _none_result_cb(v, result_cb))
+            # def _start_user_session_cb(resp: ?value):
+            #     _none_result_cb(resp, result_cb)
+            # _send_maapi_request(MAAPI_START_USER_SESSION, None, e, _start_user_session_cb)
+        elif isinstance(e, Exception):
             result_cb(self(), e)
 
-    # def _start_user_session_cb(result_cb: action(MaapiConnection, ?value) -> None):
-    #     pass
-
 actor main(env):
+    #action def _on_connect(c):
     def _on_connect(c):
         print("MAAPI connected!!!!")
         c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, UserIdentity(None, None, None, None)), _on_user_session)
 
+    #action def _on_user_session(c, v):
     def _on_user_session(c, v):
-        print("MAAPI user session started!!!!")
-        # if isinstance(v, ConfResponse):
-        #     print(v.__str())
+        if v is not None:
+            print("MAAPI user session failed:", v)
+        else:
+            print("MAAPI user session started!!!!")
 
     print("Starting up...")
     sess = MaapiConnection(env, 4569, _on_connect)
     #await async env.exit(0)
-
-#
-def _force_ext():
-    """Force compilation using .ext.c
-
-    Only top level functions are recognized as externally defined by actonc
-    TODO: fix in actonc and remove this
-    """
-    NotImplemented
