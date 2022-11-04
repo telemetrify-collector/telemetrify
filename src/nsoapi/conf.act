@@ -1,0 +1,22 @@
+from nsoapi.proto import *
+
+C_ENUM_VALUE = 28
+
+class Keypath:
+    def __init__(self, elems: list[EObject]):
+        self.elems = elems
+
+    def to_eobject(self) -> EObject:
+        return EList(self.elems, True)
+
+class QTag:
+    def to_eobject(self) -> EObject:
+        return EAtom('')
+
+class TagVal:
+    def __init__(self, tag: EObject, val: EObject):
+        self.tag = tag
+        self.val = val
+
+    def to_eobject(self) -> EObject:
+        return ETuple([self.tag, self.val])

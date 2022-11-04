@@ -1,0 +1,24 @@
+from nsoapi.proto import *
+
+class Schema:
+    def __init__(self):
+        pass
+
+actor SchemaBuilder():
+    def on_ns_term(term: EObject) -> value:
+        if isinstance(term, EList):
+            for e in term.elems:
+                print(e)
+            if len(term.elems) >= 1:
+                last_elem = term.elems[-1]
+                if isinstance(last_elem, EAtom) and str(last_elem) == 'eof':
+                    return False
+            return True
+        else:
+            return MaapiProtoError("Unexpected schema term")
+
+    def build() -> Schema:
+        return Schema()
+
+def create_schema_builder():
+    return SchemaBuilder()

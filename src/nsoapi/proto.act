@@ -44,6 +44,17 @@ class IncompleteReadError(Exception):
     #     # return isinstance(x, IncompleteReadError)
     #     NotImplemented
 
+class ProtoError(Exception):
+    def __init__(self):
+        pass
+
+class MaapiProtoError(ProtoError):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self) -> str:
+        return "MaapiProtoError(\"" + self.msg + "\")"
+
 class BufferWriter(object):
     @property
     parts: list[bytes]
@@ -162,8 +173,7 @@ class BufferReader(object):
                 parts: list[bytes] = self.parts # Workaround type-checker bug?
                 parts[0] = parts[0][self.j:]
             self.j = 0
-        self.total_bytes = 0
-        self.unread_bytes = 0
+        self.total_bytes = self.unread_bytes
         #print("CONSUMED!", self.parts)
 
     def rewind(self):
@@ -174,6 +184,9 @@ class BufferReader(object):
 
     def read_bytes_count(self) -> int:
         return self.total_bytes - self.unread_bytes
+
+    def has_unread_bytes(self) -> bool:
+        return self.unread_bytes > 0
 
     def assert_unread_bytes(self, count: int) -> value: # (bool | IncompleteReadError)
         # if self.unread_bytes < count:
@@ -486,9 +499,6 @@ class EObject:
         # Silent data loss/corruption if we don't have an init here?
         pass
 
-    def __str(self) -> str:
-        return ""
-
     def encode(self, writer):
         pass
 
@@ -502,6 +512,8 @@ class EObject:
                     tag = t
                 else:
                     return tag
+
+            #print("DECODE TAG:", tag)
 
             if tag == SmallInt:
                 return EInt.decode(reader, tag)
@@ -551,27 +563,34 @@ class EObject:
 
 class EList(EObject):
     # elems: list[EObject]
+    # is_proper: bool
 
-    def __init__(self, elems):
+    def __init__(self, elems, is_proper):
         self.elems = elems
+        self.is_proper = is_proper
 
     def __str__(self) -> str:
         # return str(self.elems)
         sl = []
         for e in self.elems:
-            sl.append(e.__str())
+            sl.append(str(e))
         return "[" + ", ".join(sl) + "]"
 
     def encode(self, writer):
         size = len(self.elems)
+        as_proper: bool = self.is_proper or size < 2
+        if not as_proper:
+            size -= 1
         writer.write_list_header(size)
         for elem in self.elems:
             elem.encode(writer)
-        writer.write_list_footer(size)
+        if  as_proper:
+            writer.write_list_footer(size)
 
     @staticmethod
     def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError | ValueError)
         elems: list[EObject] = []
+        is_proper = False
         size = reader.read_list_size(tag)
         if isinstance(size, int):
             for i in range(0, size, 1):
@@ -586,9 +605,36 @@ class EList(EObject):
                     elems.append(elem)
                 else:
                     return e
-            return EList(elems)
+
+            if size > 0:
+                tail = EObject.decode_tagged(reader)
+                # if isinstance(tail, EList):
+                #     is_proper = True
+                # elif isinstance(tail, EObject):
+                #     # is_proper = False
+                #     elems.append(tail)
+                # else:
+                #     return tail
+                tail_list = EList.as_instance(tail)
+                if tail_list is not None:
+                    is_proper = True
+                else:
+                    tail_eobj = EObject.as_instance(tail)
+                    if tail_eobj is not None:
+                        # is_proper = False
+                        elems.append(tail_eobj)
+                    else:
+                        return tail # return Exception
+
+            return EList(elems, is_proper)
         else:
             return size
+
+    @staticmethod
+    def as_instance(x: ?value) -> ?EList:
+        # if isinstance(x, EList):
+        #     return x
+        NotImplemented
 
 class ETuple(EObject):
     # elems: list[EObject]
@@ -639,6 +685,10 @@ class EBinary(EObject):
     def __str__(self) -> str:
         return self.data.decode()
 
+    @staticmethod
+    def from_str(s: str):
+        return EBinary(s.encode())
+
     def encode(self, writer):
         writer.write_binary(self.data)
 
@@ -658,6 +708,19 @@ class EAtom(EObject):
     def __str__(self) -> str:
         return self.val
 
+    @staticmethod
+    def from_bool(b: bool):
+        return EAtom('true') if b else EAtom('false')
+
+    def to_bool(self) -> bool:
+        # if self.val == 'true':
+        #     return True
+        # elif self.val == 'false':
+        #     return False
+        # else:
+        #     raise ValueError("Invalid bool value", self.val)
+        return self.val == 'true'
+
     def encode(self, writer):
         writer.write_atom(self.val)
 
@@ -669,7 +732,8 @@ class EAtom(EObject):
         return a
 
 class EInt(EObject):
-    # val: int
+    @property
+    val: int
 
     def __init__(self, val: int):
         self.val = val
@@ -690,6 +754,10 @@ class EInt(EObject):
 def eobject_decode_tagged(reader) -> value: # (EObject | IncompleteReadError | ValueError)
     # Wrap to avoid error in generated c when called by another module
     return EObject.decode_tagged(reader)
+
+def eatom_from_bool(b: bool) -> EAtom:
+    # Wrap to avoid error in generated c when called by another module
+    return EAtom.from_bool(b)
 
 class ConfResponse(object):
     @property
@@ -717,13 +785,16 @@ class ConfResponse(object):
         term_str: str = ""
         _term: ?EObject = self.term
         if _term is not None:
-            term_str = _term.__str()
+            term_str = str(_term)
         error_msg: str = ""
         _error_msg: ?str = self.error_msg
         if _error_msg is not None:
             error_msg = _error_msg
-        return "ConfResponse(op=" + self.op.__str__() + ", term=" + term_str + \
-            ", err=" + self.is_error.__str__() + ", errcode=" + self.error_code.__str__() + ", errstr=" + error_msg + ")"
+        return "ConfResponse(op=" + self.op.__str__() \
+            + ", term=" + term_str \
+            + ", err=" + str(self.is_error) \
+            + ", errcode=" + str(self.error_code) \
+            + ", errstr=" + error_msg + ")"
 
 # # # EObject
 # # protocol EObject:
