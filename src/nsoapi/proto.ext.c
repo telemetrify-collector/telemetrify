@@ -19,3 +19,10 @@ nsoapi$proto$$EObject nsoapi$proto$$EObject$as_instance ($value x) {
     }
     return $None;
 }
+
+nsoapi$proto$$EList nsoapi$proto$$EList$as_instance ($value x) {
+    if ($ISINSTANCE(x, nsoapi$proto$$EList)->val) {
+        return ((nsoapi$proto$$EList)x);
+    }
+    return $None;
+}
