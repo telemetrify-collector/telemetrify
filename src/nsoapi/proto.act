@@ -33,17 +33,6 @@ class IncompleteReadError(Exception):
     def __init__(self):
         pass
 
-    # @staticmethod
-    # def as_instance(x: ?value) -> ?IncompleteReadError:
-    #     # if isinstance(x, IncompleteReadError):
-    #     #     return x
-    #     NotImplemented
-
-    # @staticmethod
-    # def is_instance(x: ?value) -> bool:
-    #     # return isinstance(x, IncompleteReadError)
-    #     NotImplemented
-
 class BufferWriter(object):
     @property
     parts: list[bytes]
@@ -543,12 +532,6 @@ class EObject:
             return ValueError("Invalid `EObject` tag: " + str(tag))
         return tag
 
-    @staticmethod
-    def as_instance(x: ?value) -> ?EObject:
-        # if isinstance(x, EObject):
-        #     return x
-        NotImplemented
-
 class EList(EObject):
     # elems: list[EObject]
     # is_proper: bool
@@ -582,46 +565,24 @@ class EList(EObject):
         size = reader.read_list_size(tag)
         if isinstance(size, int):
             for i in range(0, size, 1):
-                # elem = EObject.decode_tagged(reader)
-                # if isinstance(elem, EObject):
-                #     elems.append(elem)
-                # else:
-                #     return elem
-                e = EObject.decode_tagged(reader)
-                elem = EObject.as_instance(e)
-                if elem is not None:
+                elem = EObject.decode_tagged(reader)
+                if isinstance(elem, EObject):
                     elems.append(elem)
                 else:
-                    return e
+                    return elem
 
             tail = EObject.decode_tagged(reader)
-            # if isinstance(tail, EList):
-            #     is_proper = True
-            # elif isinstance(tail, EObject):
-            #     # is_proper = False
-            #     elems.append(tail)
-            # else:
-            #     return tail
-            tail_list = EList.as_instance(tail)
-            if tail_list is not None:
+            if isinstance(tail, EList):
                 is_proper = True
+            elif isinstance(tail, EObject):
+                # is_proper = False
+                elems.append(tail)
             else:
-                tail_eobj = EObject.as_instance(tail)
-                if tail_eobj is not None:
-                    # is_proper = False
-                    elems.append(tail_eobj)
-                else:
-                    return tail # return Exception
+                return tail
 
             return EList(elems, is_proper)
         else:
             return size
-
-    @staticmethod
-    def as_instance(x: ?value) -> ?EList:
-        # if isinstance(x, EList):
-        #     return x
-        NotImplemented            
 
 class ETuple(EObject):
     # elems: list[EObject]
@@ -648,17 +609,11 @@ class ETuple(EObject):
         size = reader.read_tuple_size(tag)
         if isinstance(size, int):
             for i in range(0, size, 1):
-                # elem = EObject.decode_tagged(reader)
-                # if isinstance(elem, EObject):
-                #     elems.append(elem)
-                # else:
-                #     return elem
-                e = EObject.decode_tagged(reader)
-                elem = EObject.as_instance(e)
-                if elem is not None:
+                elem = EObject.decode_tagged(reader)
+                if isinstance(elem, EObject):
                     elems.append(elem)
                 else:
-                    return e
+                    return elem
             return ETuple(elems)
         else:
             return size
