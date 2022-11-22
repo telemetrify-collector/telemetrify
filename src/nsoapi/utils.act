@@ -1,0 +1,78 @@
+_SCALE: int = 3
+
+class Queue[T](object):
+    @property
+    _d: list[?T] # TODO: How to allow T to be ?U. Per-item wrapper?
+    @property
+    _start: int
+    @property
+    _len: int
+
+    def __init__(self):
+        self._d = []
+        self._start = 0
+        self._len = 0
+
+    def __len__(self) -> int:
+        return self._len
+
+    def __bool__(self) -> bool:
+        #return len(self) > 0
+        return self.__len__() > 0
+
+    def _realign(self):
+        d = self._d
+        self._d = d[self._start:] + d[:self._start]
+
+    def append(self, item: T):
+        # print("Q: Before append:", len(self._d), self._start, self._len)
+        cap = len(self._d)
+        d: list[?T] = self._d
+        if self._len < cap:
+            d[(self._start + self._len) % cap] = item
+        else:
+            if self._start > 0:
+                self._realign()
+                d.append(item)
+                # spare = max(1, cap // _SCALE) # Type inference error
+                _min: int = 1
+                _max: int = cap // _SCALE
+                spare = _max if _max > _min else _min
+                for i in range(0, spare, 1):
+                    d.append(None)
+            else:
+                d.append(item)
+        self._len += 1
+        # print("Q: After append:", len(self._d), self._start, self._len)
+
+    def extend(self, iterable: Iterable[T]):
+        for item in iterable:
+            self.append(item)
+
+    def peek(self) -> T:
+        # print("Q: Before peek:", len(self._d), self._start, self._len)
+        if not self:
+            raise IndexError("pop from empty Queue")
+        item = self._d[self._start]
+        if item is not None: # TODO: How to differentiate nested ?U. Per-item wrapper?
+            # print("Q: Peek return:", item)
+            return item
+        raise ValueError("Queue internal error")
+
+    def pop(self) -> T:
+        # print("Q: Before pop:", len(self._d), self._start, self._len)
+        if not self:
+            raise IndexError("pop from empty Queue")
+        item = self._d[self._start]
+        # self._d[self._start] = None # Type inference error
+        d: list[?T] = self._d
+        d[self._start] = None
+        self._start = (self._start + 1) % len(self._d)
+        self._len -= 1
+        # print("Q: After pop:", len(self._d), self._start, self._len)
+        if item is not None: # TODO: How to differentiate nested ?U. Per-item wrapper?
+            # print("Q: Pop return:", item)
+            return item
+        raise ValueError("Queue internal error")
+
+# class Deque[T](object):
