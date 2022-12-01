@@ -159,7 +159,7 @@ class UserSessionDescription:
             proto: ?int = self.proto
             elems.append(EInt(proto if proto is not None else 0))
 
-            elems.append(eatom_from_bool(self.use_ikp))
+            elems.append(EAtom.from_bool(self.use_ikp))
 
             # elems.append(EList([EBinary(g.encode()) for g in self.groups], True))
             group_elems = []
@@ -204,9 +204,6 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     # Workaround compiler ordering issue
     var conn: ?net.TCPIPConnection = None
 
-    def self() -> MaapiConnection:
-        NotImplemented
-
     def _write(data: bytes):
         print("MaapiConnection TCP send:", data)
         if conn is not None:
@@ -241,7 +238,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             conf_vsn = _conf_vsn
 
             print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
-            on_connect(self())
+            on_connect(self)
         else:
             raise ProtoError()
 
@@ -343,7 +340,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         # if req is not None and isinstance(req, EObject):
         #     r = BufferReader()
         #     r.append_data(payload_data)
-        #     d = eobject_decode_tagged(r)
+        #     d = EObject.decode_tagged(r)
         #     if isinstance(d, EObject):
         #         print("DEC EObject:", str(d))
         #     else:
@@ -409,7 +406,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
                     _error_code = input_stream.read_i32_be()
                     if isinstance(_error_code, int):
                         result.error_code = _error_code
-                        _error_obj = eobject_decode_tagged(input_stream)
+                        _error_obj = EObject.decode_tagged(input_stream)
                         if isinstance(_error_obj, EObject):
                             if isinstance(_error_obj, EBinary):
                                 #result.error_msg = str(_error_obj)
@@ -439,7 +436,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
     def __maapi_response_read_term(result) -> ?value:
         # _response = EObject.decode_tagged(input_stream)
-        _response = eobject_decode_tagged(input_stream)
+        _response = EObject.decode_tagged(input_stream)
         if isinstance(_response, EObject):
             result.term = _response
         else:
@@ -457,7 +454,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
                 retval = try_to_maapi_exception(resp)
             elif isinstance(resp, Exception):
                 retval = resp
-        result_cb(self(), retval)
+        result_cb(self, retval)
 
     def _int_result_cb(resp: ?value, result_cb: action(MaapiConnection, value) -> None):
         retval: value = False
@@ -479,7 +476,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
             elif isinstance(resp, Exception):
                 retval = resp
-        result_cb(self(), retval)
+        result_cb(self, retval)
 
     def _multi_response_cb(resp: ?value, op, term_cb: action(EObject) -> value, finished_cb: action(?Exception) -> None):
         has_more = False
@@ -520,7 +517,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             #     _none_result_cb(resp, result_cb)
             # _send_user_maapi_request(_MAAPI_START_USER_SESSION, True, None, e, _start_user_session_cb)
         elif isinstance(e, Exception):
-            result_cb(self(), e)
+            result_cb(self, e)
 
     action def end_user_session(result_cb: action(MaapiConnection, ?Exception) -> None):
         _send_user_maapi_request(_MAAPI_END_USER_SESSION, True, None, None, lambda v: _none_result_cb(v, result_cb))
@@ -564,12 +561,12 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         # ERROR: Error when compiling nsoapi.maapi module: Compilation error
         # Name 'SchemaBuilder$newact' is not in scope
         sb = create_schema_builder()
-        # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self(), v if v is not None else sb.build())) # Type inference conflict
+        # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self, v if v is not None else sb.build())) # Type inference conflict
         def _on_load_all_ns(v: ?value):
             _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_HASH_DB, lambda e: sb.on_hash_term(e), _on_load_hash_db)
-            #result_cb(self(), v if v is not None else sb.build())
+            #result_cb(self, v if v is not None else sb.build())
         def _on_load_hash_db(v: ?value):
-            result_cb(self(), v if v is not None else sb.build())
+            result_cb(self, v if v is not None else sb.build())
         _request_schema_terms(user_recv_queue, _MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), _on_load_all_ns)
 
     def _request_schema_terms(queue, op: int, term_cb: action(EObject) -> value, done_cb: action(?Exception) -> None):

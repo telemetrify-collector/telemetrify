@@ -33,17 +33,6 @@ class IncompleteReadError(Exception):
     def __init__(self):
         pass
 
-    # @staticmethod
-    # def as_instance(x: ?value) -> ?IncompleteReadError:
-    #     # if isinstance(x, IncompleteReadError):
-    #     #     return x
-    #     NotImplemented
-
-    # @staticmethod
-    # def is_instance(x: ?value) -> bool:
-    #     # return isinstance(x, IncompleteReadError)
-    #     NotImplemented
-
 class ProtoError(Exception):
     def __init__(self):
         pass
@@ -100,7 +89,7 @@ class BufferWriter(object):
         # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
         self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
 
-    def write_i32_be(self, v):
+    def write_i32_be(self, v: int):
         # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
         self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
 
@@ -118,18 +107,18 @@ class BufferWriter(object):
         self.write_i32_be(len(v))
         self.write_bytes(v)
 
-    def write_list_header(self, size):
+    def write_list_header(self, size: int):
         if size > 0:
             self.write_tag(List)
             self.write_i32_be(size)
         else:
             self.write_tag(Nil)
 
-    def write_list_footer(self, size):
+    def write_list_footer(self, size: int):
         if size > 0:
             self.write_tag(Nil)
 
-    def write_tuple_header(self, size):
+    def write_tuple_header(self, size: int):
         if size < 0xFF: # Why exclude 0xFF? Doing as java-maapi does just in case...
             self.write_bytes(bytes([SmallTuple, size]))
         else:
@@ -555,15 +544,11 @@ class EObject:
             return ValueError("Invalid `EObject` tag: " + str(tag))
         return tag
 
-    @staticmethod
-    def as_instance(x: ?value) -> ?EObject:
-        # if isinstance(x, EObject):
-        #     return x
-        NotImplemented
-
 class EList(EObject):
-    # elems: list[EObject]
-    # is_proper: bool
+    @property
+    elems: list[EObject]
+    @property
+    is_proper: bool
 
     def __init__(self, elems, is_proper):
         self.elems = elems
@@ -571,10 +556,11 @@ class EList(EObject):
 
     def __str__(self) -> str:
         # return str(self.elems)
-        sl = []
-        for e in self.elems:
-            sl.append(str(e))
-        return "[" + ", ".join(sl) + "]"
+        # sl: list[str] = []
+        # for e in self.elems:
+        #     sl.append(str(e))
+        # return "[" + ", ".join(sl) + "]"
+        NotImplemented # Workaround https://github.com/actonlang/acton/issues/1125
 
     def encode(self, writer):
         size = len(self.elems)
@@ -594,63 +580,43 @@ class EList(EObject):
         size = reader.read_list_size(tag)
         if isinstance(size, int):
             for i in range(0, size, 1):
-                # elem = EObject.decode_tagged(reader)
-                # if isinstance(elem, EObject):
-                #     elems.append(elem)
-                # else:
-                #     return elem
-                e = EObject.decode_tagged(reader)
-                elem = EObject.as_instance(e)
-                if elem is not None:
+                elem = EObject.decode_tagged(reader)
+                if isinstance(elem, EObject):
                     elems.append(elem)
                 else:
-                    return e
+                    return elem
 
             if size > 0:
                 tail = EObject.decode_tagged(reader)
-                # if isinstance(tail, EList):
-                #     is_proper = True
-                # elif isinstance(tail, EObject):
-                #     # is_proper = False
-                #     elems.append(tail)
-                # else:
-                #     return tail
-                tail_list = EList.as_instance(tail)
-                if tail_list is not None:
+                if isinstance(tail, EList):
                     is_proper = True
+                elif isinstance(tail, EObject):
+                    # is_proper = False
+                    elems.append(tail)
                 else:
-                    tail_eobj = EObject.as_instance(tail)
-                    if tail_eobj is not None:
-                        # is_proper = False
-                        elems.append(tail_eobj)
-                    else:
-                        return tail # return Exception
+                    return tail
 
             return EList(elems, is_proper)
         else:
             return size
 
-    @staticmethod
-    def as_instance(x: ?value) -> ?EList:
-        # if isinstance(x, EList):
-        #     return x
-        NotImplemented
-
 class ETuple(EObject):
-    # elems: list[EObject]
+    @property
+    elems: list[EObject]
 
     def __init__(self, elems: list[EObject]):
         self.elems = elems
 
     def __str__(self) -> str:
         # return "(" + ", ".join([str(e) for e in self.elems]) + ")"
-        sl = []
-        for e in self.elems:
-            sl.append(str(e))
-        return "(" + ", ".join(sl) + ")"
+        # sl: list[str] = []
+        # for e in self.elems:
+        #     sl.append(str(e))
+        # return "(" + ", ".join(sl) + ")"
+        NotImplemented # Workaround https://github.com/actonlang/acton/issues/1125
 
-    def encode(self, writer):
-        size = len(self.elems)
+    def encode(self, writer: BufferWriter):
+        size: int = len(self.elems)
         writer.write_tuple_header(size)
         for elem in self.elems:
             elem.encode(writer)
@@ -667,9 +633,8 @@ class ETuple(EObject):
                 # else:
                 #     return elem
                 e = EObject.decode_tagged(reader)
-                elem = EObject.as_instance(e)
-                if elem is not None:
-                    elems.append(elem)
+                if isinstance(e, EObject):
+                    elems.append(e)
                 else:
                     return e
             return ETuple(elems)
@@ -677,7 +642,8 @@ class ETuple(EObject):
             return size
 
 class EBinary(EObject):
-    # data: bytes
+    @property
+    data: bytes
 
     def __init__(self, data: bytes):
         self.data = data
@@ -700,7 +666,8 @@ class EBinary(EObject):
         return b
 
 class EAtom(EObject):
-    # val: str
+    @property
+    val: str
 
     def __init__(self, val: str):
         self.val = val
@@ -751,13 +718,13 @@ class EInt(EObject):
             return EInt(v)
         return v
 
-def eobject_decode_tagged(reader) -> value: # (EObject | IncompleteReadError | ValueError)
-    # Wrap to avoid error in generated c when called by another module
-    return EObject.decode_tagged(reader)
+# def eobject_decode_tagged(reader) -> value: # (EObject | IncompleteReadError | ValueError)
+#     # Wrap to avoid error in generated c when called by another module
+#     return EObject.decode_tagged(reader)
 
-def eatom_from_bool(b: bool) -> EAtom:
-    # Wrap to avoid error in generated c when called by another module
-    return EAtom.from_bool(b)
+# def eatom_from_bool(b: bool) -> EAtom:
+#     # Wrap to avoid error in generated c when called by another module
+#     return EAtom.from_bool(b)
 
 class ConfResponse(object):
     @property
