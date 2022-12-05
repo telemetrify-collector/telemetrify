@@ -1,6 +1,47 @@
 from nsoapi.proto import *
 
-C_ENUM_VALUE = 28
+C_NOEXISTS = 1
+C_XMLTAG= 2
+C_BUF = 5 # YANG: string; eterm: EBinary(value)
+C_INT8 = 6 # YANG: int8; eterm: ETuple(EInt(C_INT8), EInt(value))
+C_INT16 = 7 # YANG: int16; eterm: ETuple(EInt(C_INT16), EInt(value))
+C_INT32 = 8 # YANG: int32; eterm: EInt(value)
+C_INT64 = 9 # YANG: int64; eterm: ETuple(EInt(C_INT64), EInt(value))
+C_UINT8 = 10 # YANG: unsigned int8; eterm: ETuple(C_UINT8, value)
+C_UINT16 = 11 # YANG: unsigned int16; eterm: ETuple(C_UINT16, value)
+C_UINT32 = 12 # YANG: unsigned int32; eterm: ETuple(C_UINT32, value)
+C_UINT64 = 13 # YANG: unsigned int64; eterm: ETuple(C_UINT64, value)
+C_DOUBLE = 14 # XML xs:float/xs:double; eterm: EFloat(value)/EDouble(value)
+C_IPV4 = 15 # YANG: inet:ipv4-address A.B.C.D; eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D))
+C_IPV6 = 16 # YANG: inet:ipv6-address A:B:C:D:E:F:G:H; eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H))
+C_BOOL = 17 # YANG: boolean; eterm: EAtom('true') or EAtom('false')
+C_QNAME = 18 # XML xs:QName; eterm: ETuple(EBinary(ns), EBinary(name)}
+C_DATETIME = 19 # YANG: yang:date-and-time; eterm: ETuple(C_DATETIME, ETuple(EInt(Y),EInt(M),EInt(D),EInt(H),EInt(M),EInt(S),EInt(Mcr),EInt(TZ),EInt(TZM)))
+C_DATE = 20 # XML xs:date; eterm: ETuple(C_DATE, ETuple(EInt(Y),EInt(M),EInt(D),EInt(TZ),EInt(TZM)))
+C_TIME = 23 # XML xs:time; eterm: ETuple(C_TIME, ETuple(EInt(H),EInt(M),EInt(S),EInt(Mcr),EInt(TZ),EInt(TZM)))
+C_DURATION = 27 # XML xs:duration; eterm: ETuple(C_DURATION, ETuple(EInt(Y),EInt(M),EInt(D),EInt(H),EInt(M),EInt(S),EInt(Mcr)))
+C_ENUM_VALUE = 28 # YANG: enum value; eterm: ETuple(C_ENUM_VALUE, EInt(value))
+C_BIT32 = 29 # YANG: bits size 32; eterm: ETuple(C_BIT32, EInt(value))
+C_BIT64 = 30 # YANG: bits size 64; eterm: ETuple(C_BIT64, EInt(value))
+C_LIST = 31 # YANG: leaf-list; eterm: EList(values)
+C_XMLBEGIN = 32 # start/end of container
+C_XMLEND = 33 # used to construct array replies
+C_INSTANCE_IDENTIFIER = 34 # YANG: instance-identifier; eterm: ETuple(C_INSTANCE_IDENTIFIER, ikeypath)
+C_UNION = 35 # unused?
+C_OID = 38 # YANG: yang:object-identifier; eterm: ETuple(C_OID, EBinary(u32.to_bigendian_bytes() + ...)}
+C_BINARY = 39 # YANG: binary, yang:hex-string, tailf:hex-list, ... ; eterm: ETuple(C_BINARY, EBinary(value)}
+C_IPV4PREFIX = 40 # YANG: inet:ipv4-prefix; eterm: ETuple(C_IPV4PREFIX, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D)), EInt(prefix_len)))
+C_IPV6PREFIX = 41 # YANG: inet:ipv6-prefix; eterm: ETuple(C_IPV6PREFIX, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H)), EInt(prefix_len)))
+C_DECIMAL64 = 43 # YANG: decimal64); eterm: ETuple(C_DECIMAL64, ETuple(EInt(raw_value), EInt(fraction_digits)))
+C_IDENTITYREF = 44 # YANG: identityref; eterm: ETuple(C_IDENTITYREF, ETuple(EInt(ns_hash), EInt(name_hash)))
+C_XMLBEGINDEL = 45
+C_DQUAD = 46 # YANG: yang:dotted-quad; eterm: ETuple(C_DQUAD, EBinary(value))
+C_HEXSTR = 47 # YANG: yang:hex-string; eterm: ETuple(C_HEXSTR, EBinary(value))
+C_IPV4_AND_PLEN = 48 # YANG: tailf:ipv4-address-and-prefix-length; eterm: ETuple(C_IPV4_AND_PLEN, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D)), EInt(prefix_len)))
+C_IPV6_AND_PLEN = 49 # YANG: tailf:ipv6-address-and-prefix-length; eterm: ETuple(C_IPV6_AND_PLEN, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H)), EInt(prefix_len)))
+C_BITBIG = 50 # YANG: bits size > 64; eterm: ETuple(C_BITBIG, EBinary(value))
+C_XMLMOVEFIRST = 51 # ordered-by-user move first
+C_XMLMOVEAFTER = 52 # ordered-by-user move after
 
 class Keypath:
     def __init__(self, elems: list[EObject]):
@@ -9,14 +50,41 @@ class Keypath:
     def to_eobject(self) -> EObject:
         return EList(self.elems, True)
 
-class QTag:
-    def to_eobject(self) -> EObject:
-        return EAtom('')
+# class QTag:
+#     def to_eobject(self) -> EObject:
+#         return EAtom('')
 
 class TagVal:
-    def __init__(self, tag: EObject, val: EObject):
-        self.tag = tag
+    def __init__(self, qtag: EObject, val: EObject):
+        self.qtag = qtag
         self.val = val
 
+    @staticmethod
+    def xml_begin(qtag: EObject):
+        return TagVal(qtag, EAtom('start'))
+
+    @staticmethod
+    def xml_begin_index(qtag: EObject, index: int): # CDB only, not for MAAPI :/
+        return TagVal(qtag, ETuple([EAtom('start'), EInt(index)]))
+
+    @staticmethod
+    def xml_end(qtag: EObject):
+        return TagVal(qtag, EAtom('stop'))
+
+    @staticmethod
+    def xml_empty_leaf(qtag: EObject):
+        return TagVal(qtag, EAtom('leaf'))
+
+    @staticmethod
+    def xml_begin_del(qtag: EObject): # Delete list-entries only :/
+        return TagVal(qtag, EAtom('delete'))
+
     def to_eobject(self) -> EObject:
-        return ETuple([self.tag, self.val])
+        return ETuple([self.qtag, self.val])
+
+class ConfObject:
+    pass
+
+class ConfInteger(ConfObject):
+    def __init__(self, val: int, vtype):
+        pass

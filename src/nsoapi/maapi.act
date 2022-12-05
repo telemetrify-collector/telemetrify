@@ -1,7 +1,8 @@
 import net
 from nsoapi.proto import *
 from nsoapi.conf import *
-from nsoapi.schema import *
+from nsoapi.schema import * # Actors not imported by '*'? E.g. SchemaBuilder
+import nsoapi.schema
 from nsoapi.utils import *
 
 DB_CANDIDATE = 1
@@ -65,12 +66,16 @@ def addr_to_eobject(addr: str) -> EObject:
         return ETuple([EInt(127), EInt(0), EInt(0), EInt(1)])
 
 class UserIdentity:
-    # vendor: ?str
-    # product: ?str
-    # version: ?str
-    # client_id: ?str
+    @property
+    vendor: ?str
+    @property
+    product: ?str
+    @property
+    version: ?str
+    @property
+    client_id: ?str
 
-    def __init__(self, vendor, product, version, client_id):
+    def __init__(self, vendor: ?str, product: ?str, version: ?str, client_id: ?str):
         self.vendor = vendor
         self.product = product
         self.version = version
@@ -121,14 +126,22 @@ class UserIdentity:
             return ETuple(elems)
 
 class UserSessionDescription:
-    # user: str
-    # src_addr: str
-    # context: str
-    # groups: list[str]
-    # proto: ?int
-    # user_identity: UserIdentity
+    @property
+    user: str
+    @property
+    src_addr: str
+    @property
+    context: str
+    @property
+    groups: list[str]
+    @property
+    proto: ?int
+    @property
+    use_ikp: bool
+    @property
+    user_identity: UserIdentity
 
-    def __init__(self, user, src_addr, context, groups, proto, use_ikp, user_ident: UserIdentity):
+    def __init__(self, user: str, src_addr: str, context: str, groups: list[str], proto: ?int, use_ikp, user_ident: UserIdentity):
         self.user = user
         self.src_addr = src_addr
         self.context = context
@@ -522,130 +535,52 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     action def end_user_session(result_cb: action(MaapiConnection, ?Exception) -> None):
         _send_user_maapi_request(_MAAPI_END_USER_SESSION, True, None, None, lambda v: _none_result_cb(v, result_cb))
 
-    # action def start_trans(db_id: int, mode: int, user_ident: UserIdentity, result_cb: action(MaapiConnection, value) -> None):
-    #     elems = []
-    #     elems.append(EInt(db_id))
-    #     elems.append(EInt(mode))
-    #     if conf_vsn > 0x06020000:
-    #         elems.append(user_ident.to_eobject())
-    #     e = ETuple(elems)
+    action def start_trans(db_id: int, mode: int, user_ident: UserIdentity, result_cb: action(MaapiConnection, value) -> None):
+        elems = []
+        elems.append(EInt(db_id))
+        elems.append(EInt(mode))
+        if conf_vsn > 0x06020000:
+            elems.append(user_ident.to_eobject())
+        e = ETuple(elems)
 
-    #     _send_user_maapi_request(_MAAPI_START_TRANS, True, None, e, lambda v: _int_result_cb(v, result_cb))
+        _send_user_maapi_request(_MAAPI_START_TRANS, True, None, e, lambda v: _int_result_cb(v, result_cb))
 
-    # action def apply_trans(thandle: int, keep_open: bool, flags: int, result_cb: action(MaapiConnection, ?Exception) -> None):
-    #     elems = []
-    #     elems.append(eatom_from_bool(keep_open))
-    #     elems.append(EInt(flags))
-    #     e = ETuple(elems)
+    action def apply_trans(thandle: int, keep_open: bool, flags: int, result_cb: action(MaapiConnection, ?Exception) -> None):
+        elems = []
+        elems.append(EAtom.from_bool(keep_open))
+        elems.append(EInt(flags))
+        e = ETuple(elems)
 
-    #     _send_user_maapi_request(_MAAPI_APPLY_TRANS, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+        _send_user_maapi_request(_MAAPI_APPLY_TRANS, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
 
-    # action def finish_trans(thandle: int, result_cb: action(MaapiConnection, ?Exception) -> None):
-    #     _send_user_maapi_request(_MAAPI_FINISH_TRANS, True, thandle, None, lambda v: _none_result_cb(v, result_cb))
+    action def finish_trans(thandle: int, result_cb: action(MaapiConnection, ?Exception) -> None):
+        _send_user_maapi_request(_MAAPI_FINISH_TRANS, True, thandle, None, lambda v: _none_result_cb(v, result_cb))
 
-    # action def set_values(thandle: int, path: Keypath, values: list[TagVal], result_cb: action(MaapiConnection, ?Exception) -> None):
-    #     elems = []
-    #     # elems.append(EList([v.to_eobject() for v in values], True))
-    #     velems = []
-    #     for v in values:
-    #         velems.append(v.to_eobject())
-    #     elems.append(EList(velems, True))
-    #     elems.append(path.to_eobject())
-    #     e = ETuple(elems)
+    action def set_values(thandle: int, path: Keypath, values: list[TagVal], result_cb: action(MaapiConnection, ?Exception) -> None):
+        elems = []
+        # elems.append(EList([v.to_eobject() for v in values], True))
+        velems = []
+        for v in values:
+            velems.append(v.to_eobject())
+        elems.append(EList(velems, True))
+        elems.append(path.to_eobject())
+        e = ETuple(elems)
 
-    #     _send_user_maapi_request(_MAAPI_SET_VALUES, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+        _send_user_maapi_request(_MAAPI_SET_VALUES, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
 
     action def load_schema(result_cb: action(MaapiConnection, ?value) -> None):
         # sb = SchemaBuilder()
-        # Workaround:
         # ERROR: Error when compiling nsoapi.maapi module: Compilation error
         # Name 'SchemaBuilder$newact' is not in scope
-        sb = create_schema_builder()
+        sb = nsoapi.schema.SchemaBuilder()
         # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self, v if v is not None else sb.build())) # Type inference conflict
         def _on_load_all_ns(v: ?value):
             _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_HASH_DB, lambda e: sb.on_hash_term(e), _on_load_hash_db)
-            #result_cb(self, v if v is not None else sb.build())
         def _on_load_hash_db(v: ?value):
+            _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_MNS_MAPS, lambda e: sb.on_mns_term(e), _on_load_mns_maps)
+        def _on_load_mns_maps(v: ?value):
             result_cb(self, v if v is not None else sb.build())
         _request_schema_terms(user_recv_queue, _MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), _on_load_all_ns)
 
     def _request_schema_terms(queue, op: int, term_cb: action(EObject) -> value, done_cb: action(?Exception) -> None):
         _send_maapi_request(queue, op, False, None, None, lambda v: _multi_response_cb(v, op, term_cb, done_cb))
-
-actor main(env):
-    def _on_connect(c):
-        print("MAAPI connected!!!!")
-        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, True, UserIdentity(None, None, None, None)), _on_user_session)
-
-    # def _on_user_session(c, e):
-    #     if e is None:
-    #         print("MAAPI user session started!!!!")
-    #         #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
-    #         c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
-    #     else:
-    #         print("MAAPI user session failed:", e)
-
-    def _on_user_session(c, e):
-        if e is None:
-            print("MAAPI user session started!!!!")
-            c.load_schema(_on_load_schema)
-        else:
-            print("MAAPI user session failed:", e)
-
-    def _on_load_schema(c, v):
-        if isinstance(v, Schema):
-            print("MAAPI loaded schema!!!!")
-            print(v)
-            #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
-            #c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
-        else:
-            print("MAAPI load schema failed:", v)
-
-    # def _on_start_trans(c, thandle):
-    #     if isinstance(thandle, int):
-    #         print("MAAPI started transaction thandle:", thandle)
-    #         #c.set_values(thandle, Keypath([EList([EBinary("http://tail-f.com/ns/ncs".encode()), EBinary("devices".encode())], False)]), [], lambda c, e:_on_set_values(c, e, thandle))
-    #         c.set_values(thandle,
-    #             Keypath([
-    #                 EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('python-vm')], False),
-    #                 # EAtom('logging'),
-    #             ]), [
-    #                 TagVal(EAtom('logging'), EAtom('start')),
-    #                 #TagVal(EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('logging')], False), EAtom('start')),
-    #                 TagVal(EAtom('level'), ETuple([EInt(C_ENUM_VALUE), EInt(1)])),
-    #                 #TagVal(EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('logging')], False), EAtom('stop')),
-    #                 TagVal(EAtom('logging'), EAtom('stop')),
-    #             ], lambda c, e:_on_set_values(c, e, thandle))
-    #     else:
-    #         print("MAAPI start transaction failed:", thandle)
-
-    # def _on_set_values(c, e, thandle):
-    #     if e is None:
-    #         print("MAAPI set_values success thandle:", thandle)
-    #         c.apply_trans(thandle, False, 0, lambda c, e:_on_apply_trans(c, e, thandle))
-    #     else:
-    #         print("MAAPI set_values failed thandle:", thandle, "err:", e)
-
-    # def _on_apply_trans(c, e, thandle):
-    #     if e is None:
-    #         print("MAAPI applied transaction thandle:", thandle)
-    #         c.finish_trans(thandle, lambda c, e:_on_finish_trans(c, e, thandle))
-    #     else:
-    #         print("MAAPI apply transaction failed thandle:", thandle, "err:", e)
-
-    # def _on_finish_trans(c, e, thandle):
-    #     if e is None:
-    #         print("MAAPI finished transaction thandle:", thandle)
-    #         c.end_user_session(_on_end_user_session)
-    #     else:
-    #         print("MAAPI finish transaction failed thandle:", thandle, "err:", e)
-
-    # def _on_end_user_session(c, e):
-    #     if e is None:
-    #         print("MAAPI ended user session")
-    #     else:
-    #         print("MAAPI end user session failed:", e)
-
-    print("Starting up...")
-    sess = MaapiConnection(env, 4569, _on_connect)
-    #await async env.exit(0)

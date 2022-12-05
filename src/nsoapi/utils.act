@@ -76,3 +76,24 @@ class Queue[T](object):
         raise ValueError("Queue internal error")
 
 # class Deque[T](object):
+
+protocol TryGetMapping[A(Eq), B](Mapping[A, B]):
+    try_get: (A) -> ?B
+
+# Affected by: https://github.com/actonlang/acton/issues/1126
+# extension dict[A(Hashable), B](TryGetMapping[A, B]):
+#     def try_get(self, a: A) -> ?B:
+#         # Without support for catching KeyError
+#         # it looks like we need to do double hash lookups for now
+#         if self.__contains__(a):
+#             return self[a]
+#         else:
+#             return None
+
+def try_get[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
+    # Without support for catching KeyError
+    # it looks like we need to do double hash lookups for now
+    if m.__contains__(a):
+        return m[a]
+    else:
+        return None

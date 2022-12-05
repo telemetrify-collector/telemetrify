@@ -13,13 +13,13 @@ clean:
 .PHONY: clean
 
 run-nogc:
-	GC_DONT_GC=1 out/dev/bin/nsoapi.maapi
+	GC_DONT_GC=1 out/dev/bin/nsoapi.test
 
 run:
-	out/dev/bin/nsoapi.maapi
+	out/dev/bin/nsoapi.test
 
 debug-nogc:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args out/dev/bin/nsoapi.maapi --rts-wthreads 1
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args out/dev/bin/nsoapi.test --rts-wthreads 1
 
 debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args out/dev/bin/nsoapi.maapi --rts-wthreads 1
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args out/dev/bin/nsoapi.test --rts-wthreads 1

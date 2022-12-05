@@ -1,39 +1,714 @@
+from nsoapi.conf import *
 from nsoapi.proto import *
+from nsoapi.utils import *
+
+# confd_cs_node.flags
+CS_NODE_IS_LIST = 1
+CS_NODE_IS_WRITE = 1 << 1
+CS_NODE_IS_CDB = 1 << 2
+CS_NODE_IS_ACTION = 1 << 3
+CS_NODE_IS_PARAM = 1 << 4
+CS_NODE_IS_RESULT = 1 << 5
+CS_NODE_IS_NOTIF = 1 << 6
+CS_NODE_IS_CASE = 1 << 7
+CS_NODE_IS_CONTAINER = 1 << 8
+CS_NODE_HAS_WHEN = 1 << 9
+CS_NODE_HAS_DISPLAY_WHEN = 1 << 10
+CS_NODE_META_DATA = 1 << 11
+CS_NODE_IS_WRITE_ALL = 1 << 12
+CS_NODE_IS_LEAF_LIST = 1 << 13
+CS_NODE_IS_LEAFREF = 1 << 14
+CS_NODE_HAS_MOUNT_POINT = 1 << 15
+CS_NODE_IS_STRING_AS_BINARY = 1 << 16
+
+# NODE_NP_CONTAINER = 1
+# NODE_P_CONTAINER = 2
+# NODE_LIST = 3
+# NODE_EMPTY_LEAF = 5
+# NODE_NON_EMPTY_LEAF = 6
+# NODE_LEAF_LIST = 7
+# # NODE_ACTION = 16 # action/rpc
+# # NODE_PARAM = 17
+# # NODE_RESULT = 18
+# # NODE_NOTIFICATION = 32
 
 class Schema:
     def __init__(self):
         pass
 
+class NamespaceDescription:
+    @property
+    cns: str
+    @property
+    ns: str
+    @property
+    prefix: str
+    @property
+    ns_hash: int
+    @property
+    revision: str
+    @property
+    module: str
+
+    def __init__(self,
+            cns: str,
+            ns: str,
+            prefix: str,
+            ns_hash: int,
+            revision: str,
+            module: str):
+        self.cns = cns
+        self.ns = ns
+        self.prefix = prefix
+        self.ns_hash = ns_hash
+        self.revision = revision
+        self.module = module
+
+    def __str__(self):
+        return "NamespaceDescription(" \
+            + self.cns + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
+            + self.revision + "," + self.module + ")"
+
+    @staticmethod
+    def from_ns_tuple(elems: list[EObject]) -> ?NamespaceDescription:
+        if len(elems) >= 6:
+            _cns = elems[1]
+            _prefix = elems[2]
+            _ns_hash = elems[3]
+            _revision = elems[4]
+            _module = elems[5]
+            if isinstance(_cns, EAtom) \
+                    and isinstance(_prefix, EAtom) \
+                    and isinstance(_ns_hash, EInt) \
+                    and isinstance(_revision, EBinary) \
+                    and isinstance(_module, EBinary):
+
+                ns = _cns.val.split("#", 1)[-1]
+
+                return NamespaceDescription(
+                    _cns.val,
+                    ns,
+                    _prefix.val,
+                    _ns_hash.val,
+                    str(_revision),
+                    str(_module))
+        return None
+
+class RawNode:
+    @property
+    node_id: int
+    @property
+    tag_hash: int
+    @property
+    ns_hash: int
+    @property
+    key_node_id: int
+    @property
+    min_occurs: int
+    @property
+    max_occurs: int
+    @property
+    conf_type: int
+    @property
+    type_ns_hash: int
+    @property
+    type_name: str
+    @property
+    default_value: ?value
+    @property
+    info_flags: int
+    @property
+    child_node_id: int
+    @property
+    next_node_id: int
+    @property
+    choice_ordinal: int
+    @property
+    metadata: dict[str, str]
+    @property
+    mount_id_hashes: ?(int, int) # ?tuple[int, int]
+    @property
+    mount_id_ns_hash: int
+
+    def __init__(self,
+            node_id: int,
+            tag_hash: int,
+            ns_hash: int,
+            key_node_id: int,
+            min_occurs: int,
+            max_occurs: int,
+            conf_type: int,
+            type_ns_hash: int,
+            type_name: str,
+            default_value: ?value,
+            info_flags: int,
+            child_node_id: int,
+            next_node_id: int,
+            choice_ordinal: int,
+            metadata: dict[str, str],
+            mount_id_hashes: ?(int, int)):
+        self.node_id = node_id
+        self.tag_hash = tag_hash
+        self.ns_hash = ns_hash
+        self.key_node_id = key_node_id
+        self.min_occurs = min_occurs
+        self.max_occurs = max_occurs
+        self.conf_type = conf_type
+        self.type_ns_hash = type_ns_hash
+        self.type_name = type_name
+        self.default_value = default_value
+        self.info_flags = info_flags
+        self.child_node_id = child_node_id
+        self.next_node_id = next_node_id
+        self.choice_ordinal = choice_ordinal
+        self.metadata = metadata
+        self.mount_id_hashes = mount_id_hashes
+
+    @staticmethod
+    def from_ns_tuple(elems: list[EObject]) -> ?RawNode:
+        if len(elems) >= 18:
+            _node_id = elems[1]
+            _tag_hash = elems[2]
+            _ns_hash = elems[3]
+            _key_node_id = elems[4]
+            _min_occurs = elems[5]
+            _max_occurs = elems[6] # Seems bugged, e.g. reported as (1) for lists without max-elements.
+            _conf_type = elems[7]
+            _type_ns_hash = elems[8]
+            _type_name = elems[9]
+            _default_value = elems[10]
+            _info_flags = elems[11]
+            _child_node_id = elems[12]
+            _next_node_id = elems[13]
+            _choice_ordinal = elems[14]
+            _metadata = elems[16]
+            _mount_id = elems[17]
+
+            if isinstance(_node_id, EInt) \
+                    and isinstance(_tag_hash, EInt) \
+                    and isinstance(_ns_hash, EInt) \
+                    and isinstance(_key_node_id, EInt) \
+                    and isinstance(_min_occurs, EInt) \
+                    and isinstance(_max_occurs, EInt) \
+                    and isinstance(_conf_type, EInt) \
+                    and isinstance(_type_ns_hash, EInt) \
+                    and isinstance(_type_name, EAtom) \
+                    and isinstance(_info_flags, EInt) \
+                    and isinstance(_child_node_id, EInt) \
+                    and isinstance(_next_node_id, EInt) \
+                    and isinstance(_choice_ordinal, EInt) \
+                    and isinstance(_metadata, EList):
+
+                metadata: dict[str, str] = {}
+                for e in _metadata.elems:
+                    if isinstance(e, ETuple):
+                        if len(e.elems) == 2:
+                            _key = e.elems[0]
+                            _val = e.elems[1]
+                            metadata[str(_key)] = str(_val)
+
+                mount_id: ?(int, int) = None
+                if isinstance(_mount_id, ETuple):
+                    _elems = _mount_id.elems
+                    if len(_elems) == 2:
+                        _mount_id_ns_hash = _elems[0]
+                        _mount_id_name_hash = _elems[1]
+                        if isinstance(_mount_id_ns_hash, EInt) and isinstance(_mount_id_name_hash, EInt):
+                            mount_id = (_mount_id_ns_hash.val, _mount_id_name_hash.val)
+
+                return RawNode(
+                    _node_id.val,
+                    _tag_hash.val,
+                    _ns_hash.val,
+                    _key_node_id.val,
+                    _min_occurs.val,
+                    _max_occurs.val,
+                    _conf_type.val,
+                    _type_ns_hash.val,
+                    _type_name.val,
+                    _default_value,
+                    _info_flags.val,
+                    _child_node_id.val,
+                    _next_node_id.val,
+                    _choice_ordinal.val,
+                    metadata,
+                    mount_id)
+
+        return None
+
+class RawKeys:
+    @property
+    node_id: int
+    @property
+    key_hashes: list[int]
+
+    def __init__(self, node_id: int, key_hashes: list[int]):
+        self.node_id = node_id
+        self.key_hashes = key_hashes
+
+    @staticmethod
+    def from_ns_tuple(elems: list[EObject]) -> ?RawKeys:
+        if len(elems) >= 3:
+            _node_id = elems[1]
+            _key_hashes = elems[2]
+
+            if isinstance(_node_id, EInt) and isinstance(_key_hashes, EList):
+                keys: list[int] = []
+                for e in _key_hashes.elems:
+                    if isinstance(e, EInt):
+                        keys.append(e.val)
+                return RawKeys(_node_id.val, keys)
+
+class Tag:
+    @property
+    ns_hash: int
+    @property
+    name_hash: int
+    # @property
+    # ns_descr: NamespaceDescription
+    # @property
+    # name: str
+
+    def __init__(self, ns_hash: int, name_hash: int):
+        self.ns_hash = ns_hash
+        self.name_hash = name_hash
+
+# extension Tag(Eq):
+#     # def __eq__(a: Tag, b: Tag) -> bool:
+#     #     return a.name_hash == b.name_hash and a.ns_hash == b.ns_hash
+#     def __eq__(self, other: Tag) -> bool:
+#         return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
+
+extension Tag(Hashable):
+    def __eq__(self, other: Tag) -> bool:
+        return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
+
+    def __hash__(self) -> int:
+        return self.ns_hash + self.name_hash
+
+class TypeId:
+    @property
+    ns_hash: int
+    @property
+    name: str
+    # @property
+    # ns_descr: NamespaceDescription
+    # @property
+    # name: str
+
+    def __init__(self, ns_hash: int, name: str):
+        self.ns_hash = ns_hash
+        self.name = name
+
+    def __str__(self) -> str:
+        return str(self.ns_hash) + ":" + self.name
+
+extension TypeId(Hashable):
+    def __eq__(self, other: TypeId) -> bool:
+        return self.name == other.name and self.ns_hash == other.ns_hash
+
+    def __hash__(self) -> int:
+        return self.ns_hash + hash(self.name)
+
+class Node:
+    # @property:
+    # node_type: int
+    @property
+    tag: Tag
+    @property
+    min_occurs: int
+    @property
+    max_occurs: int
+    @property
+    flags: i64
+    @property
+    conf_type: int
+    @property
+    value_type: ?Type
+    @property
+    keys: list[Node]
+    @property
+    children: dict[Tag, Node]
+
+    def __init__(self, tag: Tag, min_occurs: int, max_occurs: int, flags: i64, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[Tag, Node]):
+        self.tag = tag
+        self.min_occurs = min_occurs
+        self.max_occurs = max_occurs
+        self.flags = flags
+        self.conf_type = conf_type
+        self.value_type = value_type
+        self.keys = keys
+        self.children = children
+
+        # self.node_type = 0
+        # if self.is_np_container():
+        #     self.node_type = NODE_NP_CONTAINER
+        # if self.is_p_container():
+        #     self.node_type = NODE_P_CONTAINER
+        # if self.is_list():
+        #     self.node_type = NODE_LIST
+        # if self.is_empty_leaf():
+        #     self.node_type = NODE_EMPTY_LEAF
+        # if self.is_non_empty_leaf():
+        #     self.node_type = NODE_NON_EMPTY_LEAF
+        # if self.is_leaf_list():
+        #     self.node_type = NODE_LEAF_LIST
+
+    def is_container(self):
+        return self.flags & CS_NODE_IS_CONTAINER != 0
+
+    def is_np_container(self):
+        return self.is_container() and self.min_occurs == 1
+
+    def is_p_container(self):
+        return self.is_container() and self.min_occurs == 0
+
+    def is_leaf(self):
+        # return self.value_type is not None
+        return not self.children and self.flags & (
+                CS_NODE_IS_CONTAINER |
+                CS_NODE_IS_LIST |
+                CS_NODE_IS_ACTION |
+                CS_NODE_IS_NOTIF |
+                CS_NODE_IS_LEAF_LIST) == 0
+
+    def is_empty_leaf(self):
+        return self.is_leaf() and self.conf_type == C_XMLTAG
+
+    def is_non_empty_leaf(self):
+        return self.is_leaf() and self.conf_type != C_XMLTAG
+
+    def is_leaf_list(self):
+        return self.flags & CS_NODE_IS_LEAF_LIST != 0
+
+    def is_oper(self):
+        return self.flags & CS_NODE_IS_WRITE == 0
+
+    def is_mount_point(self):
+        return self.flags & CS_NODE_HAS_MOUNT_POINT != 0
+
+class Type(object):
+    @property
+    type_id: TypeId
+    @property
+    parent_type: ?Type
+    # @property
+    # derivation: str
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type):
+        self.type_id = type_id
+        self.parent_type = parent_type
+
+    def __str__(self) -> str:
+        return "type " + str(self.type_id)
+
+    @staticmethod
+    def from_ns_tuple(elems: list[EObject], ns_descr: NamespaceDescription, types: dict[TypeId, Type]) -> ?Type:
+        if len(elems) >= 6:
+            _derivation = elems[1]
+            _name = elems[2]
+            _parent_ns_hash = elems[3]
+            _parent_name = elems[4]
+            _opaque = elems[5]
+            if isinstance(_derivation, EAtom) \
+                    and isinstance(_name, EAtom) \
+                    and isinstance(_parent_ns_hash, EInt) \
+                    and isinstance(_parent_name, EAtom) \
+                    and isinstance(_opaque, EObject):
+
+                derivation = str(_derivation)
+                type_id = TypeId(ns_descr.ns_hash, str(_name))
+
+                parent_type_id = TypeId(_parent_ns_hash.val, str(_parent_name))
+                parent_type: ?Type = try_get(types, parent_type_id)
+
+                if derivation == "enum":
+                    if isinstance(_opaque, EList):
+                        name_to_ordinal: dict[str, int] = {}
+                        for _elem in reversed(_opaque.elems):
+                            if isinstance(_elem, ETuple):
+                                _pair = _elem.elems
+                                if len(_pair) == 2:
+                                    _ename = _pair[0]
+                                    _ordinal = _pair[1]
+                                    if isinstance(_ename, EBinary) and isinstance(_ordinal, EInt):
+                                        name_to_ordinal[str(_ename)] = _ordinal.val
+                        return Enum(type_id, parent_type, name_to_ordinal)
+                # TODO: Add more classes of types
+                return Type(type_id, parent_type)
+        return None
+
+    def try_string_to_value(self, node: Node, s: str) -> ?value:
+        return None
+
+    def try_value_to_string(self, node: Node, v: ?value) -> ?str:
+        return None
+
+    def try_eobject_to_value(self, node: Node, obj: ?EObject) -> ?value:
+        return None
+
+    def try_value_to_eobject(self, node: Node, v: ?value) -> ?EObject:
+        return None
+
+class Enum(Type):
+    @property
+    name_to_ordinal: dict[str, int]
+    @property
+    ordinal_to_name: dict[int, str]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, name_to_ordinal: dict[str, int]):
+        #super(self, type_id)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.name_to_ordinal = name_to_ordinal
+        _ordinal_to_name = {}
+        for name, ordinal in name_to_ordinal.items():
+            _ordinal_to_name[ordinal] = name
+        self.ordinal_to_name = _ordinal_to_name
+
+    def __str__(self):
+        return Type.__str__(self) + " enum " + str(self.name_to_ordinal)
+
 actor SchemaBuilder():
+    var raw_roots: set[int] = set([])
+    var raw_nodes: dict[int, RawNode] = {}
+    var raw_keys: dict[int, RawKeys] = {}
+    var curr_ns: NamespaceDescription = NamespaceDescription("", "", "", 0, "", "")
+
+    var hash_to_name: dict[int, str] = {}
+    var name_to_hash: dict[str, int] = {}
+    var namespaces: dict[int, NamespaceDescription] = {}
+    var roots: dict[Tag, Node] = {}
+    var types: dict[TypeId, Type] = {}
+
     def on_ns_term(term: EObject) -> value:
-        # print(term)
-        if isinstance(term, EList):
-            for e in term.elems:
-                print(e)
-            if len(term.elems) >= 1:
-                last_elem = term.elems[-1]
-                if isinstance(last_elem, EAtom) and str(last_elem) == 'eof':
-                    return False
-            return True
-        else:
-            return MaapiProtoError("Unexpected schema term")
+        return _for_schema_lists(term, _on_ns_elem)
 
     def on_hash_term(term: EObject) -> value:
-        # print(term)
+        return _for_schema_lists(term, _on_hash_elem)
+
+    def on_mns_term(term: EObject) -> value:
+        return _for_schema_lists(term, _on_mns_elem)
+
+    def _for_schema_lists(term: EObject, on_elem: proc(EObject) -> None) -> value:
         if isinstance(term, EList):
             for e in term.elems:
                 print(e)
-            if len(term.elems) >= 1:
-                last_elem = term.elems[-1]
-                if isinstance(last_elem, EAtom) and str(last_elem) == 'eof':
+                if isinstance(e, EAtom) and str(e) == 'eof':
                     return False
+                on_elem(e)
             return True
         else:
             return MaapiProtoError("Unexpected schema term")
         return True
 
+    def _on_ns_elem(elem: EObject):
+        if isinstance(elem, ETuple):
+            t = elem.elems
+            if len(t) >= 1:
+                _etype = t[0]
+                if isinstance(_etype, EAtom):
+                    etype = _etype.val
+                    if etype == 'ns':
+                        ns_descr = NamespaceDescription.from_ns_tuple(t)
+                        if ns_descr is not None:
+                            namespaces[ns_descr.ns_hash] = ns_descr
+                            curr_ns = ns_descr
+                            return
+                    elif etype == 'type':
+                        type_descr = Type.from_ns_tuple(t, curr_ns, types)
+                        if type_descr is not None:
+                            types[type_descr.type_id] = type_descr
+                            return
+                    elif etype == 'keys':
+                        keys = RawKeys.from_ns_tuple(t)
+                        if keys is not None:
+                            raw_keys[keys.node_id] = keys
+                            return
+                    elif etype == 'node':
+                        node = RawNode.from_ns_tuple(t)
+                        if node is not None:
+                            raw_nodes[node.node_id] = node
+                            return
+                    elif etype == 'root' and len(t) == 2:
+                        _node_id = t[1]
+                        if isinstance(_node_id, EInt):
+                            node_id = _node_id.val
+                            raw_roots.add(node_id)
+                            return
+                    elif etype == 'parent':
+                        _assemble_node_trees()
+                        return
+        #print("WARNING: Unexpected schema ns elem:", elem)
+
+    def _on_hash_elem(elem: EObject):
+        if isinstance(elem, ETuple):
+            t = elem.elems
+            if len(t) == 2:
+                name = t[0]
+                hash_nr = t[1]
+                if isinstance(hash_nr, EInt):
+                    if isinstance(name, EAtom):
+                        hash_to_name[hash_nr.val] = name.val
+                        name_to_hash[name.val] = hash_nr.val
+                        return
+        #print("WARNING: Unexpected schema hash_db elem:", elem)
+
+    def _on_mns_elem(elem: EObject):
+        if isinstance(elem, ETuple):
+            t = elem.elems
+            if len(t) >= 1:
+                _etype = t[0]
+                if isinstance(_etype, EAtom):
+                    etype = _etype.val
+                    if etype == 'mount_id' and len(t) == 2:
+                        _mount_id = t[1]
+                        if isinstance(_mount_id, ETuple):
+                            _elems = _mount_id.elems
+                            if len(_elems) == 2:
+                                _ns_hash = _elems[0]
+                                _name_hash = _elems[1]
+                                if isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
+                                    ns = hash_to_name.get(_ns_hash.val, "")
+                                    name = hash_to_name.get(_name_hash.val, "")
+                                    # if ns and name:
+                                    #     print("-- mount_id", ns + ":" + name)
+        #print("WARNING: Unexpected schema hash_db elem:", elem)
+
+    def _assemble_node_trees():
+        for root_node_id in raw_roots:
+            _roots = _build_node_tree(root_node_id)
+            for tag, root in _roots.items():
+                roots[tag] = root
+
+        raw_roots = set([]) # raw_roots.clear()
+        raw_nodes = {} # raw_nodes.clear()
+        raw_keys = {} # raw_keys.clear()
+
+    def _build_node_tree(node_id: int) -> dict[Tag, Node]:
+        result = {}
+
+        while node_id != 0:
+            raw_node = try_get(raw_nodes, node_id)
+            if raw_node is not None:
+                children = _build_node_tree(raw_node.child_node_id)
+                keys = []
+                if raw_node.key_node_id != 0:
+                    raw_key = try_get(raw_keys, raw_node.key_node_id)
+                    if raw_key is not None:
+                        for key_hash in raw_key.key_hashes:
+                            key_tag = _make_tag(raw_node.ns_hash, key_hash)
+                            key_node = try_get(children, key_tag)
+                            if key_node is not None:
+                                keys.append(key_node)
+                            else:
+                                print("WARNING: Invalid key hash:", key_hash, "for schema node_id:", node_id)
+                    else:
+                        print("WARNING: Invalid key node id for schema node_id:", node_id)
+                tag = _make_tag(raw_node.ns_hash, raw_node.tag_hash)
+                type_descr: ?Type = None
+                type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
+                if type_id:
+                    type_descr = try_get(types, type_id)
+                node = Node(
+                    tag,
+                    raw_node.min_occurs,
+                    raw_node.max_occurs,
+                    i64(raw_node.info_flags),
+                    raw_node.conf_type,
+                    type_descr,
+                    keys,
+                    children)
+                result[tag] = node
+
+                node_id = raw_node.next_node_id
+            else:
+                print("WARNING: Invalid schema node_id ref:", node_id)
+
+        return result
+
+    def _make_tag(ns_hash: int, name_hash: int) -> Tag:
+        tag = Tag(ns_hash, name_hash)
+        return tag
+        # TODO: Store tag for reuse
+
     def build() -> Schema:
+        _pretty_print_nodes(roots, "")
+        _pretty_print_types(types, "")
         return Schema()
 
-def create_schema_builder():
-    return SchemaBuilder()
+    def _pretty_print_nodes(nodes: dict[Tag, Node], indent: str):
+        for node in nodes.values():
+            keys = ""
+            if node.keys:
+                key_names = []
+                for key in node.keys:
+                    key_names.append(hash_to_name[key.tag.name_hash])
+                keys = "[" + ", ".join(key_names) + "]"
+            flags = ""
+            if node.flags:
+                flag_names = []
+
+                if node.flags & CS_NODE_IS_CASE != 0:
+                    flag_names.append("case")
+                if node.flags & CS_NODE_IS_LIST != 0:
+                    flag_names.append("list")
+                    flag_names.append(str(node.min_occurs) + ".." + str(node.max_occurs))
+                if node.flags & CS_NODE_IS_CONTAINER != 0:
+                    if node.min_occurs == 0:
+                        flag_names.append("presence")
+                    flag_names.append("container")
+                if node.flags & CS_NODE_IS_WRITE == 0:
+                    flag_names.append("oper")
+                #if node.flags & CS_NODE_IS_CDB != 0:
+                #if node.flags & CS_NODE_IS_ACTION != 0:
+                #if node.flags & CS_NODE_IS_PARAM != 0:
+                #if node.flags & CS_NODE_IS_RESULT != 0:
+                #if node.flags & CS_NODE_IS_NOTIF != 0:
+                #if node.flags & CS_NODE_HAS_WHEN != 0:
+                #if node.flags & CS_NODE_HAS_DISPLAY_WHEN != 0:
+                #if node.flags & CS_NODE_META_DATA != 0:
+                #if node.flags & CS_NODE_IS_WRITE_ALL != 0:
+                if node.flags & CS_NODE_IS_LEAF_LIST != 0:
+                    flag_names.append("leaf-list")
+                if node.flags & CS_NODE_IS_LEAFREF != 0:
+                    flag_names.append("leafref")
+                if node.is_mount_point():
+                    flag_names.append("mount-point")
+                #if node.flags & CS_NODE_IS_STRING_AS_BINARY != 0:
+
+                if flag_names:
+                    flags = " (" + ", ".join(flag_names) + ")"
+            type_str = ""
+            type_descr = node.value_type
+            if type_descr is not None:
+                type_str = " : " + str(type_descr)
+            print(indent + hash_to_name[node.tag.name_hash] + keys + flags + type_str)
+            _pretty_print_nodes(node.children, indent + "  ")
+
+    def _pretty_print_types(types: dict[TypeId, Type], indent: str):
+        for t in types.values():
+            _pretty_print_type(t, indent)
+
+    def _pretty_print_type(t: Type, indent: str):
+        print(indent + str(t))
+        parent_type = t.parent_type
+        if parent_type is not None:
+            _pretty_print_type(parent_type, indent + "  ")
+
+# def _force_ext():
+#     # Force compilation of schema.ext.c
+#     NotImplemented
+
+# class ConfTypeConverter:
+#     def string_to_value(s: str) -> ?value:
+#         raise Exception("Not Implemented")
+
+#     def value_to_string(v: ?value) -> str:
+#         raise Exception("Not Implemented")
+
+#     def value_to_eobject(v: ?value) -> ?EObject:
+#         raise Exception("Not Implemented")
+
+#     def validate(v: ?value) -> bool:
+#         raise Exception("Not Implemented")

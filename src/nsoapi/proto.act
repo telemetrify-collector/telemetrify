@@ -718,14 +718,6 @@ class EInt(EObject):
             return EInt(v)
         return v
 
-# def eobject_decode_tagged(reader) -> value: # (EObject | IncompleteReadError | ValueError)
-#     # Wrap to avoid error in generated c when called by another module
-#     return EObject.decode_tagged(reader)
-
-# def eatom_from_bool(b: bool) -> EAtom:
-#     # Wrap to avoid error in generated c when called by another module
-#     return EAtom.from_bool(b)
-
 class ConfResponse(object):
     @property
     op: int
