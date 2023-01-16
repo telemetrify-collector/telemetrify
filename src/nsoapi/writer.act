@@ -1,0 +1,11 @@
+from nsoapi.maapi import *
+from nsoapi.mod import *
+from nsoapi.schema import Schema
+
+actor MaapiWriter(mc: MaapiConnection, schema: Schema):
+    def write_at(keypath, node: Node, result_cb: action(?Exception) -> None):
+        # TODO:
+        result_cb(Exception("Not Implemented"))
+
+    def write(node: Node, result_cb: action(?Exception) -> None):
+        return write_at([], node, result_cb)

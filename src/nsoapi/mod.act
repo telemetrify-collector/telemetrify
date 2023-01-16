@@ -1,0 +1,82 @@
+class Tag:
+    @property
+    ns: ?str
+    @property
+    name: str
+
+    def __init__(self, ns: ?str, name: str):
+        self.ns = ns
+        self.name = name
+
+class Node:
+    def tag(self) -> ?Tag:
+        return None
+
+    def namespaces(self) -> list[(str, str)]:
+        return []
+
+    def keys(self) -> list[Node]:
+        return []
+
+    def value(self) -> ?value:
+        return None
+
+    def children(self) -> list[Node]:
+        return []
+
+    def new_instance(self, tag: ?Tag, namespaces: list[(str, str)], keys: list[Node], value: ?value, children: list[Node]) -> Node:
+        raise Exception("Not implemented")
+
+class XNode(Node):
+    @property
+    _tag: ?Tag
+    @property
+    _namespaces: list[(str, str)]
+
+    # def __init__(self, tag: ?Tag, namespaces: list[(str, str)]):
+    #     self._tag = tag
+    #     self._namespaces = namespaces
+
+    def tag(self) -> ?Tag:
+        return self._tag
+
+    def namespaces(self) -> list[(str, str)]:
+        return self._namespaces
+
+class XTree(XNode):
+    @property
+    _children: list[Node]
+
+    def __init__(self, tag: ?Tag, namespaces: list[(str, str)], children: list[Node]):
+        self._tag = tag
+        self._namespaces = namespaces
+        self._children = children
+
+    def children(self) -> list[Node]:
+        return self._children
+
+    def new_instance(self, tag: ?Tag, namespaces: list[(str, str)], keys: list[Node], value: ?value, children: list[Node]) -> Node:
+        if keys:
+            raise ValueError("XTree does not allow keys")
+        if value is not None:
+            raise ValueError("XTree does not allow value")
+        return XTree(tag, namespaces, children)
+
+class XLeaf(XNode):
+    @property
+    _value: ?value
+
+    def __init__(self, tag: ?Tag, namespaces: list[(str, str)], value: ?value):
+        self._tag = tag
+        self._namespaces = namespaces
+        self._value = value
+
+    def value(self) -> ?value:
+        return self._value
+
+    def new_instance(self, tag: ?Tag, namespaces: list[(str, str)], keys: list[Node], value: ?value, children: list[Node]) -> Node:
+        if keys:
+            raise ValueError("XTree does not allow keys")
+        if children:
+            raise ValueError("XTree does not allow children")
+        return XLeaf(tag, namespaces, value)
