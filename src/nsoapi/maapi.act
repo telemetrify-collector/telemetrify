@@ -309,8 +309,11 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
     def _try_poll_recv():
         if input_stream.has_unread_bytes():
-            # async _poll_recv() # Compiler generated code error
-            after 0: _poll_recv()
+            _poll_recv()
+
+    def _post_try_poll_recv():
+        #async _try_poll_recv() # Compiler generated code error
+        after 0: _try_poll_recv()
 
     def _on_tcp_connect(c):
         print("MaapiConnection TCP connected")
@@ -519,7 +522,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         if has_more:
             # More replies
             internal_recv_queue.append(lambda: _maapi_response_cb(op, False, lambda v: _multi_response_cb(v, op, term_cb, finished_cb)))
-            _try_poll_recv()
+            _post_try_poll_recv()
         else:
             # Done!
             finished_cb(error)
