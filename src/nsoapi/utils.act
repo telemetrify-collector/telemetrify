@@ -97,3 +97,204 @@ def try_get[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
         return m[a]
     else:
         return None
+
+class Pair[A, B]:
+    @property
+    a: A
+    @property
+    b: B
+
+    #def __init__(self, a: A, b: B): # actonc: Acton/Solver.hs:(197,1)-(222,51): Non-exhaustive patterns in function rank
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+
+def try_parse_int(s: str) -> ?int:
+    s = s.strip(" \t\r\n")
+
+    v = 0
+    sign = 1
+    _len = len(s)
+    i = 0
+
+    while i < _len:
+        c = s[i]
+        if c == "-":
+            sign = -sign
+        elif c.isdecimal():
+            v = int(c)
+            i += 1
+            break
+        elif c != "+":
+            return None
+        i += 1
+
+    while i < _len:
+        c = s[i]
+        if not c.isdecimal():
+            break
+        v *= 10
+        v += int(c)
+        i += 1
+
+    return sign * v
+
+def try_parse_float(s: str) -> ?float:
+    s = s.strip(" \t\r\n")
+
+    p = s.split('e', -1)
+    plen = len(p)
+    exp = 0
+    if plen == 2:
+        _exp = try_parse_int(p[1])
+        if _exp is not None:
+            exp = _exp
+        else:
+            return None
+    elif plen != 1:
+        return None
+
+    f = p[0].split(".", -1)
+    flen = len(f)
+
+    significand: int = 0
+
+    if flen == 1:
+        _s = try_parse_int(f[0])
+        if _s is not None:
+            significand = _s
+        else:
+            return None
+    elif flen == 2:
+        ip = f[0]
+        fp = f[1]
+        if not fp.isdecimal():
+            return None
+        _s = try_parse_int(ip + fp)
+        if _s is not None:
+            significand = _s
+        else:
+            return None
+        exp -= len(fp)
+    else:
+        return None
+
+    return float(significand) * float(10)**float(exp) # TODO: Numerical correctness?
+
+def try_parse_hex(s: str) -> ?int:
+    s = s.strip(" \t\r\n")
+    p = s.split("0x", 1)
+    plen = len(p)
+    if plen == 2 and not p[0]:
+        s = p[1]
+    elif plen != 1:
+        return None
+
+    v = 0
+    for c in s:
+        h = 0
+        if c == '0':
+            h = 0
+        elif c == '1':
+            h = 1
+        elif c == '2':
+            h = 2
+        elif c == '3':
+            h = 3
+        elif c == '4':
+            h = 4
+        elif c == '5':
+            h = 5
+        elif c == '6':
+            h = 6
+        elif c == '7':
+            h = 7
+        elif c == '8':
+            h = 8
+        elif c == '9':
+            h = 9
+        elif c == 'A' or c == 'a':
+            h = 10
+        elif c == 'B' or c == 'b':
+            h = 11
+        elif c == 'C' or c == 'c':
+            h = 12
+        elif c == 'D' or c == 'd':
+            h = 13
+        elif c == 'E' or c == 'e':
+            h = 14
+        elif c == 'F' or c == 'f':
+            h = 15
+        else:
+            return None
+        v *= 16
+        v += h
+
+    return v
+
+def to_byte_hexpair_str(v: int) -> str:
+    # return nibble_to_hex(v >> 4 & 0xF) + nibble_to_hex(v & 0xF) # BUG: Runtime error on bitwise operations
+    return nibble_to_hex((v // 0x10) % 0x10) + nibble_to_hex(v % 0x10)
+
+def nibble_to_hex(v: int) -> str:
+    if v == 0:
+        return '0'
+    if v == 1:
+        return '1'
+    if v == 2:
+        return '2'
+    if v == 3:
+        return '3'
+    if v == 4:
+        return '4'
+    if v == 5:
+        return '5'
+    if v == 6:
+        return '6'
+    if v == 7:
+        return '7'
+    if v == 8:
+        return '8'
+    if v == 9:
+        return '9'
+    if v == 10:
+        return 'a'
+    if v == 11:
+        return 'b'
+    if v == 12:
+        return 'c'
+    if v == 13:
+        return 'd'
+    if v == 14:
+        return 'e'
+    elif v == 15:
+        return 'f'
+    else:
+        raise ValueError("Value out of nibble range.")
+
+class Decimal64:
+    pass
+
+class IPv4Address:
+    pass
+
+class IPv6Address:
+    pass
+
+class IPv4AddressAndMask:
+    pass
+
+class IPv6AddressAndMask:
+    pass
+
+class DateTime:
+    pass
+
+class Date:
+    pass
+
+class Time:
+    pass
+
+class Duration:
+    pass

@@ -85,6 +85,14 @@ class BufferWriter(object):
         # self.write_bytes(bytes([v & 0xFF])) # BUG: Runtime error on bitwise operations
         self.write_bytes(bytes([v % 0x100]))
 
+    def write_u16_be(self, v: int):
+        # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
+
+    def write_u32_be(self, v: int):
+        # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
+
     def write_i16_be(self, v: int):
         # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
         self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))

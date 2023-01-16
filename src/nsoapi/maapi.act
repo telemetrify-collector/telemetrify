@@ -556,7 +556,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     action def finish_trans(thandle: int, result_cb: action(MaapiConnection, ?Exception) -> None):
         _send_user_maapi_request(_MAAPI_FINISH_TRANS, True, thandle, None, lambda v: _none_result_cb(v, result_cb))
 
-    action def set_values(thandle: int, path: Keypath, values: list[TagVal], result_cb: action(MaapiConnection, ?Exception) -> None):
+    action def set_values(thandle: int, path: EKeypath, values: list[ETagVal], result_cb: action(MaapiConnection, ?Exception) -> None):
         elems = []
         # elems.append(EList([v.to_eobject() for v in values], True))
         velems = []

@@ -1,25 +1,26 @@
+import nsoapi.conf as conf
 from nsoapi.conf import *
 from nsoapi.proto import *
 from nsoapi.utils import *
 
 # confd_cs_node.flags
-CS_NODE_IS_LIST = 1
-CS_NODE_IS_WRITE = 1 << 1
-CS_NODE_IS_CDB = 1 << 2
-CS_NODE_IS_ACTION = 1 << 3
-CS_NODE_IS_PARAM = 1 << 4
-CS_NODE_IS_RESULT = 1 << 5
-CS_NODE_IS_NOTIF = 1 << 6
-CS_NODE_IS_CASE = 1 << 7
-CS_NODE_IS_CONTAINER = 1 << 8
-CS_NODE_HAS_WHEN = 1 << 9
-CS_NODE_HAS_DISPLAY_WHEN = 1 << 10
-CS_NODE_META_DATA = 1 << 11
-CS_NODE_IS_WRITE_ALL = 1 << 12
-CS_NODE_IS_LEAF_LIST = 1 << 13
-CS_NODE_IS_LEAFREF = 1 << 14
-CS_NODE_HAS_MOUNT_POINT = 1 << 15
-CS_NODE_IS_STRING_AS_BINARY = 1 << 16
+CS_NODE_IS_LIST: i64 = 1
+CS_NODE_IS_WRITE: i64 = 1 << 1
+CS_NODE_IS_CDB: i64 = 1 << 2
+CS_NODE_IS_ACTION: i64 = 1 << 3
+CS_NODE_IS_PARAM: i64 = 1 << 4
+CS_NODE_IS_RESULT: i64 = 1 << 5
+CS_NODE_IS_NOTIF: i64 = 1 << 6
+CS_NODE_IS_CASE: i64 = 1 << 7
+CS_NODE_IS_CONTAINER: i64 = 1 << 8
+CS_NODE_HAS_WHEN: i64 = 1 << 9
+CS_NODE_HAS_DISPLAY_WHEN: i64 = 1 << 10
+CS_NODE_META_DATA: i64 = 1 << 11
+CS_NODE_IS_WRITE_ALL: i64 = 1 << 12
+CS_NODE_IS_LEAF_LIST: i64 = 1 << 13
+CS_NODE_IS_LEAFREF: i64 = 1 << 14
+CS_NODE_HAS_MOUNT_POINT: i64 = 1 << 15
+CS_NODE_IS_STRING_AS_BINARY: i64 = 1 << 16
 
 # NODE_NP_CONTAINER = 1
 # NODE_P_CONTAINER = 2
@@ -32,9 +33,265 @@ CS_NODE_IS_STRING_AS_BINARY = 1 << 16
 # # NODE_RESULT = 18
 # # NODE_NOTIFICATION = 32
 
+ROOT_MOUNT_ID = HTag(0, 0)
+
 class Schema:
-    def __init__(self):
-        pass
+    @property
+    _roots: HTagDict[Node]
+    @property
+    _nshash_to_namespace: dict[int, NamespaceDescription]
+    @property
+    _cns_to_namespace: dict[str, NamespaceDescription]
+    @property
+    _hash_to_name: dict[int, str]
+    @property
+    _name_to_hash: dict[str, int]
+    @property
+    _mount_id_maps: dict[HTag, NamespaceMaps]
+
+    def __init__(self,
+                    roots: HTagDict[Node],
+                    nshash_to_namespace: dict[int, NamespaceDescription],
+                    cns_to_namespace: dict[str, NamespaceDescription],
+                    hash_to_name: dict[int, str],
+                    name_to_hash: dict[str, int],
+                    mount_id_maps: dict[HTag, NamespaceMaps]):
+        self._roots = roots
+        self._nshash_to_namespace = nshash_to_namespace
+        self._cns_to_namespace = cns_to_namespace
+        self._hash_to_name = hash_to_name
+        self._name_to_hash = name_to_hash
+        self._mount_id_maps = mount_id_maps
+
+    def cns_to_namespace(self, cns: str) -> ?NamespaceDescription:
+        return try_get(self._cns_to_namespace, cns)
+
+    def nshash_to_namespace(self, ns_hash: int) -> ?NamespaceDescription:
+        return try_get(self._nshash_to_namespace, ns_hash)
+
+    def hash_to_name(self, _hash: int) -> ?str:
+        return try_get(self._hash_to_name, _hash)
+
+    def name_to_hash(self, name: str) -> ?int:
+        return try_get(self._name_to_hash, name)
+
+    def mount_id_map(self, mount_id: HTag) -> ?NamespaceMaps:
+        return try_get(self._mount_id_maps, mount_id)
+
+class Cursor:
+    @property
+    _schema: Schema
+    @property
+    _path: list[Node]
+    @property
+    _mount_points: list[?(HTag, NamespaceMaps)]
+
+    def __init__(self, schema: Schema):
+        self._schema = schema
+        self._path = []
+        _mount_points = []
+
+    def push(self, tag: Tag) -> bool:
+        node: ?Node = None
+        raise Exception("Not Implemented")
+        if node is not None:
+            if node.is_mount_point():
+                self._mount_points.append(None)
+
+    def pop(self):
+        path = self._path
+        if len(path) >= 1:
+            node: Node = path[-1]
+            if node.is_mount_point():
+                #self._mount_points.pop()
+                del self._mount_points[-1:]
+        #path.pop()
+        del path[-1:]
+
+    def set_mount_id(self: Cursor, mount_id: HTag) -> bool:
+        ns_maps = self._schema.mount_id_map(mount_id)
+        if ns_maps is not None:
+            self._mount_points[-1] = (mount_id, ns_maps)
+            return True
+        return False
+
+    def node(self: Cursor) -> Node:
+        return self._path[-1]
+
+    def prefix_to_namespace(self, prefix: str) -> ?NamespaceDescription:
+        mount_points = self._mount_points
+        for i in range(len(mount_points)-1, -1, -1):
+            entry: ?(HTag, NamespaceMaps) = mount_points[i]
+            if entry is not None:
+                nsmaps: NamespaceMaps = entry.1
+                ns_descr = try_get(nsmaps.prefix_to_namespace, prefix)
+                if ns_descr is not None:
+                    return ns_descr
+        return None
+
+    def ns_to_namespace(self, ns: str) -> ?NamespaceDescription:
+        mount_points = self._mount_points
+        for i in range(len(mount_points)-1, -1, -1):
+            entry: ?(HTag, NamespaceMaps) = mount_points[i]
+            if entry is not None:
+                nsmaps: NamespaceMaps = entry.1
+                ns_descr = try_get(nsmaps.ns_to_namespace, ns)
+                if ns_descr is not None:
+                    return ns_descr
+        return None
+
+    def module_to_namespace(self, module: str) -> ?NamespaceDescription:
+        mount_points = self._mount_points
+        for i in range(len(mount_points)-1, -1, -1):
+            entry: ?(HTag, NamespaceMaps) = mount_points[i]
+            if entry is not None:
+                nsmaps: NamespaceMaps = entry.1
+                ns_descr = try_get(nsmaps.module_to_namespace, module)
+                if ns_descr is not None:
+                    return ns_descr
+        return None
+
+    def cns_to_namespace(self, cns: str) -> ?NamespaceDescription:
+        return self._schema.cns_to_namespace(cns)
+
+    def prefix_to_ns(self, prefix: str) -> ?str:
+        ns_descr = self.prefix_to_namespace(prefix)
+        if ns_descr is not None:
+            return ns_descr.ns
+        return None
+
+    def prefix_to_nshash(self, prefix: str) -> ?int:
+        ns_descr = self.prefix_to_namespace(prefix)
+        if ns_descr is not None:
+            return ns_descr.ns_hash
+        return None
+
+    def ns_to_nshash(self, ns: str) -> ?int:
+        ns_descr = self.ns_to_namespace(ns)
+        if ns_descr is not None:
+            return ns_descr.ns_hash
+        return None
+
+    def ns_to_prefix(self, ns: str) -> ?str:
+        ns_descr = self.ns_to_namespace(ns)
+        if ns_descr is not None:
+            return ns_descr.prefix
+        return None
+
+    def module_to_ns(self, module: str) -> ?str:
+        ns_descr = self.module_to_namespace(module)
+        if ns_descr is not None:
+            return ns_descr.ns
+        return None
+
+    def module_to_nshash(self, module: str) -> ?int:
+        ns_descr = self.module_to_namespace(module)
+        if ns_descr is not None:
+            return ns_descr.ns_hash
+        return None
+
+    def nshash_to_prefix(self, ns_hash: int) -> ?str:
+        ns_descr = self._schema.nshash_to_namespace(ns_hash)
+        if ns_descr is not None:
+            return ns_descr.prefix
+        return None
+
+    def nshash_to_ns(self, ns_hash: int) -> ?str:
+        ns_descr = self._schema.nshash_to_namespace(ns_hash)
+        if ns_descr is not None:
+            return ns_descr.ns
+        return None
+
+    def nshash_to_module(self, ns_hash: int) -> ?str:
+        ns_descr = self._schema.nshash_to_namespace(ns_hash)
+        if ns_descr is not None:
+            return ns_descr.module
+        return None
+
+    def lookup_ptag(self, tag: Tag) -> ?PTag:
+        if isinstance(tag, PTag):
+            return tag
+        elif isinstance(tag, ITag):
+            _ns = tag.ns
+            if _ns is not None:
+                prefix = self.ns_to_prefix(_ns)
+                if prefix is not None:
+                    return PTag(prefix, tag.name)
+            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                return PTag(None, tag.name)
+        elif isinstance(tag, HTag):
+            name = self._schema.hash_to_name(tag.name_hash)
+            if name is not None:
+                if tag.ns_hash != 0:
+                    return PTag(None, name)
+                elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                    prefix = self.nshash_to_prefix(tag.ns_hash)
+                    if prefix is not None:
+                        return PTag(prefix, name)
+        return None
+
+    def lookup_itag(self, tag: Tag) -> ?ITag:
+        if isinstance(tag, ITag):
+            return tag
+        elif isinstance(tag, PTag):
+            _prefix = tag.prefix
+            if _prefix is not None:
+                ns = self.prefix_to_ns(_prefix)
+                if ns is not None:
+                    return ITag(ns, tag.name)
+            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                return ITag(None, tag.name)
+        elif isinstance(tag, HTag):
+            name = self._schema.hash_to_name(tag.name_hash)
+            if name is not None:
+                if tag.ns_hash != 0:
+                    return ITag(None, name)
+                elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                    ns = self.nshash_to_ns(tag.ns_hash)
+                    if ns is not None:
+                        return ITag(ns, name)
+        return None
+
+    def lookup_htag(self, tag: Tag) -> ?HTag:
+        if isinstance(tag, HTag):
+            return tag
+        elif isinstance(tag, PTag):
+            name_hash = self._schema.name_to_hash(tag.name)
+            if name_hash is not None:
+                _prefix = tag.prefix
+                if _prefix is not None:
+                    ns_hash = self.prefix_to_nshash(_prefix)
+                    if ns_hash is not None:
+                        return HTag(ns_hash, name_hash)
+                    else:
+                        return HTag(0, name_hash)
+        elif isinstance(tag, ITag):
+            name_hash = self._schema.name_to_hash(tag.name)
+            if name_hash is not None:
+                _ns = tag.ns
+                if _ns is not None:
+                    ns_hash = self.ns_to_nshash(_ns)
+                    if ns_hash is not None:
+                        return HTag(ns_hash, name_hash)
+                    else:
+                        return HTag(0, name_hash)
+        return None
+
+class NamespaceMaps:
+    @property
+    ns_to_namespace: dict[str, NamespaceDescription]
+    @property
+    prefix_to_namespace: dict[str, NamespaceDescription]
+    @property
+    module_to_namespace: dict[str, NamespaceDescription]
+
+    def __init__(self,
+                    ns_to_namespace: dict[str, NamespaceDescription],
+                    prefix_to_namespace: dict[str, NamespaceDescription],
+                    module_to_namespace: dict[str, NamespaceDescription]):
+        self.ns_to_namespace = ns_to_namespace
+        self.prefix_to_namespace = prefix_to_namespace
+        self.module_to_namespace = module_to_namespace
 
 class NamespaceDescription:
     @property
@@ -127,8 +384,6 @@ class RawNode:
     metadata: dict[str, str]
     @property
     mount_id_hashes: ?(int, int) # ?tuple[int, int]
-    @property
-    mount_id_ns_hash: int
 
     def __init__(self,
             node_id: int,
@@ -259,33 +514,6 @@ class RawKeys:
                         keys.append(e.val)
                 return RawKeys(_node_id.val, keys)
 
-class Tag:
-    @property
-    ns_hash: int
-    @property
-    name_hash: int
-    # @property
-    # ns_descr: NamespaceDescription
-    # @property
-    # name: str
-
-    def __init__(self, ns_hash: int, name_hash: int):
-        self.ns_hash = ns_hash
-        self.name_hash = name_hash
-
-# extension Tag(Eq):
-#     # def __eq__(a: Tag, b: Tag) -> bool:
-#     #     return a.name_hash == b.name_hash and a.ns_hash == b.ns_hash
-#     def __eq__(self, other: Tag) -> bool:
-#         return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
-
-extension Tag(Hashable):
-    def __eq__(self, other: Tag) -> bool:
-        return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
-
-    def __hash__(self) -> int:
-        return self.ns_hash + self.name_hash
-
 class TypeId:
     @property
     ns_hash: int
@@ -314,7 +542,7 @@ class Node:
     # @property:
     # node_type: int
     @property
-    tag: Tag
+    tag: HTag
     @property
     min_occurs: int
     @property
@@ -328,9 +556,9 @@ class Node:
     @property
     keys: list[Node]
     @property
-    children: dict[Tag, Node]
+    children: dict[HTag, Node]
 
-    def __init__(self, tag: Tag, min_occurs: int, max_occurs: int, flags: i64, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[Tag, Node]):
+    def __init__(self, tag: HTag, min_occurs: int, max_occurs: int, flags: i64, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[HTag, Node]):
         self.tag = tag
         self.min_occurs = min_occurs
         self.max_occurs = max_occurs
@@ -387,6 +615,12 @@ class Node:
     def is_mount_point(self):
         return self.flags & CS_NODE_HAS_MOUNT_POINT != 0
 
+    # def get_namespace(self, schema: Schema) -> NamespaceDescription:
+    #     ...
+
+    # def get_name(self, schema: Schema) -> str:
+    #     ...
+
 class Type(object):
     @property
     type_id: TypeId
@@ -438,17 +672,41 @@ class Type(object):
                 return Type(type_id, parent_type)
         return None
 
-    def try_string_to_value(self, node: Node, s: str) -> ?value:
+    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+        retval = None
+        parent = self.parent_type
+        if parent is not None:
+            retval = parent.netconf_to_value(s, cursor, prefix_to_ns)
+        if retval is None:
+            retval = Any.netconf_to_value(s, cursor, prefix_to_ns)
+        return retval
+
+    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?str:
+        retval = None
+        parent = self.parent_type
+        if parent is not None:
+            retval = parent.value_to_netconf(v, cursor)
+        if retval is None:
+            retval = Any.value_to_netconf(v, cursor)
+        return retval
+
+    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        retval = None
+        parent = self.parent_type
+        if parent is not None:
+            retval = parent.value_to_eobject(v, cursor, use_ikp)
+        if retval is None:
+            retval = Any.value_to_eobject(v, cursor, use_ikp)
+        return retval
+
+    def eobject_to_value(self, node: Node, obj: ?EObject) -> ?value:
         return None
 
-    def try_value_to_string(self, node: Node, v: ?value) -> ?str:
-        return None
+    # def netconf_to_eobject(self, node: Node, s: str) -> ?EObject:
+    #     return netvalue_to_eobject(netconf_to_value(node, s))
 
-    def try_eobject_to_value(self, node: Node, obj: ?EObject) -> ?value:
-        return None
-
-    def try_value_to_eobject(self, node: Node, v: ?value) -> ?EObject:
-        return None
+    def validate_value(self, node: Node, v: ?value) -> bool:
+        return False
 
 class Enum(Type):
     @property
@@ -474,11 +732,13 @@ actor SchemaBuilder():
     var raw_nodes: dict[int, RawNode] = {}
     var raw_keys: dict[int, RawKeys] = {}
     var curr_ns: NamespaceDescription = NamespaceDescription("", "", "", 0, "", "")
+    var curr_mount_id: HTag = ROOT_MOUNT_ID
 
     var hash_to_name: dict[int, str] = {}
     var name_to_hash: dict[str, int] = {}
     var namespaces: dict[int, NamespaceDescription] = {}
-    var roots: dict[Tag, Node] = {}
+    var mount_id_namespaces: dict[HTag, list[NamespaceDescription]] = {}
+    var roots: dict[HTag, Node] = {}
     var types: dict[TypeId, Type] = {}
 
     def on_ns_term(term: EObject) -> value:
@@ -569,10 +829,42 @@ actor SchemaBuilder():
                                 _ns_hash = _elems[0]
                                 _name_hash = _elems[1]
                                 if isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
-                                    ns = hash_to_name.get(_ns_hash.val, "")
-                                    name = hash_to_name.get(_name_hash.val, "")
+                                    # ns = hash_to_name.get(_ns_hash.val, "")
+                                    # name = hash_to_name.get(_name_hash.val, "")
                                     # if ns and name:
                                     #     print("-- mount_id", ns + ":" + name)
+                                    curr_mount_id = HTag(_ns_hash.val, _name_hash.val)
+                                    return
+                        elif isinstance(_mount_id, EList) and len(_mount_id.elems) == 0:
+                            curr_mount_id = ROOT_MOUNT_ID
+                            return
+                elif isinstance(_etype, ETuple) and len(_etype.elems) == 2 and len(t) >= 2:
+                    a_elems = _etype.elems
+                    _netype = a_elems[0]
+                    _cns = a_elems[1]
+                    _b_elems = t[1]
+                    if isinstance(_netype, EAtom) and _netype.val == 'ns' and isinstance(_cns, EAtom) \
+                        and isinstance(_b_elems, ETuple) and len(_b_elems.elems) >= 4:
+                        b_elems = _b_elems.elems
+                        _prefix = b_elems[0]
+                        _ns = b_elems[1]
+                        _module = b_elems[2]
+                        _nshash = b_elems[3]
+                        if isinstance(_prefix, EAtom) \
+                            and isinstance(_ns, EAtom) \
+                            and isinstance(_module, EAtom) \
+                            and isinstance(_nshash, EInt):
+                            ns_hash = _nshash.val
+                            ns_descr = try_get(namespaces, ns_hash)
+                            if ns_descr is not None:
+                                nslist = try_get(mount_id_namespaces, curr_mount_id)
+                                if nslist is not None:
+                                    nslist.append(ns_descr)
+                                else:
+                                    mount_id_namespaces[curr_mount_id] = list([ns_descr])
+                            else:
+                                print("WARNING: mount_id", curr_mount_id, "references unknown namespace:", ns_hash)
+                            return
         #print("WARNING: Unexpected schema hash_db elem:", elem)
 
     def _assemble_node_trees():
@@ -585,7 +877,7 @@ actor SchemaBuilder():
         raw_nodes = {} # raw_nodes.clear()
         raw_keys = {} # raw_keys.clear()
 
-    def _build_node_tree(node_id: int) -> dict[Tag, Node]:
+    def _build_node_tree(node_id: int) -> dict[HTag, Node]:
         result = {}
 
         while node_id != 0:
@@ -627,17 +919,38 @@ actor SchemaBuilder():
 
         return result
 
-    def _make_tag(ns_hash: int, name_hash: int) -> Tag:
-        tag = Tag(ns_hash, name_hash)
+    def _make_tag(ns_hash: int, name_hash: int) -> HTag:
+        tag = HTag(ns_hash, name_hash)
         return tag
         # TODO: Store tag for reuse
 
     def build() -> Schema:
         _pretty_print_nodes(roots, "")
         _pretty_print_types(types, "")
-        return Schema()
 
-    def _pretty_print_nodes(nodes: dict[Tag, Node], indent: str):
+        _roots: HTagDict[Node] = HTagDict()
+        _cns_to_namespace: dict[str, NamespaceDescription] = {}
+        _mount_id_maps: dict[HTag, NamespaceMaps] = {}
+
+        for htag, node in roots.items():
+            _roots[htag] = node
+
+        for ns_descr in namespaces.values():
+            _cns_to_namespace[ns_descr.cns] = ns_descr
+
+        for mount_id, ns_items in mount_id_namespaces.items():
+            _ns_to_namespace: dict[str, NamespaceDescription] = {}
+            _prefix_to_namespace: dict[str, NamespaceDescription] = {}
+            _module_to_namespace: dict[str, NamespaceDescription] = {}
+            for ns_descr in ns_items:
+                _ns_to_namespace[ns_descr.ns] = ns_descr
+                _prefix_to_namespace[ns_descr.prefix] = ns_descr
+                _module_to_namespace[ns_descr.module] = ns_descr
+            _mount_id_maps[mount_id] = NamespaceMaps(_ns_to_namespace, _prefix_to_namespace, _module_to_namespace)
+
+        return Schema(_roots, namespaces, _cns_to_namespace, hash_to_name, name_to_hash, _mount_id_maps)
+
+    def _pretty_print_nodes(nodes: dict[HTag, Node], indent: str):
         for node in nodes.values():
             keys = ""
             if node.keys:
@@ -696,19 +1009,673 @@ actor SchemaBuilder():
         if parent_type is not None:
             _pretty_print_type(parent_type, indent + "  ")
 
-# def _force_ext():
-#     # Force compilation of schema.ext.c
-#     NotImplemented
+#
+# Type conversions
+#
 
-# class ConfTypeConverter:
-#     def string_to_value(s: str) -> ?value:
-#         raise Exception("Not Implemented")
+class Integer:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?int:
+        return try_parse_int(s)
 
-#     def value_to_string(v: ?value) -> str:
-#         raise Exception("Not Implemented")
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if isinstance(v, int):
+            return str(v)
+        return None
 
-#     def value_to_eobject(v: ?value) -> ?EObject:
-#         raise Exception("Not Implemented")
+    @staticmethod
+    def value_to_eobject(v: ?value, conf_type: int) -> ?EObject:
+        if isinstance(v, int):
+            if conf_type == C_INT8:
+                return ETuple([EInt(C_INT8), EInt(v)])
+            elif conf_type == C_INT16:
+                return ETuple([EInt(C_INT16), EInt(v)])
+            if conf_type == C_INT32:
+                return EInt(v)
+            elif conf_type == C_INT64:
+                return ETuple([EInt(C_INT64), EInt(v)])
+            elif conf_type == C_UINT8:
+                return ETuple([EInt(C_UINT8), EInt(v)])
+            elif conf_type == C_UINT16:
+                return ETuple([EInt(C_UINT16), EInt(v)])
+            elif conf_type == C_UINT32:
+                return ETuple([EInt(C_UINT32), EInt(v)])
+            elif conf_type == C_UINT64:
+                return ETuple([EInt(C_UINT64), EInt(v)])
+            elif conf_type == C_BIT32:
+                return ETuple([EInt(C_BIT32), EInt(v)])
+            elif conf_type == C_BIT64:
+                return ETuple([EInt(C_BIT64), EInt(v)])
+        return None
 
-#     def validate(v: ?value) -> bool:
-#         raise Exception("Not Implemented")
+class Bit:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?int:
+        return try_parse_int(s)
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if isinstance(v, int):
+            return str(v)
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value, conf_type: int) -> ?EObject:
+        if isinstance(v, int):
+            if conf_type == C_BIT32:
+                return ETuple([EInt(C_BIT32), EInt(v)])
+            elif conf_type == C_BIT64:
+                return ETuple([EInt(C_BIT64), EInt(v)])
+            elif conf_type == C_BITBIG:
+                raise Exception("Not Implemented")
+        return None
+
+class Float_:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?float:
+        return try_parse_float(s)
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if isinstance(v, float):
+            return str(v)
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value, conf_type: int) -> ?EObject:
+        if isinstance(v, float):
+            # if conf_type == C_FLOAT:
+            #     raise Exception("Not Implemented")
+            if conf_type == C_DOUBLE:
+                raise Exception("Not Implemented")
+
+class Boolean:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?bool:
+        if s == 'true':
+            return True
+        elif s == 'false':
+            return False
+        else:
+            return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if isinstance(v, bool):
+            return 'true' if v else 'false'
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        if isinstance(v, bool):
+            return EAtom.from_bool(v)
+        return None
+
+class IPv4:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?IPv4Address:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class IPv6:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?IPv6Address:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class IPv4Prefix:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?IPv4AddressAndMask:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class IPv6Prefix:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?IPv6AddressAndMask:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class IPv4AndPrefixLen:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?IPv4AddressAndMask:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class IPv6AndPrefixLen:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?IPv6AddressAndMask:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class DateTime_:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?DateTime:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class Date_:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?Date:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class Time_:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?Time:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class Duration_:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?Duration:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class Enumeration:
+    @staticmethod
+    def netconf_to_value(s: str) -> str:
+        return s
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if v is not None and isinstance(v, str):
+            return v
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # This should have been handled in schema type-converter
+        return None
+
+class QName:
+    @staticmethod
+    def netconf_to_value(s: str, prefix_to_ns: ?(?str) -> ?str) -> ?Tag:
+        return ConfTaggedTag.netconf_to_value(s, prefix_to_ns)
+
+    @staticmethod
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?str:
+        return ConfTaggedTag.value_to_netconf(v, cursor)
+
+    @staticmethod
+    def value_to_eobject(v: ?value, cursor: Cursor) -> ?EObject:
+        if v is not None and isinstance(v, Tag):
+            ptag = cursor.lookup_ptag(v)
+            if ptag is not None:
+                _p = ptag.prefix
+                _prefix = _p if _p is not None else 'undefined'
+                return ETuple([EInt(C_QNAME), ETuple([EAtom(_prefix), EAtom(ptag.name)])])
+        return None
+
+class ConfTaggedTag:
+    @staticmethod
+    def netconf_to_value(s: str, prefix_to_ns: ?(?str) -> ?str) -> ?Tag:
+        return BasicTag.netconf_to_value(s, prefix_to_ns)
+
+    @staticmethod
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?str:
+        return BasicTag.value_to_netconf(v, cursor)
+
+    @staticmethod
+    def value_to_eobject(v: ?value, cursor: Cursor, use_ikp: bool, conf_type: int) -> ?EObject:
+        inner = BasicTag.value_to_eobject(v, cursor, use_ikp)
+        if inner is not None:
+            return ETuple([EInt(conf_type), inner])
+        return None
+
+class BasicTag:
+    @staticmethod
+    def netconf_to_value(s: str, prefix_to_ns: ?(?str) -> ?str) -> ?Tag:
+        prefix: ?str = None
+        p = s.split(":", 1)
+        name = p[-1]
+        if len(p) == 2:
+            prefix = p[0]
+        if prefix_to_ns is not None:
+            _prefix_to_ns: (?str) -> ?str = prefix_to_ns
+            ns = _prefix_to_ns(prefix)
+            if ns is not None:
+                return ITag(ns, name)
+            else:
+                return PTag(prefix, name)
+        else:
+            return PTag(prefix, name)
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?str:
+        if v is not None and isinstance(v, Tag):
+            ptag = cursor.lookup_ptag(v)
+            if ptag is not None:
+                _prefix = ptag.prefix
+                return _prefix + ":" + ptag.name if _prefix is not None else ptag.name
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        if v is not None and isinstance(v, Tag):
+            if use_ikp:
+                itag = cursor.lookup_itag(v)
+                if itag is not None:
+                    _ns = itag.ns
+                    if _ns is not None:
+                        return ETuple([EAtom(_ns), EAtom(itag.name)])
+                    else:
+                        return EAtom(itag.name)
+            else:
+                htag = cursor.lookup_htag(v)
+                if htag is not None:
+                    if htag.ns_hash == 0:
+                        return EInt(htag.name_hash)
+                    else:
+                        return ETuple([EInt(htag.ns_hash), EInt(htag.name_hash)])
+        return None
+
+class InstanceIdentifier:
+    @staticmethod
+    def netconf_to_value(s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?Keypath:
+        # TODO: parse xpath -> keypath
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value, cursor: Cursor) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class Oid:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?list[int]:
+        retval = []
+        for p in s.split(".", -1):
+            n = Integer.netconf_to_value(p)
+            if n is not None:
+                retval.append(n)
+            else:
+                return None
+        return retval if len(retval) > 0 else None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if v is not None and isinstance(v, list): # if v is not None and isinstance(v, list[int]):
+            # return ".".join(str(x) for x in v)
+            sl = []
+            for x in v:
+                sl.append(str(x))
+            return ".".join(sl)
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        if v is not None and isinstance(v, list): # if v is not None and isinstance(v, list[int]):
+            w = BufferWriter()
+            for x in v:
+                w.write_u32_be(x)
+            return ETuple([EInt(C_OID), EBinary(w.to_bytes())])
+        return None
+
+class Binary:
+    @staticmethod
+    def confstr_to_value(s: str) -> ?bytes:
+        if s.startswith("<<", None, None) and s.endswith(">>", None, None):
+            # return s.encode() # actonc: #### findAttr' fails for __builtin__.value . decode
+            _s: str = s[2:-2]
+            return _s.encode()
+        return s.encode()
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if v is not None and isinstance(v, bytes):
+            _v: bytes = v
+            return _v.decode()
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        if v is not None and isinstance(v, bytes):
+            return ETuple([EInt(C_BINARY), EBinary(v)])
+        return None
+
+class Decimal64_:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?Decimal64:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class DottedQuad:
+    @staticmethod
+    def confstr_to_value(s: str) -> ?int:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value,) -> ?str:
+        # TODO: Implement
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        # TODO: Implement
+        return None
+
+class HexString:
+    @staticmethod
+    def netconf_to_value(s: str) -> ?bytes:
+        s = s.strip("<>\"")
+        p = s.split(":", -1)
+        vl = []
+        if len(p) > 0:
+            for h in p:
+                v = try_parse_hex(h)
+                if v is not None and v <= 0xFF:
+                    vl.append(v)
+                else:
+                    return None
+            return bytes(vl)
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value) -> ?str:
+        if v is not None and isinstance(v, bytes):
+            sl = []
+            for b in v:
+                sl.append(to_byte_hexpair_str(b))
+            return ":".join(sl)
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value) -> ?EObject:
+        if v is not None and isinstance(v, bytes):
+            return ETuple([EInt(C_HEXSTR), EBinary(v)])
+        return None
+
+class Any:
+    @staticmethod
+    def netconf_to_value(s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+        conf_type = cursor.node().conf_type
+        if conf_type == C_NOEXISTS:
+            return V_NOEXISTS
+        elif conf_type == C_XMLTAG:
+            return None # Deprecated / Not in use?
+        elif conf_type == C_SYMBOL:
+            return None # Not in use?
+        elif conf_type == C_STR:
+            return s
+        elif conf_type == C_BUF:
+            return s
+        elif conf_type == C_INT8:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_INT16:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_INT32:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_INT64:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_UINT8:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_UINT16:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_UINT32:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_UINT64:
+            return Integer.netconf_to_value(s)
+        elif conf_type == C_DOUBLE:
+            return Float_.netconf_to_value(s)
+        elif conf_type == C_IPV4:
+            return IPv4.netconf_to_value(s)
+        elif conf_type == C_IPV6:
+            return IPv6.netconf_to_value(s)
+        elif conf_type == C_BOOL:
+            return Boolean.netconf_to_value(s)
+        elif conf_type == C_QNAME:
+            return QName.netconf_to_value(s, prefix_to_ns) # ITag('undefined', s) # ??? As java-api ...
+        elif conf_type == C_DATETIME:
+            return DateTime_.netconf_to_value(s)
+        elif conf_type == C_DATE:
+            return Date_.netconf_to_value(s)
+        elif conf_type == C_TIME:
+            return Time_.netconf_to_value(s)
+        elif conf_type == C_DURATION:
+            return Duration_.netconf_to_value(s)
+        elif conf_type == C_ENUM_VALUE:
+            return Enumeration.netconf_to_value(s)
+        elif conf_type == C_BIT32:
+            return Bit.netconf_to_value(s)
+        elif conf_type == C_BIT64:
+            return Bit.netconf_to_value(s)
+        elif conf_type == C_BITBIG:
+            return Bit.netconf_to_value(s)
+        elif conf_type == C_LIST:
+            return None # Leaf-list values must be converted per value
+        elif conf_type == C_IDENTITYREF:
+            return ConfTaggedTag.netconf_to_value(s, prefix_to_ns)
+        elif conf_type == C_INSTANCE_IDENTIFIER:
+            return InstanceIdentifier.netconf_to_value(s, cursor, prefix_to_ns)
+        elif conf_type == C_OID:
+            return Oid.netconf_to_value(s)
+        elif conf_type == C_BINARY:
+            return Binary.confstr_to_value(s)
+        elif conf_type == C_IPV4PREFIX:
+            return IPv4Prefix.netconf_to_value(s)
+        elif conf_type == C_IPV6PREFIX:
+            return IPv6Prefix.netconf_to_value(s)
+        elif conf_type == C_DEFAULT:
+            return V_DEFAULT
+        elif conf_type == C_DECIMAL64:
+            return Decimal64_.netconf_to_value(s)
+        elif conf_type == C_DQUAD:
+            return DottedQuad.confstr_to_value(s)
+        elif conf_type == C_HEXSTR:
+            return HexString.netconf_to_value(s)
+        elif conf_type == C_IPV4_AND_PLEN:
+            return IPv4AndPrefixLen.netconf_to_value(s)
+        elif conf_type == C_IPV6_AND_PLEN:
+            return IPv6AndPrefixLen.netconf_to_value(s)
+        return None
+
+    @staticmethod
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?str:
+        # TODO
+        return None
+
+    @staticmethod
+    def value_to_eobject(v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        conf_type = cursor.node().conf_type
+        if conf_type == C_NOEXISTS:
+            return EAtom('not_found')
+        elif conf_type == C_XMLTAG:
+            return None # Deprecated?
+        elif conf_type == C_SYMBOL:
+            return None # Deprecated?
+        elif conf_type == C_STR:
+            return EBinary.from_str(v + "\0") if v is not None and isinstance(v, str) else None
+        elif conf_type == C_BUF:
+            return EBinary.from_str(v) if v is not None and isinstance(v, str) else None
+        elif conf_type == C_INT8:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_INT16:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_INT32:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_INT64:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_UINT8:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_UINT16:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_UINT32:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_UINT64:
+            return Integer.value_to_eobject(v, conf_type)
+        elif conf_type == C_DOUBLE:
+            return Float_.value_to_eobject(v, conf_type)
+        elif conf_type == C_IPV4:
+            return IPv4.value_to_eobject(v)
+        elif conf_type == C_IPV6:
+            return IPv6.value_to_eobject(v)
+        elif conf_type == C_BOOL:
+            return Boolean.value_to_eobject(v)
+        elif conf_type == C_QNAME:
+            return QName.value_to_eobject(v, cursor) # ??? As java-api ...
+        elif conf_type == C_DATETIME:
+            return DateTime_.value_to_eobject(v)
+        elif conf_type == C_DATE:
+            return Date_.value_to_eobject(v)
+        elif conf_type == C_TIME:
+            return Time_.value_to_eobject(v)
+        elif conf_type == C_DURATION:
+            return Duration_.value_to_eobject(v)
+        elif conf_type == C_ENUM_VALUE:
+            return Enumeration.value_to_eobject(v)
+        elif conf_type == C_BIT32:
+            return Bit.value_to_eobject(v, C_BIT32)
+        elif conf_type == C_BIT64:
+            return Bit.value_to_eobject(v, C_BIT64)
+        elif conf_type == C_BITBIG:
+            return Bit.value_to_eobject(v, C_BITBIG)
+        elif conf_type == C_LIST:
+            return None # Leaf-list values must be converted per value
+        elif conf_type == C_IDENTITYREF:
+            return ConfTaggedTag.value_to_eobject(v, cursor, False, C_IDENTITYREF) # Always use hkp format?
+        elif conf_type == C_INSTANCE_IDENTIFIER:
+            return InstanceIdentifier.value_to_eobject(v, cursor)
+        elif conf_type == C_OID:
+            return Oid.value_to_eobject(v)
+        elif conf_type == C_BINARY:
+            return Binary.value_to_eobject(v)
+        elif conf_type == C_IPV4PREFIX:
+            return IPv4Prefix.value_to_eobject(v)
+        elif conf_type == C_IPV6PREFIX:
+            return IPv6Prefix.value_to_eobject(v)
+        elif conf_type == C_DEFAULT:
+            return EAtom('default')
+        elif conf_type == C_DECIMAL64:
+            return Decimal64_.value_to_eobject(v)
+        elif conf_type == C_DQUAD:
+            return DottedQuad.value_to_eobject(v)
+        elif conf_type == C_HEXSTR:
+            return HexString.value_to_eobject(v)
+        elif conf_type == C_IPV4_AND_PLEN:
+            return IPv4AndPrefixLen.value_to_eobject(v)
+        elif conf_type == C_IPV6_AND_PLEN:
+            return IPv6AndPrefixLen.value_to_eobject(v)
+        return None
+
+    @staticmethod
+    def eobject_to_value(v: ?EObject, cursor: Cursor) -> ?value:
+        # TODO
+        return None

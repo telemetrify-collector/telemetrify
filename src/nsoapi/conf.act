@@ -1,21 +1,28 @@
 from nsoapi.proto import *
+from nsoapi.utils import *
 
-C_NOEXISTS = 1
-C_XMLTAG= 2
-C_BUF = 5 # YANG: string; eterm: EBinary(value)
-C_INT8 = 6 # YANG: int8; eterm: ETuple(EInt(C_INT8), EInt(value))
-C_INT16 = 7 # YANG: int16; eterm: ETuple(EInt(C_INT16), EInt(value))
-C_INT32 = 8 # YANG: int32; eterm: EInt(value)
-C_INT64 = 9 # YANG: int64; eterm: ETuple(EInt(C_INT64), EInt(value))
-C_UINT8 = 10 # YANG: unsigned int8; eterm: ETuple(C_UINT8, value)
-C_UINT16 = 11 # YANG: unsigned int16; eterm: ETuple(C_UINT16, value)
-C_UINT32 = 12 # YANG: unsigned int32; eterm: ETuple(C_UINT32, value)
-C_UINT64 = 13 # YANG: unsigned int64; eterm: ETuple(C_UINT64, value)
-C_DOUBLE = 14 # XML xs:float/xs:double; eterm: EFloat(value)/EDouble(value)
-C_IPV4 = 15 # YANG: inet:ipv4-address A.B.C.D; eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D))
-C_IPV6 = 16 # YANG: inet:ipv6-address A:B:C:D:E:F:G:H; eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H))
-C_BOOL = 17 # YANG: boolean; eterm: EAtom('true') or EAtom('false')
-C_QNAME = 18 # XML xs:QName; eterm: ETuple(EBinary(ns), EBinary(name)}
+#
+# Conf types
+#
+
+C_NOEXISTS = 1 # YANG: -; acton: None, eterm: EAtom('not_found')
+C_XMLTAG = 2
+C_SYMBOL = 3
+C_STR = 4
+C_BUF = 5 # YANG: string; acton: str; eterm: EBinary(value)
+C_INT8 = 6 # YANG: int8; acton: int; eterm: ETuple(EInt(C_INT8), EInt(value))
+C_INT16 = 7 # YANG: int16; acton: int; eterm: ETuple(EInt(C_INT16), EInt(value))
+C_INT32 = 8 # YANG: int32; acton: int; eterm: EInt(value)
+C_INT64 = 9 # YANG: int64; acton: int; eterm: ETuple(EInt(C_INT64), EInt(value))
+C_UINT8 = 10 # YANG: unsigned int8; acton: int; eterm: ETuple(C_UINT8, value)
+C_UINT16 = 11 # YANG: unsigned int16; acton: int; eterm: ETuple(C_UINT16, value)
+C_UINT32 = 12 # YANG: unsigned int32; acton: int; eterm: ETuple(C_UINT32, value)
+C_UINT64 = 13 # YANG: unsigned int64; acton: int; eterm: ETuple(C_UINT64, value)
+C_DOUBLE = 14 # XML xs:float/xs:double; acton: double; eterm: EFloat(value)/EDouble(value)
+C_IPV4 = 15 # YANG: inet:ipv4-address A.B.C.D; acton: (A:int,B:int,C:int,D:int); eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D))
+C_IPV6 = 16 # YANG: inet:ipv6-address A:B:C:D:E:F:G:H; acton: (A:int,B:int,C:int,D:int,E:int,F:int,G:int,H:int); eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H))
+C_BOOL = 17 # YANG: boolean; acton: bool; eterm: EAtom('true') or EAtom('false')
+C_QNAME = 18 # XML xs:QName; acton: [ns:str,name:str]; eterm: ETuple(EBinary(ns), EBinary(name)}
 C_DATETIME = 19 # YANG: yang:date-and-time; eterm: ETuple(C_DATETIME, ETuple(EInt(Y),EInt(M),EInt(D),EInt(H),EInt(M),EInt(S),EInt(Mcr),EInt(TZ),EInt(TZM)))
 C_DATE = 20 # XML xs:date; eterm: ETuple(C_DATE, ETuple(EInt(Y),EInt(M),EInt(D),EInt(TZ),EInt(TZM)))
 C_TIME = 23 # XML xs:time; eterm: ETuple(C_TIME, ETuple(EInt(H),EInt(M),EInt(S),EInt(Mcr),EInt(TZ),EInt(TZM)))
@@ -32,6 +39,7 @@ C_OID = 38 # YANG: yang:object-identifier; eterm: ETuple(C_OID, EBinary(u32.to_b
 C_BINARY = 39 # YANG: binary, yang:hex-string, tailf:hex-list, ... ; eterm: ETuple(C_BINARY, EBinary(value)}
 C_IPV4PREFIX = 40 # YANG: inet:ipv4-prefix; eterm: ETuple(C_IPV4PREFIX, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D)), EInt(prefix_len)))
 C_IPV6PREFIX = 41 # YANG: inet:ipv6-prefix; eterm: ETuple(C_IPV6PREFIX, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H)), EInt(prefix_len)))
+C_DEFAULT = 42 # YANG: `default-value`; acton: -; eterm: EAtom('default')
 C_DECIMAL64 = 43 # YANG: decimal64); eterm: ETuple(C_DECIMAL64, ETuple(EInt(raw_value), EInt(fraction_digits)))
 C_IDENTITYREF = 44 # YANG: identityref; eterm: ETuple(C_IDENTITYREF, ETuple(EInt(ns_hash), EInt(name_hash)))
 C_XMLBEGINDEL = 45
@@ -43,48 +51,168 @@ C_BITBIG = 50 # YANG: bits size > 64; eterm: ETuple(C_BITBIG, EBinary(value))
 C_XMLMOVEFIRST = 51 # ordered-by-user move first
 C_XMLMOVEAFTER = 52 # ordered-by-user move after
 
-class Keypath:
+#
+# Special conf values
+#
+
+class ConfDefault:
+    def __init__(self):
+        pass
+
+V_NOEXISTS = None # TODO: object() # 'not_found'
+V_DEFAULT = ConfDefault() # TODO: object() # 'default'
+
+class EKeypath:
     def __init__(self, elems: list[EObject]):
         self.elems = elems
 
     def to_eobject(self) -> EObject:
         return EList(self.elems, True)
 
-# class QTag:
+# class ETag:
 #     def to_eobject(self) -> EObject:
 #         return EAtom('')
 
-class TagVal:
+class ETagVal:
     def __init__(self, qtag: EObject, val: EObject):
         self.qtag = qtag
         self.val = val
 
     @staticmethod
     def xml_begin(qtag: EObject):
-        return TagVal(qtag, EAtom('start'))
+        return ETagVal(qtag, EAtom('start'))
 
     @staticmethod
     def xml_begin_index(qtag: EObject, index: int): # CDB only, not for MAAPI :/
-        return TagVal(qtag, ETuple([EAtom('start'), EInt(index)]))
+        return ETagVal(qtag, ETuple([EAtom('start'), EInt(index)]))
 
     @staticmethod
     def xml_end(qtag: EObject):
-        return TagVal(qtag, EAtom('stop'))
+        return ETagVal(qtag, EAtom('stop'))
 
     @staticmethod
     def xml_empty_leaf(qtag: EObject):
-        return TagVal(qtag, EAtom('leaf'))
+        return ETagVal(qtag, EAtom('leaf'))
 
     @staticmethod
     def xml_begin_del(qtag: EObject): # Delete list-entries only :/
-        return TagVal(qtag, EAtom('delete'))
+        return ETagVal(qtag, EAtom('delete'))
 
     def to_eobject(self) -> EObject:
         return ETuple([self.qtag, self.val])
 
-class ConfObject:
+class Tag:
     pass
 
-class ConfInteger(ConfObject):
-    def __init__(self, val: int, vtype):
-        pass
+class HTag(Tag):
+    @property
+    ns_hash: int
+    @property
+    name_hash: int
+
+    def __init__(self, ns_hash: int, name_hash: int):
+        self.ns_hash = ns_hash
+        self.name_hash = name_hash
+
+extension HTag(Hashable):
+    def __eq__(self, other: HTag) -> bool:
+        return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
+
+    def __hash__(self) -> int:
+        return self.ns_hash + self.name_hash
+
+class ITag(Tag):
+    @property
+    ns: ?str
+    @property
+    name: str
+
+    def __init__(self, ns: ?str, name: str):
+        self.ns = ns
+        self.name = name
+
+    def __str__(self) -> str:
+        _ns = self.ns
+        return _ns + ":" + self.name if _ns is not None else self.name
+
+extension ITag(Hashable):
+    def __eq__(self, other: ITag) -> bool:
+        return self.name == other.name and self.ns == other.ns
+
+    def __hash__(self) -> int:
+        _ns = self.ns
+        return hash(_ns) + hash(self.name) if _ns is not None else hash(self.name)
+
+class PTag(Tag):
+    @property
+    prefix: ?str
+    @property
+    name: str
+
+    def __init__(self, prefix: ?str, name: str):
+        self.prefix = prefix
+        self.name = name
+
+    def __str__(self) -> str:
+        _prefix = self.prefix
+        return _prefix + ":" + self.name if _prefix is not None else self.name
+
+extension PTag(Hashable):
+    def __eq__(self, other: PTag) -> bool:
+        return self.name == other.name and self.prefix == other.prefix
+
+    def __hash__(self) -> int:
+        _prefix = self.prefix
+        return hash(_prefix) + hash(self.name) if _prefix is not None else hash(self.name)
+
+# class ConfObject:
+#     pass
+
+class HTagDict[T](object):
+    @property
+    names: dict[int, value]
+
+    def __init__(self):
+        self.names = {}
+
+    def try_get_tag(self, k: HTag) -> ?T:
+        e: ?value = try_get(self.names, k.name_hash)
+        if e is not None:
+            if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+                if e.a == k.ns_hash:
+                    return e.b
+            elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+                return try_get(e, k.ns_hash)
+        return None
+
+    def try_get_unique_name(self, name_hash: int, hint_ns_hash: int) -> ?T:
+        e: ?value = try_get(self.names, name_hash)
+        if e is not None:
+            if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+                # Accept unique name
+                return e.b
+            elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+                # Require hinted ns_hash if name is not unique
+                return try_get(e, hint_ns_hash)
+        return None
+
+extension HTagDict[T](Indexed[HTag, T]):
+    def __getitem__(self, k: HTag):
+        raise Exception("Not Implemented")
+
+    def __setitem__(self, k: HTag, v: T):
+        e: ?value = try_get(self.names, k.name_hash)
+        if e is not None:
+            if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+                self.names[k.name_hash] = {e.a: e.b, k.ns_hash: v}
+            elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+                    e[k.ns_hash] = v
+        else:
+            #self.names[k.name_hash] = (k.ns_hash, v) # tuple is not subtype of value
+            self.names[k.name_hash] = Pair(k.ns_hash, v)
+
+    def __delitem__(self, k: HTag):
+        raise Exception("Not Implemented")
+
+class Keypath:
+    pass
