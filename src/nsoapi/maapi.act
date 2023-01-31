@@ -250,7 +250,9 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             proto_vsn = _proto_vsn
             conf_vsn = _conf_vsn
 
-            print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
+            #print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
+            # TODO: restore this, hex currently not used due to bug in actonc
+            print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", conf_vsn)
             on_connect(self)
         else:
             raise ProtoError()
