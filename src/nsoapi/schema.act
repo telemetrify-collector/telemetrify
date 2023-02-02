@@ -22,6 +22,12 @@ CS_NODE_IS_LEAFREF: i64 = 1 << 14
 CS_NODE_HAS_MOUNT_POINT: i64 = 1 << 15
 CS_NODE_IS_STRING_AS_BINARY: i64 = 1 << 16
 
+# confd value range flags
+CONFD_RANGE_MIN_INCLUSIVE: i64 = 1
+CONFD_RANGE_MIN_EXCLUSIVE: i64 = 1 << 1
+CONFD_RANGE_MAX_INCLUSIVE: i64 = 1 << 2
+CONFD_RANGE_MAX_EXCLUSIVE: i64 = 1 << 3
+
 # NODE_NP_CONTAINER = 1
 # NODE_P_CONTAINER = 2
 # NODE_LIST = 3
@@ -626,15 +632,111 @@ class Type(object):
     type_id: TypeId
     @property
     parent_type: ?Type
+    @property
+    conf_type: ?int
     # @property
     # derivation: str
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type):
+    def __init__(self, type_id: TypeId, parent_type: ?Type, conf_type: ?int):
         self.type_id = type_id
         self.parent_type = parent_type
+        self.conf_type = conf_type
 
-    def __str__(self) -> str:
-        return "type " + str(self.type_id)
+    # def __str__(self) -> str:
+    #     return "type " + str(self.type_id)
+
+    @staticmethod
+    def builtin_types() -> dict[TypeId, Type]:
+        types: dict[TypeId, Type] = {}
+        def append(t: Type) -> None:
+            types[t.type_id] = t
+
+        append(Type(TypeId(0, "int8"), None, C_INT8))
+        append(Type(TypeId(0, "int16"), None, C_INT16))
+        append(Type(TypeId(0, "int32"), None, C_INT32))
+        append(Type(TypeId(0, "int64"), None, C_INT64))
+        append(Type(TypeId(0, "uint8"), None, C_INT8))
+        append(Type(TypeId(0, "uint16"), None, C_UINT16))
+        append(Type(TypeId(0, "uint32"), None, C_UINT32))
+        append(Type(TypeId(0, "uint64"), None, C_UINT64))
+        append(Type(TypeId(0, "string"), None, C_BUF))
+        append(Type(TypeId(0, "boolean"), None, C_BOOL))
+        append(Type(TypeId(0, "hex-list"), None, C_BINARY)) # Not enabled in ConfD/NCS
+        append(Type(TypeId(0, "hexList"), None, C_BINARY)) # Not enabled in ConfD/NCS
+        append(Type(TypeId(0, "octet-list"), None, C_BINARY)) # TODO: E.g. \d+\(.\d+)
+        append(Type(TypeId(0, "octetList"), None, C_BINARY)) # TODO: E.g. \d+\(.\d+)
+        append(Type(TypeId(0, "md5-digest-string"), None, C_BUF))
+        append(Type(TypeId(0, "des3-cbc-encrypted-string"), None, C_BUF))
+        append(Type(TypeId(0, "aes-cfb-128-encrypted-string"), None, C_BUF))
+        append(Type(TypeId(0, "aes-256-cfb-128-encrypted-string"), None, C_BUF))
+        append(Type(TypeId(0, "inetAddressIPv4"), None, C_IPV4))
+        append(Type(TypeId(0, "inetAddressIPv6"), None, C_IPV6))
+        append(Type(TypeId(0, "Counter32"), None, C_UINT32))
+        append(Type(TypeId(0, "Counter64"), None, C_UINT64))
+        append(Type(TypeId(0, "Guage32"), None, C_UINT32))
+        append(Type(TypeId(0, "inetPortNumber"), None, C_UINT16))
+        append(Type(TypeId(0, "inetAddressDNS"), None, C_BUF))
+        append(Type(TypeId(0, "oid"), None, C_OID)) # TODO: First identified must be 0,1,2)
+        append(UnionType(TypeId(0, "inetAddressIP"), None, [types[TypeId(0, "inetAddressIPv4")], types[TypeId(0, "inetAddressIPv6")]]))
+        append(UnionType(TypeId(0, "inetAddress"), None, [types[TypeId(0, "inetAddressIP")], types[TypeId(0, "inetAddressDNS")]]))
+        append(Type(TypeId(0, "ipv4Prefix"), None, C_IPV4PREFIX))
+        append(Type(TypeId(0, "ipv6Prefix"), None, C_IPV6PREFIX))
+        append(UnionType(TypeId(0, "ipPrefix"), None, [types[TypeId(0, "ipv4Prefix")], types[TypeId(0, "ipv6Prefix")]]))
+        append(Type(TypeId(0, "size"), None, C_UINT64)) # TODO: with 2^10^x prefixes G,M,K,B
+        append(Type(TypeId(0, "MD5DigestString"), None, C_BUF))
+        append(Type(TypeId(0, "SHA256DigestString"), None, C_BUF))
+        append(Type(TypeId(0, "SHA512DigestString"), None, C_BUF))
+        append(Type(TypeId(0, "cryptHash"), None, C_BUF))
+        append(Type(TypeId(0, "DES3CBCIVEncryptedString"), None, C_BUF))
+        append(Type(TypeId(0, "AESCFB128IVEncryptedString"), None, C_BUF))
+        append(Type(TypeId(0, "AES256CFB128IVEncryptedString"), None, C_BUF))
+        append(Type(TypeId(0, "byte"), None, C_INT8))
+        append(Type(TypeId(0, "short"), None, C_INT16))
+        append(Type(TypeId(0, "int"), None, C_INT32))
+        append(Type(TypeId(0, "long"), None, C_INT64))
+        append(Type(TypeId(0, "unsignedByte"), None, C_INT8))
+        append(Type(TypeId(0, "unsignedShort"), None, C_INT16))
+        append(Type(TypeId(0, "unsignedInt"), None, C_INT32))
+        append(Type(TypeId(0, "unsignedLong"), None, C_INT64))
+        append(Type(TypeId(0, "double"), None, C_DOUBLE))
+        append(Type(TypeId(0, "objectRef"), None, C_INSTANCE_IDENTIFIER))
+        append(Type(TypeId(0, "identityref"), None, C_IDENTITYREF))
+        append(Type(TypeId(0, "dateTime"), None, C_DATETIME))
+        append(Type(TypeId(0, "date"), None, C_DATE))
+        append(Type(TypeId(0, "time"), None, C_TIME))
+        append(Type(TypeId(0, "duration"), None, C_DURATION))
+        append(Type(TypeId(0, "decimal"), None, C_DOUBLE))
+        append(Type(TypeId(0, "integer"), None, C_INT64))
+        append(Type(TypeId(0, "float"), None, C_DOUBLE))
+        append(Type(TypeId(0, "hexBinary"), None, C_BINARY))
+        append(Type(TypeId(0, "binary"), None, C_BINARY)) # TODO: base64
+        append(Type(TypeId(0, "base64Binary"), None, C_BINARY)) # TODO: base64
+        append(RestrictedNumberType(TypeId(0, "nonNegativeInteger"), None, C_UINT64, [TypeRange(0, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
+        append(RestrictedNumberType(TypeId(0, "nonPositiveInteger"), None, C_INT64, [TypeRange(None, 0, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
+        append(RestrictedNumberType(TypeId(0, "negativeInteger"), None, C_INT64, [TypeRange(None, -1, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
+        append(RestrictedNumberType(TypeId(0, "positiveInteger"), None, C_UINT64, [TypeRange(1, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
+        append(Type(TypeId(0, "normalizedString"), None, C_BUF)) # TODO: Replace whitespace with space e.g. ' '
+        append(Type(TypeId(0, "token"), None, C_BUF)) # TODO: Replace any consecutive whitespace with single space e.g. ' '
+        append(Type(TypeId(0, "NOTATION"), None, C_BUF)) # TODO: Replace any consecutive whitespace with single space e.g. ' '
+        append(Type(TypeId(0, "language"), None, C_BUF)) # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
+        append(Type(TypeId(0, "NMTOKEN"), None, C_BUF)) # TODO: [A-Za-z0-9._:-]+
+        append(Type(TypeId(0, "Name"), None, C_BUF)) # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
+        append(Type(TypeId(0, "NCName"), None, C_BUF)) # TODO: [^:]*
+        append(Type(TypeId(0, "ID"), None, C_BUF)) # TODO: [^:]*
+        append(Type(TypeId(0, "IDREF"), None, C_BUF)) # TODO: [^:]*
+        append(Type(TypeId(0, "ENTITY"), None, C_BUF)) # TODO: [^:]*
+        append(ListType(TypeId(0, "NMTOKEN-LIST"), None, types[TypeId(0, "NMTOKEN")]))
+        append(ListRestrictionType(TypeId(0, "NMTOKENS"), types[TypeId(0, "NMTOKEN")], [TypeRange(1, None, 0)]))
+        append(ListType(TypeId(0, "IDREF-LIST"), None, types[TypeId(0, "NCName")]))
+        append(ListRestrictionType(TypeId(0, "IDREFS"), types[TypeId(0, "NCName")], [TypeRange(1, None, 0)]))
+        append(ListRestrictionType(TypeId(0, "ENTITIES"), types[TypeId(0, "NCName")], [TypeRange(1, None, 0)]))
+        append(Type(TypeId(0, "dottedQuad"), None, C_DQUAD))
+        append(Type(TypeId(0, "hexString"), None, C_HEXSTR))
+        append(Type(TypeId(0, "ipv4AddressAndPrefixLength"), None, C_IPV4_AND_PLEN))
+        append(Type(TypeId(0, "ipv6AddressAndPrefixLength"), None, C_IPV6_AND_PLEN))
+        append(UnionType(TypeId(0, "ipAddressAndPrefixLength"), None, [types[TypeId(0, "ipv4AddressAndPrefixLength")], types[TypeId(0, "ipv6AddressAndPrefixLength")]]))
+
+        return types
 
     @staticmethod
     def from_ns_tuple(elems: list[EObject], ns_descr: NamespaceDescription, types: dict[TypeId, Type]) -> ?Type:
@@ -656,20 +758,31 @@ class Type(object):
                 parent_type_id = TypeId(_parent_ns_hash.val, str(_parent_name))
                 parent_type: ?Type = try_get(types, parent_type_id)
 
-                if derivation == "enum":
-                    if isinstance(_opaque, EList):
-                        name_to_ordinal: dict[str, int] = {}
-                        for _elem in reversed(_opaque.elems):
-                            if isinstance(_elem, ETuple):
-                                _pair = _elem.elems
-                                if len(_pair) == 2:
-                                    _ename = _pair[0]
-                                    _ordinal = _pair[1]
-                                    if isinstance(_ename, EBinary) and isinstance(_ordinal, EInt):
-                                        name_to_ordinal[str(_ename)] = _ordinal.val
-                        return Enum(type_id, parent_type, name_to_ordinal)
-                # TODO: Add more classes of types
-                return Type(type_id, parent_type)
+                if derivation == "none":
+                    pass
+                elif derivation == "enum":
+                    return EnumType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "idref":
+                    return IdentityType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "bits":
+                    return BitsType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "decimal64":
+                    return Decimal64Type.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "union":
+                    return UnionType.from_ns_opaque(type_id, parent_type, _opaque, types)
+                elif derivation == "list":
+                    return ListType.from_ns_opaque(type_id, parent_type, _opaque, types)
+                elif derivation == "number":
+                    return RestrictedNumberType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "string":
+                    return StringType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "list_restr":
+                    return ListRestrictionType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "display_hint":
+                    return DisplayHintType.from_ns_opaque(type_id, parent_type, _opaque)
+                elif derivation == "identity":
+                    pass
+                return Type(type_id, parent_type, None)
         return None
 
     def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
@@ -678,7 +791,16 @@ class Type(object):
         if parent is not None:
             retval = parent.netconf_to_value(s, cursor, prefix_to_ns)
         if retval is None:
-            retval = Any.netconf_to_value(s, cursor, prefix_to_ns)
+            _conf_type = self.conf_type
+            if _conf_type is not None:
+                retval = Any.netconf_to_value(s, _conf_type, cursor, prefix_to_ns)
+            if retval is None:
+                shallow_type = cursor.node().conf_type
+                # if shallow_type != _conf_type:
+                # Workaround actonc error:
+                # ld.lld: error: undefined symbol: $EqOptG_new
+                if not eq_optional(shallow_type, _conf_type):
+                    retval = Any.netconf_to_value(s, shallow_type, cursor, prefix_to_ns)
         return retval
 
     def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?str:
@@ -699,25 +821,26 @@ class Type(object):
             retval = Any.value_to_eobject(v, cursor, use_ikp)
         return retval
 
-    def eobject_to_value(self, node: Node, obj: ?EObject) -> ?value:
+    def eobject_to_value(self, cursor: Cursor, obj: ?EObject) -> ?value:
         return None
 
     # def netconf_to_eobject(self, node: Node, s: str) -> ?EObject:
     #     return netvalue_to_eobject(netconf_to_value(node, s))
 
-    def validate_value(self, node: Node, v: ?value) -> bool:
-        return False
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        return False # TODO
 
-class Enum(Type):
+class EnumType(Type):
     @property
     name_to_ordinal: dict[str, int]
     @property
     ordinal_to_name: dict[int, str]
 
     def __init__(self, type_id: TypeId, parent_type: ?Type, name_to_ordinal: dict[str, int]):
-        #super(self, type_id)
+        #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
+        self.conf_type = C_ENUM_VALUE
         self.name_to_ordinal = name_to_ordinal
         _ordinal_to_name = {}
         for name, ordinal in name_to_ordinal.items():
@@ -726,6 +849,411 @@ class Enum(Type):
 
     def __str__(self):
         return Type.__str__(self) + " enum " + str(self.name_to_ordinal)
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        if isinstance(opaque, EList):
+            name_to_ordinal: dict[str, int] = {}
+            for _elem in reversed(opaque.elems):
+                if isinstance(_elem, ETuple):
+                    _pair = _elem.elems
+                    if len(_pair) == 2:
+                        _ename = _pair[0]
+                        _ordinal = _pair[1]
+                        if isinstance(_ename, EBinary) and isinstance(_ordinal, EInt):
+                            name_to_ordinal[str(_ename)] = _ordinal.val
+            return EnumType(type_id, parent_type, name_to_ordinal)
+        return None
+
+    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        if v is not None:
+            if isinstance(v, str):
+                ordinal = try_get(self.name_to_ordinal, v)
+                if ordinal is not None:
+                    return ETuple([EInt(C_ENUM_VALUE), EInt(ordinal)])
+            elif isinstance(v, int):
+                return ETuple([EInt(C_ENUM_VALUE), EInt(v)])
+        return None
+
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        if v is not None:
+            if isinstance(v, str):
+                return v in self.name_to_ordinal
+            elif isinstance(v, int):
+                return v in self.ordinal_to_name
+        return False
+
+class UnionType(Type):
+    @property
+    types: list[Type]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, types: list[Type]):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.types = types
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
+        if isinstance(opaque, EList):
+            utypes = []
+            for _elem in reversed(opaque.elems):
+                if isinstance(_elem, ETuple):
+                    _elems = _elem.elems
+                    if len(_elems) == 3:
+                        _ns_hash = _elems[0]
+                        _name = _elems[1]
+                        if isinstance(_ns_hash, EInt) and isinstance(_name, EAtom):
+                            type_id = TypeId(_ns_hash.val, str(_name))
+                            t = try_get(types, type_id)
+                            if t is not None:
+                                utypes.append(t)
+                            else:
+                                print("WARNING: Invalid schema union member type_id ref:", type_id)
+            return UnionType(type_id, parent_type, utypes)
+        return None
+
+    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+        for t in self.types:
+            res = t.netconf_to_value(s, cursor, prefix_to_ns)
+            if res is not None:
+                return res
+        return None
+
+    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        for t in self.types:
+            res = t.value_to_eobject(v, cursor, use_ikp)
+            if res is not None:
+                return res
+        return None
+
+class RestrictedNumberType(Type):
+    @property
+    ranges: list[TypeRange]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, conf_type: ?int, ranges: list[TypeRange]):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = conf_type
+        self.ranges = ranges
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        # TODO
+        return RestrictedNumberType(type_id, parent_type, None, [])
+
+class BitsType(Type):
+    @property
+    pos_to_name: dict[int, str]
+    @property
+    name_to_pos: dict[str, int]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, conf_type: ?int, pos_to_name: dict[int, str]):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = conf_type
+        self.pos_to_name = pos_to_name
+        _name_to_pos: dict[str, int] = {}
+        for pos, name in pos_to_name.items():
+            _name_to_pos[name] = pos
+        self.name_to_pos = _name_to_pos
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
+            elems = opaque.elems
+            _width = elems[0]
+            _bits = elems[1]
+            if isinstance(_width, EInt) and isinstance(_bits, EList):
+                width = _width.val
+                _conf_type = C_BITBIG
+                if width <= 32:
+                    _conf_type = C_BIT32
+                elif width <= 64:
+                    _conf_type = C_BIT64
+                _pos_to_name: dict[int, str] = {}
+                for _bit_elem in _bits.elems:
+                    if isinstance(_bit_elem, ETuple) and len(_bit_elem.elems) == 2:
+                        _elems = _bit_elem.elems
+                        _bit_name = _elems[0]
+                        _bit_pos = _elems[1]
+                        if isinstance(_bit_name, EBinary) and isinstance(_bit_pos, EInt):
+                            bit_name = str(_bit_name)
+                            bit_pos = _bit_pos.val
+                            _pos_to_name[bit_pos] = bit_name
+                return BitsType(type_id, parent_type, _conf_type, _pos_to_name)
+        return None
+
+    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+        p = s.split(" ", -1)
+        # mask: int = 0
+        # BUG: Runtime error on bitwise operations
+        # for bit_name in p:
+        #     bit_pos = try_get(self.name_to_pos, bit_name)
+        #     if bit_pos is not None:
+        #         mask |= 1 << bit_pos # BUG: Runtime error on bitwise operations
+        #     else:
+        #         return False
+        # for bit_name in set(p):
+        #     bit_pos = try_get(self.name_to_pos, bit_name)
+        #     if bit_pos is not None:
+        #         mask += 2**bit_pos
+        #     else:
+        #         return False
+        # return mask
+        v: set[str] = set(p)
+        return v
+
+    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        if v is not None:
+            # if isinstance(v, set[str]):
+            if isinstance(v, set):
+                mask: int = 0
+                # BUG: Runtime error on bitwise operations
+                # for bit_name in v:
+                #     bit_pos = try_get(self.name_to_pos, bit_name)
+                #     if bit_pos is not None:
+                #         mask |= 1 << bit_pos # BUG: Runtime error on bitwise operations
+                #     else:
+                #         return None
+                for bit_name in v:
+                    if isinstance(bit_name, str):
+                        bit_pos = try_get(self.name_to_pos, bit_name)
+                        if bit_pos is not None:
+                            mask += 2**bit_pos
+                        elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                            return None
+                    elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                        return None
+                _conf_type = self.conf_type
+                if _conf_type is not None:
+                    if _conf_type == C_BIT32 or _conf_type == C_BIT64:
+                        return ETuple([EInt(_conf_type), EInt(mask)])
+                    elif _conf_type == C_BITBIG:
+                        return ETuple([EInt(_conf_type), EBinary(uint_to_bytes_le(mask))])
+                    elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                        return None
+                elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                    return None
+        return None
+
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        # if v is not None and isinstance(v, Iterable):
+        #     for bit_name in v:
+        #         if bit_name not in self.name_to_pos:
+        #             return False
+        #     return True
+        if v is not None:
+            if isinstance(v, set):
+                for bit_name in v:
+                    if bit_name not in self.name_to_pos:
+                        return False
+                return True
+            elif isinstance(v, list):
+                for bit_name in v:
+                    if bit_name not in self.name_to_pos:
+                        return False
+                return True
+        return False
+
+class Decimal64Type(Type):
+    @property
+    fraction_digits: int
+    @property
+    ranges: list[TypeRange]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, fraction_digits: int, ranges: list[TypeRange]):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = C_DECIMAL64
+        self.fraction_digits = fraction_digits
+        self.ranges = ranges
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
+            elems = opaque.elems
+            _fraction_digits = elems[0]
+            _ranges = elems[1]
+            if isinstance(_fraction_digits, EInt) and isinstance(_ranges, EList):
+                return Decimal64Type(type_id, parent_type, _fraction_digits.val, []) # TODO: ranges
+        return None
+
+    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+        d = Decimal64.try_parse(s)
+        return d.try_lossless_realignment(-self.fraction_digits) if d is not None else None
+
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        # TODO
+        return False
+
+class ListType(Type):
+    @property
+    elem_type: Type
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, elem_type: Type):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = None
+        self.elem_type = elem_type
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
+        if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
+            elems = opaque.elems
+            _ns_hash = elems[0]
+            _name = elems[1]
+            if isinstance(_ns_hash, EInt) and isinstance(_name, EAtom):
+                type_id = TypeId(_ns_hash.val, str(_name))
+                t = try_get(types, type_id)
+                if t is not None:
+                    return ListType(type_id, parent_type, t)
+                else:
+                    print("WARNING: Invalid schema list elem type_id ref:", type_id)
+        return None
+
+    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+        # Not really viable to parse multiple elements of any type ('string'-type in particular)
+        # hence here we only allow single value
+        return self.elem_type.netconf_to_value(s, cursor, prefix_to_ns)
+
+    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+        # if v is not None and isinstance(v, Iterable):
+        #     elems = []
+        #     for o in v:
+        #         eo = self.elem_type.value_to_eobject(o, cursor, use_ikp)
+        #         if eo is not None:
+        #             elems.append(eo)
+        #         else:
+        #             return None
+        #     return EList(elems, True)
+        if v is not None:
+            if isinstance(v, set):
+                elems: list[EObject] = []
+                _elem_type: Type = self.elem_type
+                for o in v:
+                    eo: ?EObject = _elem_type.value_to_eobject(o, cursor, use_ikp)
+                    if eo is not None:
+                        elems.append(eo)
+                    else:
+                        return None
+                return EList(elems, True)
+            elif isinstance(v, list):
+                elems: list[EObject] = []
+                _elem_type: Type = self.elem_type
+                for o in v:
+                    eo: ?EObject = _elem_type.value_to_eobject(o, cursor, use_ikp)
+                    if eo is not None:
+                        elems.append(eo)
+                    else:
+                        return None
+                return EList(elems, True)
+        return None
+
+class ListRestrictionType(Type):
+    @property
+    ranges: list[TypeRange]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, ranges: list[TypeRange]):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = None
+        self.ranges = ranges
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        # TODO
+        return ListRestrictionType(type_id, parent_type, [])
+
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        # TODO
+        return False
+
+class DisplayHintType(Type):
+    def __init__(self, type_id: TypeId, parent_type: ?Type):
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = None
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        # TODO
+        return DisplayHintType(type_id, parent_type)
+
+class StringType(Type):
+    @property
+    ranges: list[TypeRange]
+    @property
+    pattern: ?value # TODO: regex
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, ranges: list[TypeRange], regex: ?value):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = None
+        self.ranges = ranges
+        self.pattern = None
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        # TODO
+        return StringType(type_id, parent_type, [], None)
+
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        # TODO
+        return False
+
+class IdentityType(Type):
+    @property
+    identities: set[HTag]
+
+    def __init__(self, type_id: TypeId, parent_type: ?Type, identities: set[HTag]):
+        #super(self, type_id, parent_type, conf_type)
+        self.type_id = type_id
+        self.parent_type = parent_type
+        self.conf_type = C_IDENTITYREF
+        self.identities = identities
+
+    @staticmethod
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
+        if isinstance(opaque, EList):
+            identities: set[HTag] = set([])
+            for _elem in reversed(opaque.elems):
+                if isinstance(_elem, ETuple):
+                    _elems = _elem.elems
+                    if len(_elems) == 3:
+                        _qname = _elems[0]
+                        _ns_hash = _elems[1]
+                        _name_hash = _elems[2]
+                        if isinstance(_qname, EAtom) and isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
+                            # Won't really need _qname for now
+                            identities.add(HTag(_ns_hash.val, _name_hash.val))
+            return IdentityType(type_id, parent_type, identities)
+        return None
+
+    # def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+    #     v = Type.netconf_to_value(self, s, cursor, prefix_to_ns)
+    #     if self.validate_value(cursor, v):
+    #         return v
+    #     return None
+
+    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+        if v is not None and isinstance(v, Tag):
+            htag = cursor.lookup_htag(v)
+            if htag is not None:
+                return htag in self.identities
+        return False
+
+class TypeRange:
+    def __init__(self, lo: ?value, hi: ?value, flags: i64):
+        self.lo = lo
+        self.hi = hi
+        self.flags = flags
 
 actor SchemaBuilder():
     var raw_roots: set[int] = set([])
@@ -739,7 +1267,7 @@ actor SchemaBuilder():
     var namespaces: dict[int, NamespaceDescription] = {}
     var mount_id_namespaces: dict[HTag, list[NamespaceDescription]] = {}
     var roots: dict[HTag, Node] = {}
-    var types: dict[TypeId, Type] = {}
+    var types: dict[TypeId, Type] = Type.builtin_types()
 
     def on_ns_term(term: EObject) -> value:
         return _for_schema_lists(term, _on_ns_elem)
@@ -776,6 +1304,7 @@ actor SchemaBuilder():
                             curr_ns = ns_descr
                             return
                     elif etype == 'type':
+                        #print(elem)
                         type_descr = Type.from_ns_tuple(t, curr_ns, types)
                         if type_descr is not None:
                             types[type_descr.type_id] = type_descr
@@ -802,6 +1331,7 @@ actor SchemaBuilder():
         #print("WARNING: Unexpected schema ns elem:", elem)
 
     def _on_hash_elem(elem: EObject):
+        #print(elem)
         if isinstance(elem, ETuple):
             t = elem.elems
             if len(t) == 2:
@@ -1115,8 +1645,7 @@ class Boolean:
 class IPv4:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv4Address:
-        # TODO: Implement
-        return None
+        return IPv4Address.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1125,14 +1654,14 @@ class IPv4:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if isinstance(v, IPv4Address):
+            return ETuple([EInt(v.data.0), EInt(v.data.1), EInt(v.data.2), EInt(v.data.3)])
         return None
 
 class IPv6:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv6Address:
-        # TODO: Implement
-        return None
+        return IPv6Address.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1141,14 +1670,16 @@ class IPv6:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if isinstance(v, IPv6Address):
+            return ETuple([
+                EInt(v.data.0), EInt(v.data.1), EInt(v.data.2), EInt(v.data.3),
+                EInt(v.data.4), EInt(v.data.5), EInt(v.data.6), EInt(v.data.7)])
         return None
 
 class IPv4Prefix:
     @staticmethod
-    def netconf_to_value(s: str) -> ?IPv4AddressAndMask:
-        # TODO: Implement
-        return None
+    def netconf_to_value(s: str) -> ?IPv4Network:
+        return IPv4Network.try_parse(s) # TODO: Verify that host bits are all zero
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1157,14 +1688,16 @@ class IPv4Prefix:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if isinstance(v, IPv4Network):
+            return ETuple([EInt(C_IPV4PREFIX),
+                ETuple([EInt(v.address.data.0), EInt(v.address.data.1), EInt(v.address.data.2), EInt(v.address.data.3)]),
+                EInt(v.mask_len)])
         return None
 
 class IPv6Prefix:
     @staticmethod
-    def netconf_to_value(s: str) -> ?IPv6AddressAndMask:
-        # TODO: Implement
-        return None
+    def netconf_to_value(s: str) -> ?IPv6Network:
+        return IPv6Network.try_parse(s) # TODO: Verify that host bits are all zero
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1173,14 +1706,17 @@ class IPv6Prefix:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if isinstance(v, IPv6Network):
+            return ETuple([EInt(C_IPV6PREFIX),
+                ETuple([EInt(v.address.data.0), EInt(v.address.data.1), EInt(v.address.data.2), EInt(v.address.data.3)]),
+                ETuple([EInt(v.address.data.4), EInt(v.address.data.5), EInt(v.address.data.6), EInt(v.address.data.7)]),
+                EInt(v.mask_len)])
         return None
 
 class IPv4AndPrefixLen:
     @staticmethod
-    def netconf_to_value(s: str) -> ?IPv4AddressAndMask:
-        # TODO: Implement
-        return None
+    def netconf_to_value(s: str) -> ?IPv4Network:
+        return IPv4Network.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1189,14 +1725,16 @@ class IPv4AndPrefixLen:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if isinstance(v, IPv4Network):
+            return ETuple([EInt(C_IPV4PREFIX),
+                ETuple([EInt(v.address.data.0), EInt(v.address.data.1), EInt(v.address.data.2), EInt(v.address.data.3)]),
+                EInt(v.mask_len)])
         return None
 
 class IPv6AndPrefixLen:
     @staticmethod
-    def netconf_to_value(s: str) -> ?IPv6AddressAndMask:
-        # TODO: Implement
-        return None
+    def netconf_to_value(s: str) -> ?IPv6Network:
+        return IPv6Network.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1205,14 +1743,17 @@ class IPv6AndPrefixLen:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if isinstance(v, IPv6Network):
+            return ETuple([EInt(C_IPV6PREFIX),
+                ETuple([EInt(v.address.data.0), EInt(v.address.data.1), EInt(v.address.data.2), EInt(v.address.data.3)]),
+                ETuple([EInt(v.address.data.4), EInt(v.address.data.5), EInt(v.address.data.6), EInt(v.address.data.7)]),
+                EInt(v.mask_len)])
         return None
 
 class DateTime_:
     @staticmethod
     def netconf_to_value(s: str) -> ?DateTime:
-        # TODO: Implement
-        return None
+        return DateTime.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1221,14 +1762,31 @@ class DateTime_:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if v is not None and isinstance(v, DateTime):
+            d: DateTime = v
+            tz_h: ?int = d.timezone_hour
+            tz_m: ?int = d.timezone_minute
+
+            return ETuple([
+                EInt(C_DATETIME),
+                ETuple([
+                    EInt(d.year),
+                    EInt(d.month),
+                    EInt(d.day),
+                    EInt(d.hour),
+                    EInt(d.minute),
+                    EInt(d.second),
+                    EInt(d.microsecond),
+                    EInt(tz_h) if tz_h is not None else EList([], True),
+                    EInt(tz_m) if tz_m is not None else EInt(0)
+                    ])
+                ])
         return None
 
 class Date_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Date:
-        # TODO: Implement
-        return None
+        return Date.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1237,14 +1795,27 @@ class Date_:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if v is not None and isinstance(v, Date):
+            d: Date = v
+            tz_h: ?int = d.timezone_hour
+            tz_m: ?int = d.timezone_minute
+
+            return ETuple([
+                EInt(C_DATE),
+                ETuple([
+                    EInt(d.year),
+                    EInt(d.month),
+                    EInt(d.day),
+                    EInt(tz_h) if tz_h is not None else EList([], True),
+                    EInt(tz_m) if tz_m is not None else EInt(0)
+                    ])
+                ])
         return None
 
 class Time_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Time:
-        # TODO: Implement
-        return None
+        return Time.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1253,14 +1824,28 @@ class Time_:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if v is not None and isinstance(v, Time):
+            d: Time = v
+            tz_h: ?int = d.timezone_hour
+            tz_m: ?int = d.timezone_minute
+
+            return ETuple([
+                EInt(C_TIME),
+                ETuple([
+                    EInt(d.hour),
+                    EInt(d.minute),
+                    EInt(d.second),
+                    EInt(d.microsecond),
+                    EInt(tz_h) if tz_h is not None else EList([], True),
+                    EInt(tz_m) if tz_m is not None else EInt(0)
+                    ])
+                ])
         return None
 
 class Duration_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Duration:
-        # TODO: Implement
-        return None
+        return Duration.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1269,7 +1854,21 @@ class Duration_:
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if v is not None and isinstance(v, Duration):
+            d: Duration = v
+
+            return ETuple([
+                EInt(C_DURATION),
+                ETuple([
+                    EInt(d.year),
+                    EInt(d.month),
+                    EInt(d.day),
+                    EInt(d.hour),
+                    EInt(d.minute),
+                    EInt(d.second),
+                    EInt(d.microsecond),
+                    ])
+                ])
         return None
 
 class Enumeration:
@@ -1443,17 +2042,21 @@ class Binary:
 class Decimal64_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Decimal64:
-        # TODO: Implement
-        return None
+        # Normally we won't get here as the type class converter has done the conversion
+        # in order to align the fraction_digits / exponent
+        return Decimal64.try_parse(s)
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
-        # TODO: Implement
+        if v is not None and isinstance(v, Decimal64):
+            return str(v)
         return None
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if v is not None and isinstance(v, Decimal64):
+            d: Decimal64 = v
+            return ETuple([EInt(C_DECIMAL64), ETuple([EInt(d.significand), EInt(-d.exponent)])])
         return None
 
 class DottedQuad:
@@ -1505,8 +2108,7 @@ class HexString:
 
 class Any:
     @staticmethod
-    def netconf_to_value(s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
-        conf_type = cursor.node().conf_type
+    def netconf_to_value(s: str, conf_type: int, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         if conf_type == C_NOEXISTS:
             return V_NOEXISTS
         elif conf_type == C_XMLTAG:

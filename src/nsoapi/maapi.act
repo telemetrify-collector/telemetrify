@@ -223,7 +223,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     var conn: ?net.TCPIPConnection = None
 
     def _write(data: bytes):
-        print("MaapiConnection TCP send:", data)
+        #print("MaapiConnection TCP send:", data)
         if conn is not None:
             conn.write(data)
             # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
@@ -418,7 +418,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         _response_len = input_stream.read_i32_be()
         if isinstance(_response_len, int):
             response_len: int = _response_len
-            print("Recv maapi response len:", response_len)
+            #print("Recv maapi response len:", response_len)
             expected_len = response_len + 4
             e = input_stream.assert_unread_bytes(response_len)
             if isinstance(e, IncompleteReadError):
