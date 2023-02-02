@@ -26,6 +26,22 @@ IntMax = pow(2, 27) - 1 # largest value that can be encoded as an integer
 IntMin = -pow(2, 27) # smallest value that can be encoded as an integer
 AtomLengthMax = 255 # longest allowed Erlang atom length
 
+i_0: int = 0
+i_1: int = 1
+i_2: int = 2
+i_4: int = 4
+i_8: int = 8
+i_255: int = 255
+
+i__1: int = -1
+
+i_0x80: int = 0x80
+i_0x100: int = 0x100
+i_0x10000: int = 0x10000
+i_0x1000000: int = 0x1000000
+
+i_0xFF: int = 0xFF
+
 CDB_REL_FLAG_MASK = 0x80000000
 CDB_ERROR_FLAG_MASK = CDB_REL_FLAG_MASK
 
@@ -57,49 +73,50 @@ class BufferWriter(object):
     def write_bytes(self, b: bytes):
         self.parts.append(b)
 
-    def write_int(self, v: int):
-        if v >= 0 and v <= 255:
+    def write_int(self, vi: i64):
+        v = int(vi)
+        if v >= i_0 and v <= i_255:
             self.write_bytes(bytes([SmallInt, v]))
         elif v >= IntMin and v <= IntMax:
             self.write_tag(Int)
             self.write_i32_be(v)
         else:
-            if v < 0:
+            if v < i_0:
                 b = -v
-                s = 1
+                s = i_1
             else:
                 b = v
-                s = 0
+                s = i_0
             d = []
-            while b != 0:
+            while b != i_0:
                 # Little-endian
                 # BUG: Runtime error on bitwise operations
                 # d.append(b & 0xFF)
                 # b >>= 8
-                d.append(b % 0x100)
-                b //= 0x100
+                d.append(b % i_0x100)
+                b //= i_0x100
             self.write_bytes(bytes([SmallBig, len(d), s]))
             self.write_bytes(bytes(d))
 
     def write_u8(self, v):
         # self.write_bytes(bytes([v & 0xFF])) # BUG: Runtime error on bitwise operations
-        self.write_bytes(bytes([v % 0x100]))
+        self.write_bytes(bytes([v % i_0x100]))
 
     def write_u16_be(self, v: int):
         # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
-        self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
+        self.write_bytes(bytes([(v // i_0x100) % i_0x100, v % i_0x100]))
 
     def write_u32_be(self, v: int):
         # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
-        self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
+        self.write_bytes(bytes([v // i_0x1000000 % i_0x100, v // i_0x10000 % i_0x100, v // i_0x100 % i_0x100, v % i_0x100]))
 
     def write_i16_be(self, v: int):
         # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
-        self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
+        self.write_bytes(bytes([(v // i_0x100) % i_0x100, v % i_0x100]))
 
     def write_i32_be(self, v: int):
         # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
-        self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
+        self.write_bytes(bytes([v // i_0x1000000 % i_0x100, v // i_0x10000 % i_0x100, v // i_0x100 % i_0x100, v % i_0x100]))
 
     def write_tag(self, tag: int):
         self.write_u8(tag)
@@ -116,18 +133,18 @@ class BufferWriter(object):
         self.write_bytes(v)
 
     def write_list_header(self, size: int):
-        if size > 0:
+        if size > i_0:
             self.write_tag(List)
             self.write_i32_be(size)
         else:
             self.write_tag(Nil)
 
     def write_list_footer(self, size: int):
-        if size > 0:
+        if size > i_0:
             self.write_tag(Nil)
 
     def write_tuple_header(self, size: int):
-        if size < 0xFF: # Why exclude 0xFF? Doing as java-maapi does just in case...
+        if size < i_0xFF: # Why exclude 0xFF? Doing as java-maapi does just in case...
             self.write_bytes(bytes([SmallTuple, size]))
         else:
             self.write_tag(LargeTuple)
@@ -147,10 +164,10 @@ class BufferReader(object):
 
     def __init__(self):
         self.parts = []
-        self.i = 0
-        self.j = 0
-        self.total_bytes = 0
-        self.unread_bytes = 0
+        self.i = i_0
+        self.j = i_0
+        self.total_bytes = i_0
+        self.unread_bytes = i_0
 
     def append_data(self, data: bytes):
         l = len(data)
@@ -160,30 +177,30 @@ class BufferReader(object):
 
     def consume(self):
         #print("CONSUME!", self.i, self.j)
-        if self.i > 0:
+        if self.i > i_0:
             # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
             self.parts = self.parts[self.i:]
-            self.i = 0
-        if self.j > 0:
-            if len(self.parts) > 0:
+            self.i = i_0
+        if self.j > i_0:
+            if len(self.parts) > i_0:
                 #self.parts[0] = self.parts[0][self.j:]
                 parts: list[bytes] = self.parts # Workaround type-checker bug?
-                parts[0] = parts[0][self.j:]
-            self.j = 0
+                parts[i_0] = parts[i_0][self.j:]
+            self.j = i_0
         self.total_bytes = self.unread_bytes
         #print("CONSUMED!", self.parts)
 
     def rewind(self):
         #print("REWIND!")
-        self.i = 0
-        self.j = 0
+        self.i = i_0
+        self.j = i_0
         self.unread_bytes = self.total_bytes
 
     def read_bytes_count(self) -> int:
         return self.total_bytes - self.unread_bytes
 
     def has_unread_bytes(self) -> bool:
-        return self.unread_bytes > 0
+        return self.unread_bytes > i_0
 
     def assert_unread_bytes(self, count: int) -> value: # (bool | IncompleteReadError)
         # if self.unread_bytes < count:
@@ -203,7 +220,7 @@ class BufferReader(object):
         remaining = count
         acc = []
         parts: list[bytes] = self.parts # Workaround type-checker bug?
-        while remaining > 0:
+        while remaining > i_0:
             #part = self.parts[self.i]
             part = parts[self.i]
             next_j = self.j + remaining
@@ -211,8 +228,8 @@ class BufferReader(object):
             chunk_len = len(chunk)
             remaining -= chunk_len
             if next_j >= len(part):
-                self.i += 1
-                next_j = 0
+                self.i += i_1
+                next_j = i_0
             self.j = next_j
             acc.append(chunk)
         self.unread_bytes -= count
@@ -226,7 +243,7 @@ class BufferReader(object):
             return IncompleteReadError()
         remaining = count
         parts: list[bytes] = self.parts # Workaround type-checker bug?
-        while remaining > 0:
+        while remaining > i_0:
             #part = self.parts[self.i]
             part = parts[self.i]
             part_len = len(part)
@@ -235,64 +252,64 @@ class BufferReader(object):
                 self.j += remaining
                 break
             remaining -= part_remain
-            self.i += 1
-            self.j = 0
+            self.i += i_1
+            self.j = i_0
         self.unread_bytes -= count
         #print("SKIP0!", self.i, self.j)
         return True
 
     def read_u8(self) -> value: # (int | IncompleteReadError)
-        b = self.read_bytes(1)
+        b = self.read_bytes(i_1)
         if isinstance(b, bytes):
-            return b[0]
+            return b[i_0]
         return b
 
     def read_u16_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ux_be(2)
+        return self.read_ux_be(i_2)
 
     def read_u32_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ux_be(4)
+        return self.read_ux_be(i_4)
 
     def read_ux_be(self, size: int) -> value: # (int | IncompleteReadError)
         b = self.read_bytes(size)
         if isinstance(b, bytes):
-            v: int = 0
+            v: int = i_0
             # BUG: Runtime error on bitwise operations
             # for x in b:
             #     v <<= 8
             #     v |= x
-            if size > 0:
-                v = b[0]
-                for x in b[1:]:
+            if size > i_0:
+                v = b[i_0]
+                for x in b[i_1:]:
                     v *= 0x100
                     v += x
             return v
         return b
 
     def read_i16_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ix_be(2)
+        return self.read_ix_be(i_2)
 
     def read_i32_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ix_be(4)
+        return self.read_ix_be(i_4)
 
     def read_ix_be(self, size: int) -> value: # (int | IncompleteReadError)
         b = self.read_bytes(size)
         if isinstance(b, bytes):
-            v: int = 0
+            v: int = i_0
             # BUG: Runtime error on bitwise operations
             # for x in b:
             #     v <<= 8
             #     v |= x
             # if size > 0 and b[0] & 0x80 != 0:
             #     v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
-            if size > 0:
-                v = b[0]
-                is_neg = v >= 0x80
-                for x in b[1:]:
-                    v *= 0x100
+            if size > i_0:
+                v = b[i_0]
+                is_neg = v >= i_0x80
+                for x in b[i_1:]:
+                    v *= i_0x100
                     v += x
                 if is_neg:
-                    v = pow(0x100, size) - v
+                    v = pow(i_0x100, size) - v
             return v
         return b
 
@@ -355,20 +372,20 @@ class BufferReader(object):
         elif tag == SmallBig:
             size = self.read_u8()
             if isinstance(size, int):
-                if size > 8:
+                if size > i_8:
                     return ValueError("Invalid SmallBig `int` size: " + str(size))
                 sign = self.read_u8()
                 if isinstance(sign, int):
                     b = self.read_bytes(size)
                     if isinstance(b, bytes):
-                        v = 0
+                        v = i_0
                         # BUG: Runtime error on bitwise operations
                         # for i in range(0, size, 1):
                         #     v |= b[i] << (size-1-i) * 8
-                        for i in range(size-1, -1, -1):
-                            v *= 0x100
+                        for i in range(size-i_1, i__1, i__1):
+                            v *= i_0x100
                             v += b[i]
-                        return v if sign == 0 else -v
+                        return v if sign == i_0 else -v
                     else:
                         return b
                 else:
@@ -483,7 +500,7 @@ class BufferReader(object):
                 return t
 
         if tag == Nil:
-            return 0
+            return i_0
         elif tag == String: # ???
             return self.read_i16_be()
         elif tag == List:
@@ -572,9 +589,9 @@ class EList(EObject):
 
     def encode(self, writer):
         size = len(self.elems)
-        as_proper: bool = self.is_proper or size < 2
+        as_proper: bool = self.is_proper or size < i_2
         if not as_proper:
-            size -= 1
+            size -= i_1
         writer.write_list_header(size)
         for elem in self.elems:
             elem.encode(writer)
@@ -587,14 +604,14 @@ class EList(EObject):
         is_proper = False
         size = reader.read_list_size(tag)
         if isinstance(size, int):
-            for i in range(0, size, 1):
+            for i in range(i_0, size, i_1):
                 elem = EObject.decode_tagged(reader)
                 if isinstance(elem, EObject):
                     elems.append(elem)
                 else:
                     return elem
 
-            if size > 0:
+            if size > i_0:
                 tail = EObject.decode_tagged(reader)
                 if isinstance(tail, EList):
                     is_proper = True
@@ -634,7 +651,7 @@ class ETuple(EObject):
         elems: list[EObject] = []
         size = reader.read_tuple_size(tag)
         if isinstance(size, int):
-            for i in range(0, size, 1):
+            for i in range(i_0, size, i_1):
                 # elem = EObject.decode_tagged(reader)
                 # if isinstance(elem, EObject):
                 #     elems.append(elem)
@@ -717,7 +734,7 @@ class EInt(EObject):
         return self.val.__str__()
 
     def encode(self, writer):
-        writer.write_int(self.val)
+        writer.write_int(i64(self.val))
 
     @staticmethod
     def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError)

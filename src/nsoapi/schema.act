@@ -753,7 +753,7 @@ actor SchemaBuilder():
     def _for_schema_lists(term: EObject, on_elem: proc(EObject) -> None) -> value:
         if isinstance(term, EList):
             for e in term.elems:
-                print(e)
+                #print(e)
                 if isinstance(e, EAtom) and str(e) == 'eof':
                     return False
                 on_elem(e)
@@ -765,8 +765,8 @@ actor SchemaBuilder():
     def _on_ns_elem(elem: EObject):
         if isinstance(elem, ETuple):
             t = elem.elems
-            if len(t) >= 1:
-                _etype = t[0]
+            if len(t) >= i_1:
+                _etype = t[i_0]
                 if isinstance(_etype, EAtom):
                     etype = _etype.val
                     if etype == 'ns':
@@ -790,8 +790,8 @@ actor SchemaBuilder():
                         if node is not None:
                             raw_nodes[node.node_id] = node
                             return
-                    elif etype == 'root' and len(t) == 2:
-                        _node_id = t[1]
+                    elif etype == 'root' and len(t) == i_2:
+                        _node_id = t[i_1]
                         if isinstance(_node_id, EInt):
                             node_id = _node_id.val
                             raw_roots.add(node_id)
@@ -804,9 +804,9 @@ actor SchemaBuilder():
     def _on_hash_elem(elem: EObject):
         if isinstance(elem, ETuple):
             t = elem.elems
-            if len(t) == 2:
-                name = t[0]
-                hash_nr = t[1]
+            if len(t) == i_2:
+                name = t[i_0]
+                hash_nr = t[i_1]
                 if isinstance(hash_nr, EInt):
                     if isinstance(name, EAtom):
                         hash_to_name[hash_nr.val] = name.val
