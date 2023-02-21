@@ -1,3 +1,12 @@
+ifeq ($(DEV),true)
+	OUTPUT=out/dev
+	BUILD_ARGS=--dev
+else
+	OUTPUT=out/rel
+	BUILD_ARGS=
+endif
+ARGS?=
+
 all: build
 
 .PHONY: all
@@ -5,7 +14,7 @@ all: build
 build:
 	# # Workaround https://github.com/actonlang/acton/issues/956
 	# actonc --dev src/nsoapi/proto.act
-	actonc build --dev
+	actonc build $(BUILD_ARGS)
 .PHONY: build
 
 clean:
@@ -13,13 +22,13 @@ clean:
 .PHONY: clean
 
 run-nogc:
-	GC_DONT_GC=1 out/dev/bin/nsoapi.test
+	GC_DONT_GC=1 $(OUTPUT)/bin/nsoapi.test $(ARGS)
 
 run:
-	out/dev/bin/nsoapi.test
+	$(OUTPUT)/bin/nsoapi.test $(ARGS)
 
 debug-nogc:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args out/dev/bin/nsoapi.test --rts-wthreads 1
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args $(OUTPUT)/bin/nsoapi.test --rts-wthreads 1 $(ARGS)
 
 debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args out/dev/bin/nsoapi.test --rts-wthreads 1
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(OUTPUT)/bin/nsoapi.test --rts-wthreads 1 $(ARGS)
