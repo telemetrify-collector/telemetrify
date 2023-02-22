@@ -137,7 +137,14 @@ class ITag(Tag):
 
 extension ITag(Hashable):
     def __eq__(self, other: ITag) -> bool:
-        return self.name == other.name and self.ns == other.ns
+        # return self.name == other.name and self.ns == other.ns
+        # Workaround actonc error:
+        # ld.lld: error: undefined symbol: $EqOptG_new
+        if self.name != other.name:
+            return False
+        self_ns: ?str = self.ns
+        other_ns: ?str = other.ns
+        return self_ns is not None and other_ns is not None and self_ns == other_ns or self_ns is None and other_ns is None
 
     def __hash__(self) -> int:
         _ns = self.ns
@@ -159,7 +166,14 @@ class PTag(Tag):
 
 extension PTag(Hashable):
     def __eq__(self, other: PTag) -> bool:
-        return self.name == other.name and self.prefix == other.prefix
+        # return self.name == other.name and self.prefix == other.prefix
+        # Workaround actonc error:
+        # ld.lld: error: undefined symbol: $EqOptG_new
+        if self.name != other.name:
+            return False
+        self_prefix: ?str = self.prefix
+        other_prefix: ?str = other.prefix
+        return self_prefix is not None and other_prefix is not None and self_prefix == other_prefix or self_prefix is None and other_prefix is None
 
     def __hash__(self) -> int:
         _prefix = self.prefix
