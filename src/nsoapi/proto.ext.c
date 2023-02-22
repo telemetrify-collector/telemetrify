@@ -1,39 +1,39 @@
-void nsoapi$proto$$__ext_init__() {
+void nsoapiQ_protoQ___ext_init__() {
     // NOP
 }
 
-$str nsoapi$proto$$ETuple$__str__ (nsoapi$proto$$ETuple self) {
-    $Iterable w$3531 = (($Iterable)$Sequence$list$new()->w$Collection);
-    $Collection w$3614 = $Sequence$list$new()->w$Collection;
-    $Sequence w$3503 = (($Sequence)$Sequence$list$new());
-    $Plus w$3551 = (($Plus)$Times$str$new());
-    $Iterable w$3607 = (($Iterable)$Sequence$list$new()->w$Collection);
-    $list sl = (($list (*) ($Collection, $Iterable, $list))w$3503->w$Collection->$class->__fromiter__)(w$3503->w$Collection, (($Iterable)$Collection$list$witness), $list$new(NULL, NULL));
-    $Iterator n$6iter = (($Iterator (*) ($Iterable, $list))w$3531->$class->__iter__)(w$3531, self->elems);
-    nsoapi$proto$$EObject n$7val = ((nsoapi$proto$$EObject (*) ($Iterator))n$6iter->$class->__next__)(n$6iter);
-    while ($ISNOTNONE(n$7val)->val) {
-        nsoapi$proto$$EObject e = n$7val;
-        (($NoneType (*) ($Sequence, $list, $str))w$3503->$class->append)(w$3503, sl, (($str)$str$new((($value)e))));
-        n$7val = ((nsoapi$proto$$EObject (*) ($Iterator))n$6iter->$class->__next__)(n$6iter);
+B_str nsoapiQ_protoQ_EListD___str__ (nsoapiQ_protoQ_EList self) {
+    B_Iterable W_4021 = ((B_Iterable)B_SequenceD_listG_new()->W_Collection);
+    B_Collection W_4104 = B_SequenceD_listG_new()->W_Collection;
+    B_Sequence W_3993 = ((B_Sequence)B_SequenceD_listG_new());
+    B_Plus W_4041 = ((B_Plus)B_TimesD_strG_new());
+    B_Iterable W_4097 = ((B_Iterable)B_SequenceD_listG_new()->W_Collection);
+    B_list sl = ((B_list (*) (B_Collection, B_Iterable, B_list))W_3993->W_Collection->$class->__fromiter__)(W_3993->W_Collection, ((B_Iterable)$CollectionD_listG_witness), B_listG_new(NULL, NULL));
+    B_Iterator N_6iter = ((B_Iterator (*) (B_Iterable, B_list))W_4021->$class->__iter__)(W_4021, self->elems);
+    nsoapiQ_protoQ_EObject N_7val = ((nsoapiQ_protoQ_EObject (*) (B_Iterator))N_6iter->$class->__next__)(N_6iter);
+    while ($ISNOTNONE(N_7val)->val) {
+        nsoapiQ_protoQ_EObject e = N_7val;
+        ((B_NoneType (*) (B_Sequence, B_list, B_str))W_3993->$class->append)(W_3993, sl, ((B_str)B_strG_new(((B_value)e))));
+        N_7val = ((nsoapiQ_protoQ_EObject (*) (B_Iterator))N_6iter->$class->__next__)(N_6iter);
     }
-    return (($str (*) ($Plus, $str, $str))w$3551->$class->__add__)(w$3551, (($str (*) ($Plus, $str, $str))w$3551->$class->__add__)(w$3551, to$str("("), ({ $str $tmp = to$str(", ");
-                                                                                                                                                           (($str (*) ($str, $Iterable, $list))$tmp->$class->join)($tmp, w$3607, sl); })), to$str(")"));
+    return ((B_str (*) (B_Plus, B_str, B_str))W_4041->$class->__add__)(W_4041, ((B_str (*) (B_Plus, B_str, B_str))W_4041->$class->__add__)(W_4041, to$str("["), ({ B_str $tmp = to$str(", ");
+                                                                                                                                                                   ((B_str (*) (B_str, B_Iterable, B_list))$tmp->$class->join)($tmp, W_4097, sl); })), to$str("]"));
 }
 
-$str nsoapi$proto$$EList$__str__ (nsoapi$proto$$EList self) {
-    $Iterable w$3531 = (($Iterable)$Sequence$list$new()->w$Collection);
-    $Collection w$3615 = $Sequence$list$new()->w$Collection;
-    $Sequence w$3503 = (($Sequence)$Sequence$list$new());
-    $Plus w$3551 = (($Plus)$Times$str$new());
-    $Iterable w$3607 = (($Iterable)$Sequence$list$new()->w$Collection);
-    $list sl = (($list (*) ($Collection, $Iterable, $list))w$3503->w$Collection->$class->__fromiter__)(w$3503->w$Collection, (($Iterable)$Collection$list$witness), $list$new(NULL, NULL));
-    $Iterator n$6iter = (($Iterator (*) ($Iterable, $list))w$3531->$class->__iter__)(w$3531, self->elems);
-    nsoapi$proto$$EObject n$7val = ((nsoapi$proto$$EObject (*) ($Iterator))n$6iter->$class->__next__)(n$6iter);
-    while ($ISNOTNONE(n$7val)->val) {
-        nsoapi$proto$$EObject e = n$7val;
-        (($NoneType (*) ($Sequence, $list, $str))w$3503->$class->append)(w$3503, sl, (($str)$str$new((($value)e))));
-        n$7val = ((nsoapi$proto$$EObject (*) ($Iterator))n$6iter->$class->__next__)(n$6iter);
+B_str nsoapiQ_protoQ_ETupleD___str__ (nsoapiQ_protoQ_ETuple self) {
+    B_Collection W_4619 = B_SequenceD_listG_new()->W_Collection;
+    B_Iterable W_4669 = ((B_Iterable)B_SequenceD_listG_new()->W_Collection);
+    B_Sequence W_4508 = ((B_Sequence)B_SequenceD_listG_new());
+    B_Plus W_4556 = ((B_Plus)B_TimesD_strG_new());
+    B_Iterable W_4612 = ((B_Iterable)B_SequenceD_listG_new()->W_Collection);
+    B_list sl = ((B_list (*) (B_Collection, B_Iterable, B_list))W_4508->W_Collection->$class->__fromiter__)(W_4508->W_Collection, ((B_Iterable)$CollectionD_listG_witness), B_listG_new(NULL, NULL));
+    B_Iterator N_12iter = ((B_Iterator (*) (B_Iterable, B_list))W_4669->$class->__iter__)(W_4669, self->elems);
+    nsoapiQ_protoQ_EObject N_13val = ((nsoapiQ_protoQ_EObject (*) (B_Iterator))N_12iter->$class->__next__)(N_12iter);
+    while ($ISNOTNONE(N_13val)->val) {
+        nsoapiQ_protoQ_EObject e = N_13val;
+        ((B_NoneType (*) (B_Sequence, B_list, B_str))W_4508->$class->append)(W_4508, sl, ((B_str)B_strG_new(((B_value)e))));
+        N_13val = ((nsoapiQ_protoQ_EObject (*) (B_Iterator))N_12iter->$class->__next__)(N_12iter);
     }
-    return (($str (*) ($Plus, $str, $str))w$3551->$class->__add__)(w$3551, (($str (*) ($Plus, $str, $str))w$3551->$class->__add__)(w$3551, to$str("["), ({ $str $tmp = to$str(", ");
-                                                                                                                                                           (($str (*) ($str, $Iterable, $list))$tmp->$class->join)($tmp, w$3607, sl); })), to$str("]"));
+    return ((B_str (*) (B_Plus, B_str, B_str))W_4556->$class->__add__)(W_4556, ((B_str (*) (B_Plus, B_str, B_str))W_4556->$class->__add__)(W_4556, to$str("("), ({ B_str $tmp = to$str(", ");
+                                                                                                                                                                   ((B_str (*) (B_str, B_Iterable, B_list))$tmp->$class->join)($tmp, W_4612, sl); })), to$str(")"));
 }
