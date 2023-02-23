@@ -205,6 +205,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
     listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
     input_stream: BufferReader = BufferReader()
+    var recv_bytes_total: int = 0
 
     var internal_recv_queue: Queue[proc() -> ?value] = Queue()
     var user_recv_queue: Queue[proc() -> ?value] = Queue()
@@ -220,9 +221,9 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     def _write(data: bytes):
         print("MaapiConnection TCP send:", data)
         if conn is not None:
-            # conn.write(data)
+            conn.write(data)
             # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
-            await async conn.write(data)
+            # await async conn.write(data)
         else:
             # `conn` is made nullable only to workaround compiler ordering issue
             raise ValueError("Attempting to write without valid connection")
@@ -267,6 +268,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         _write(w.to_bytes())
 
         internal_recv_queue.append(_connect_maapi_cb)
+        _post_poll_recv()
 
     # def _pop_recv():
     #     # We arent't allowed to return a proc(), even for use internally in the actor,
@@ -289,31 +291,47 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     #         pass
 
     def _poll_recv():
-        if internal_recv_queue:
-            _poll_recv_queue(internal_recv_queue)
-        elif user_recv_queue:
-            _poll_recv_queue(user_recv_queue)
-        else:
-            # If received unexpected data, reconnect.
-            # self._on_tcp_error(self.conn, "Received unexpected data.")
-            print("WARNING: Received unexpected data")
+        # _loop: bool = True
+        # while _loop:
+        #     if internal_recv_queue:
+        #         _loop = _poll_recv_queue(internal_recv_queue) and input_stream.has_unread_bytes()
+        #     elif user_recv_queue:
+        #         _loop = _poll_recv_queue(user_recv_queue) and input_stream.has_unread_bytes()
+        #     else:
+        #         _loop = False
+        # ERROR: Error when compiling nsoapi.maapi module: Compilation error
+        #  295:17-21
+        #     |
+        # 295 |                _loop = _poll_recv_queue(internal_recv_queue) and input_stream.has_unread_bytes()
+        #     |                ^^^^^
+        # Name _loop is not in scope
+        while True:
+            if internal_recv_queue:
+                #print("_poll_recv: internal_recv_queue")
+                if not _poll_recv_queue(internal_recv_queue):
+                    break
+            elif user_recv_queue:
+                #print("_poll_recv: user_recv_queue")
+                if not _poll_recv_queue(user_recv_queue):
+                    break
+            else:
+                break
+        #print("_poll_recv: Done")
 
-    def _poll_recv_queue(queue: Queue[proc() -> ?value]):
+    def _post_poll_recv():
+        # We really only want to do an async fire-and-forget call to ourselves ASAP
+        after 0: _poll_recv()
+
+    def _poll_recv_queue(queue: Queue[proc() -> ?value]) -> bool:
         recv = queue.peek()
         result: ?value = recv()
         if result is not None and isinstance(result, IncompleteReadError):
             input_stream.rewind()
+            return False
         else:
             input_stream.consume()
             queue.pop()
-
-    def _try_poll_recv():
-        if input_stream.has_unread_bytes():
-            _poll_recv()
-
-    def _post_try_poll_recv():
-        #async _try_poll_recv() # Compiler generated code error
-        after 0: _try_poll_recv()
+            return True
 
     def _on_tcp_connect(c):
         print("MaapiConnection TCP connected")
@@ -321,11 +339,14 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
     def _on_tcp_receive(c, data):
         # print("MaapiConnection TCP recv:", data)
+        data_len: int = len(data)
+        recv_bytes_total += data_len
         if len(data) > 80:
-            print("MaapiConnection TCP recv:", data[:80], " ... (len ", len(data), ")")
+            print("MaapiConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
         else:
-            print("MaapiConnection TCP recv:", data)
+            print("MaapiConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
         input_stream.append_data(data)
+        # _post_poll_recv()
         _poll_recv()
 
     def _on_tcp_error(c, msg):
@@ -378,6 +399,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         len_data = len_writer.to_bytes()
 
         queue.append(lambda: _maapi_response_cb(op, read_op, response_cb))
+        _post_poll_recv()
 
         # _write(len_data + header_data + payload_data)
         _write(len_data)
@@ -522,7 +544,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         if has_more:
             # More replies
             internal_recv_queue.append(lambda: _maapi_response_cb(op, False, lambda v: _multi_response_cb(v, op, term_cb, finished_cb)))
-            _post_try_poll_recv()
+            _post_poll_recv()
         else:
             # Done!
             finished_cb(error)

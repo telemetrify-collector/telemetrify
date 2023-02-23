@@ -114,6 +114,9 @@ class HTag(Tag):
         self.ns_hash = ns_hash
         self.name_hash = name_hash
 
+    def __str__(self) -> str:
+        return "HTag(" + str(self.ns_hash) + ", " + str(self.name_hash) + ")"
+
 extension HTag(Hashable):
     def __eq__(self, other: HTag) -> bool:
         return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash

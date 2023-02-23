@@ -7,13 +7,13 @@ else
 	BUILD_PATH=$(PROJECT_DIR)/out/rel
 endif
 ARGS?=maapi-schema
+REPLAY?=replays/maapi-schema-bare.raw.gz
 
 start:
-	ncs --cd $(SELF_DIR)ncs
-	ncs --wait-started 600
+	@(zcat $(REPLAY) | nc -l 4569 &)
 
 stop:
-	ncs --stop
+	-@pkill -f "^nc -l 4569$$"
 
 test:
 	$(BUILD_PATH)/bin/nsoapi.test $(ARGS)
@@ -21,7 +21,4 @@ test:
 test-debug:
 	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/nsoapi.test --rts-wthreads 1 $(ARGS)
 
-cli:
-	ncs_cli -u admin
-
-.PHONY: start stop test test-debug cli
+.PHONY: start stop test test-debug

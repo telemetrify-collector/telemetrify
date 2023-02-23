@@ -5,6 +5,35 @@ from nsoapi.proto import *
 from nsoapi.schema import *
 
 actor main(env):
+    def run_test_maapi_session_schema(env):
+        test_maapi_session_schema(env)
+
+    def run_test_maapi_transaction_set_values(env):
+        test_maapi_transaction_set_values(env)
+
+    tests: dict[str, proc(Env) -> None] = {
+        "maapi-schema": run_test_maapi_session_schema,
+        "maapi-transaction-set-values": run_test_maapi_transaction_set_values,
+    }
+
+    args = env.argv
+    path: str = args[0]
+
+    def print_help_and_exit():
+        print("usage:", path.split("/", -1)[-1], "[ " + " | ".join(tests.keys()) + " ]")
+        await async env.exit(1)
+
+    if len(args) == 2:
+        cmd: str = args[1]
+        if cmd in tests:
+            t = tests[cmd]
+            t(env)
+        else:
+            print_help_and_exit()
+    else:
+        print_help_and_exit()
+
+actor test_maapi_session_schema(env):
     def _on_connect(c):
         print("MAAPI connected!!!!")
         c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, True, UserIdentity(None, None, None, None)), _on_user_session)
@@ -12,21 +41,45 @@ actor main(env):
     def _on_user_session(c, e):
         if e is None:
             print("MAAPI user session started!!!!")
-            # #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
-            # c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
             c.load_schema(_on_load_schema)
+            #c.end_user_session(_on_end_user_session)
         else:
             print("MAAPI user session failed:", e)
+            await async env.exit(1)
 
     def _on_load_schema(c, v):
         if isinstance(v, Schema):
             print("MAAPI loaded schema!!!!")
             print(v)
-            #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
-            #c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+            c.end_user_session(_on_end_user_session)
         else:
             print("MAAPI load schema failed:", v)
-        await async env.exit(0)
+            await async env.exit(1)
+
+    def _on_end_user_session(c, e):
+        if e is None:
+            print("MAAPI ended user session")
+            await async env.exit(0)
+        else:
+            print("MAAPI end user session failed:", e)
+            await async env.exit(1)
+
+    print("Starting up...")
+    sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect)
+
+actor test_maapi_transaction_set_values(env):
+    def _on_connect(c):
+        print("MAAPI connected!!!!")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, True, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!!")
+            #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+            c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
 
     def _on_start_trans(c, thandle):
         if isinstance(thandle, int):
@@ -45,6 +98,7 @@ actor main(env):
                 ], lambda c, e:_on_set_values(c, e, thandle))
         else:
             print("MAAPI start transaction failed:", thandle)
+            await async env.exit(1)
 
     def _on_set_values(c, e, thandle):
         if e is None:
@@ -52,6 +106,7 @@ actor main(env):
             c.apply_trans(thandle, False, 0, lambda c, e:_on_apply_trans(c, e, thandle))
         else:
             print("MAAPI set_values failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
 
     def _on_apply_trans(c, e, thandle):
         if e is None:
@@ -59,6 +114,7 @@ actor main(env):
             c.finish_trans(thandle, lambda c, e:_on_finish_trans(c, e, thandle))
         else:
             print("MAAPI apply transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
 
     def _on_finish_trans(c, e, thandle):
         if e is None:
@@ -66,12 +122,15 @@ actor main(env):
             c.end_user_session(_on_end_user_session)
         else:
             print("MAAPI finish transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
 
     def _on_end_user_session(c, e):
         if e is None:
             print("MAAPI ended user session")
+            await async env.exit(0)
         else:
             print("MAAPI end user session failed:", e)
+            await async env.exit(1)
 
     print("Starting up...")
     sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect)

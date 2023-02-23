@@ -753,7 +753,7 @@ actor SchemaBuilder():
     def _for_schema_lists(term: EObject, on_elem: proc(EObject) -> None) -> value:
         if isinstance(term, EList):
             for e in term.elems:
-                print(e)
+                #print(e)
                 if isinstance(e, EAtom) and str(e) == 'eof':
                     return False
                 on_elem(e)
@@ -925,8 +925,8 @@ actor SchemaBuilder():
         # TODO: Store tag for reuse
 
     def build() -> Schema:
-        _pretty_print_nodes(roots, "")
-        _pretty_print_types(types, "")
+        #_pretty_print_nodes(roots, "")
+        #_pretty_print_types(types, "")
 
         _roots: HTagDict[Node] = HTagDict()
         _cns_to_namespace: dict[str, NamespaceDescription] = {}
