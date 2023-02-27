@@ -7,7 +7,7 @@ else
 	BUILD_PATH=$(PROJECT_DIR)/out/rel
 endif
 ARGS?=maapi-schema
-REPLAY?=replays/maapi-schema-bare.raw.gz
+REPLAY?=replays/maapi-schema-ios-xr-pruned-50.raw.gz
 
 start:
 	@(zcat $(REPLAY) | nc -l 4569 &)

@@ -1,3 +1,4 @@
+import file
 import net
 from nsoapi.proto import *
 from nsoapi.conf import *
@@ -198,7 +199,10 @@ class UserSessionDescription:
 
             return EList(elems, True)
 
-actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -> None):
+# TODO: Would be nice to inject a connection instance
+#       e.g. for testing or session recording/replay.
+#       Interfaces/protocols for actors?
+actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
     IA_CLIENT_MAAPI = 7
     CLIENT_PROTO_VSN = 78
     CLIENT_CONF_VSN = 0x07080000
@@ -256,7 +260,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", conf_vsn)
             on_connect(self)
         else:
-            raise ProtoError()
+            on_connect_error(ProtoError())
 
     def _connect_maapi():
         w = BufferWriter()
@@ -347,6 +351,8 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             print("MaapiConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
         input_stream.append_data(data)
         # _post_poll_recv()
+        if record_to is not None:
+            record_to.write(data)
         _poll_recv()
 
     def _on_tcp_error(c, msg):

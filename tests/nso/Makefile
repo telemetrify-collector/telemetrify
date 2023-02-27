@@ -7,9 +7,10 @@ else
 	BUILD_PATH=$(PROJECT_DIR)/out/rel
 endif
 ARGS?=maapi-schema
+NCS_D?=ncs
 
 start:
-	ncs --cd $(SELF_DIR)ncs
+	ncs --cd $(SELF_DIR)$(NCS_D)
 	ncs --wait-started 600
 
 stop:
