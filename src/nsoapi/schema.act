@@ -42,8 +42,10 @@ CONFD_RANGE_MAX_EXCLUSIVE: i64 = 1 << 3
 ROOT_MOUNT_ID = HTag(0, 0)
 
 class Schema:
+    # @property
+    # _roots: HTagDict[Node]
     @property
-    _roots: HTagDict[Node]
+    _root: Node
     @property
     _nshash_to_namespace: dict[int, NamespaceDescription]
     @property
@@ -55,33 +57,34 @@ class Schema:
     @property
     _mount_id_maps: dict[HTag, NamespaceMaps]
 
-    def __init__(self,
-                    roots: HTagDict[Node],
+    def __init__(self: Schema,
+                    roots: dict[HTag, Node],
                     nshash_to_namespace: dict[int, NamespaceDescription],
                     cns_to_namespace: dict[str, NamespaceDescription],
                     hash_to_name: dict[int, str],
                     name_to_hash: dict[str, int],
                     mount_id_maps: dict[HTag, NamespaceMaps]):
-        self._roots = roots
+        #self._roots = roots
+        self._root = Node(HTag(0, 0), 1, 1, CS_NODE_IS_CONTAINER, 0, None, [], roots)
         self._nshash_to_namespace = nshash_to_namespace
         self._cns_to_namespace = cns_to_namespace
         self._hash_to_name = hash_to_name
         self._name_to_hash = name_to_hash
         self._mount_id_maps = mount_id_maps
 
-    def cns_to_namespace(self, cns: str) -> ?NamespaceDescription:
+    def cns_to_namespace(self: Schema, cns: str) -> ?NamespaceDescription:
         return try_get(self._cns_to_namespace, cns)
 
-    def nshash_to_namespace(self, ns_hash: int) -> ?NamespaceDescription:
+    def nshash_to_namespace(self: Schema, ns_hash: int) -> ?NamespaceDescription:
         return try_get(self._nshash_to_namespace, ns_hash)
 
-    def hash_to_name(self, _hash: int) -> ?str:
+    def hash_to_name(self: Schema, _hash: int) -> ?str:
         return try_get(self._hash_to_name, _hash)
 
-    def name_to_hash(self, name: str) -> ?int:
+    def name_to_hash(self: Schema, name: str) -> ?int:
         return try_get(self._name_to_hash, name)
 
-    def mount_id_map(self, mount_id: HTag) -> ?NamespaceMaps:
+    def mount_id_map(self: Schema, mount_id: HTag) -> ?NamespaceMaps:
         return try_get(self._mount_id_maps, mount_id)
 
 class Cursor:
@@ -92,27 +95,35 @@ class Cursor:
     @property
     _mount_points: list[?(HTag, NamespaceMaps)]
 
-    def __init__(self, schema: Schema):
+    def __init__(self: Cursor, schema: Schema):
         self._schema = schema
-        self._path = []
-        _mount_points = []
+        self._path = [schema._root]
+        self._mount_points = []
+        root_nsmaps = try_get(schema._mount_id_maps, ROOT_MOUNT_ID)
+        self._mount_points.append((ROOT_MOUNT_ID, root_nsmaps) if root_nsmaps is not None else None)
 
-    def push(self, tag: Tag) -> bool:
-        node: ?Node = None
-        raise Exception("Not Implemented")
-        if node is not None:
-            if node.is_mount_point():
-                self._mount_points.append(None)
+    def push(self: Cursor, tag: Tag) -> bool:
+        _node: ?Node = None
+        htag = self.lookup_htag(tag, True)
+        if htag is not None:
+            _node = try_get(self.node().children, htag)
+            if _node is not None:
+                self._path.append(_node)
+                if _node.is_mount_point():
+                    self._mount_points.append(None)
+                return True
+        return False
 
-    def pop(self):
+    def pop(self: Cursor) -> None:
         path = self._path
-        if len(path) >= 1:
-            node: Node = path[-1]
+        if len(path) >= 2:
+            #node: Node = path.pop()
+            node: Node = list_pop(path)
             if node.is_mount_point():
                 #self._mount_points.pop()
-                del self._mount_points[-1:]
-        #path.pop()
-        del path[-1:]
+                del self._mount_points[-1]
+        else:
+            raise ValueError("Attempted to pop root")
 
     def set_mount_id(self: Cursor, mount_id: HTag) -> bool:
         ns_maps = self._schema.mount_id_map(mount_id)
@@ -124,7 +135,7 @@ class Cursor:
     def node(self: Cursor) -> Node:
         return self._path[-1]
 
-    def prefix_to_namespace(self, prefix: str) -> ?NamespaceDescription:
+    def prefix_to_namespace(self: Cursor, prefix: str) -> ?NamespaceDescription:
         mount_points = self._mount_points
         for i in range(len(mount_points)-1, -1, -1):
             entry: ?(HTag, NamespaceMaps) = mount_points[i]
@@ -135,7 +146,7 @@ class Cursor:
                     return ns_descr
         return None
 
-    def ns_to_namespace(self, ns: str) -> ?NamespaceDescription:
+    def ns_to_namespace(self: Cursor, ns: str) -> ?NamespaceDescription:
         mount_points = self._mount_points
         for i in range(len(mount_points)-1, -1, -1):
             entry: ?(HTag, NamespaceMaps) = mount_points[i]
@@ -146,85 +157,83 @@ class Cursor:
                     return ns_descr
         return None
 
-    def module_to_namespace(self, module: str) -> ?NamespaceDescription:
+    def module_to_namespace(self: Cursor, module: str) -> ?NamespaceDescription:
         mount_points = self._mount_points
         for i in range(len(mount_points)-1, -1, -1):
             entry: ?(HTag, NamespaceMaps) = mount_points[i]
             if entry is not None:
                 nsmaps: NamespaceMaps = entry.1
-                ns_descr = try_get(nsmaps.module_to_namespace, module)
+                ns_descr: ?NamespaceDescription = try_get(nsmaps.module_to_namespace, module)
                 if ns_descr is not None:
                     return ns_descr
         return None
 
-    def cns_to_namespace(self, cns: str) -> ?NamespaceDescription:
+    def cns_to_namespace(self: Cursor, cns: str) -> ?NamespaceDescription:
         return self._schema.cns_to_namespace(cns)
 
-    def prefix_to_ns(self, prefix: str) -> ?str:
+    def prefix_to_ns(self: Cursor, prefix: str) -> ?str:
         ns_descr = self.prefix_to_namespace(prefix)
         if ns_descr is not None:
             return ns_descr.ns
         return None
 
-    def prefix_to_nshash(self, prefix: str) -> ?int:
+    def prefix_to_nshash(self: Cursor, prefix: str) -> ?int:
         ns_descr = self.prefix_to_namespace(prefix)
         if ns_descr is not None:
             return ns_descr.ns_hash
         return None
 
-    def ns_to_nshash(self, ns: str) -> ?int:
+    def ns_to_nshash(self: Cursor, ns: str) -> ?int:
         ns_descr = self.ns_to_namespace(ns)
         if ns_descr is not None:
             return ns_descr.ns_hash
         return None
 
-    def ns_to_prefix(self, ns: str) -> ?str:
+    def ns_to_prefix(self: Cursor, ns: str) -> ?str:
         ns_descr = self.ns_to_namespace(ns)
         if ns_descr is not None:
             return ns_descr.prefix
         return None
 
-    def module_to_ns(self, module: str) -> ?str:
+    def module_to_ns(self: Cursor, module: str) -> ?str:
         ns_descr = self.module_to_namespace(module)
         if ns_descr is not None:
             return ns_descr.ns
         return None
 
-    def module_to_nshash(self, module: str) -> ?int:
+    def module_to_nshash(self: Cursor, module: str) -> ?int:
         ns_descr = self.module_to_namespace(module)
         if ns_descr is not None:
             return ns_descr.ns_hash
         return None
 
-    def nshash_to_prefix(self, ns_hash: int) -> ?str:
+    def module_to_prefix(self: Cursor, module: str) -> ?str:
+        ns_descr = self.module_to_namespace(module)
+        if ns_descr is not None:
+            return ns_descr.prefix
+        return None
+
+    def nshash_to_prefix(self: Cursor, ns_hash: int) -> ?str:
         ns_descr = self._schema.nshash_to_namespace(ns_hash)
         if ns_descr is not None:
             return ns_descr.prefix
         return None
 
-    def nshash_to_ns(self, ns_hash: int) -> ?str:
+    def nshash_to_ns(self: Cursor, ns_hash: int) -> ?str:
         ns_descr = self._schema.nshash_to_namespace(ns_hash)
         if ns_descr is not None:
             return ns_descr.ns
         return None
 
-    def nshash_to_module(self, ns_hash: int) -> ?str:
+    def nshash_to_module(self: Cursor, ns_hash: int) -> ?str:
         ns_descr = self._schema.nshash_to_namespace(ns_hash)
         if ns_descr is not None:
             return ns_descr.module
         return None
 
-    def lookup_ptag(self, tag: Tag) -> ?PTag:
+    def lookup_ptag(self: Cursor, tag: Tag) -> ?PTag:
         if isinstance(tag, PTag):
             return tag
-        elif isinstance(tag, ITag):
-            _ns = tag.ns
-            if _ns is not None:
-                prefix = self.ns_to_prefix(_ns)
-                if prefix is not None:
-                    return PTag(prefix, tag.name)
-            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
-                return PTag(None, tag.name)
         elif isinstance(tag, HTag):
             name = self._schema.hash_to_name(tag.name_hash)
             if name is not None:
@@ -234,19 +243,27 @@ class Cursor:
                     prefix = self.nshash_to_prefix(tag.ns_hash)
                     if prefix is not None:
                         return PTag(prefix, name)
+        elif isinstance(tag, ITag):
+            _ns = tag.ns
+            if _ns is not None:
+                prefix = self.ns_to_prefix(_ns)
+                if prefix is not None:
+                    return PTag(prefix, tag.name)
+            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                return PTag(None, tag.name)
+        elif isinstance(tag, MTag):
+            _module = tag.module
+            if _module is not None:
+                prefix = self.module_to_prefix(_module)
+                if prefix is not None:
+                    return PTag(prefix, tag.name)
+            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                return PTag(None, tag.name)
         return None
 
-    def lookup_itag(self, tag: Tag) -> ?ITag:
+    def lookup_itag(self: Cursor, tag: Tag) -> ?ITag:
         if isinstance(tag, ITag):
             return tag
-        elif isinstance(tag, PTag):
-            _prefix = tag.prefix
-            if _prefix is not None:
-                ns = self.prefix_to_ns(_prefix)
-                if ns is not None:
-                    return ITag(ns, tag.name)
-            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
-                return ITag(None, tag.name)
         elif isinstance(tag, HTag):
             name = self._schema.hash_to_name(tag.name_hash)
             if name is not None:
@@ -256,9 +273,25 @@ class Cursor:
                     ns = self.nshash_to_ns(tag.ns_hash)
                     if ns is not None:
                         return ITag(ns, name)
+        elif isinstance(tag, PTag):
+            _prefix = tag.prefix
+            if _prefix is not None:
+                ns = self.prefix_to_ns(_prefix)
+                if ns is not None:
+                    return ITag(ns, tag.name)
+            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                return ITag(None, tag.name)
+        elif isinstance(tag, MTag):
+            _module = tag.module
+            if _module is not None:
+                _ns = self.module_to_ns(_module)
+                if _ns is not None:
+                    return ITag(_ns, tag.name)
+            elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
+                return ITag(None, tag.name)
         return None
 
-    def lookup_htag(self, tag: Tag) -> ?HTag:
+    def lookup_htag(self: Cursor, tag: Tag, inherit_ns: bool) -> ?HTag:
         if isinstance(tag, HTag):
             return tag
         elif isinstance(tag, PTag):
@@ -269,8 +302,8 @@ class Cursor:
                     ns_hash = self.prefix_to_nshash(_prefix)
                     if ns_hash is not None:
                         return HTag(ns_hash, name_hash)
-                    else:
-                        return HTag(0, name_hash)
+                else:
+                    return HTag(self.node().tag.ns_hash if inherit_ns else 0, name_hash)
         elif isinstance(tag, ITag):
             name_hash = self._schema.name_to_hash(tag.name)
             if name_hash is not None:
@@ -279,8 +312,18 @@ class Cursor:
                     ns_hash = self.ns_to_nshash(_ns)
                     if ns_hash is not None:
                         return HTag(ns_hash, name_hash)
-                    else:
-                        return HTag(0, name_hash)
+                else:
+                    return HTag(self.node().tag.ns_hash if inherit_ns else 0, name_hash)
+        elif isinstance(tag, MTag):
+            name_hash = self._schema.name_to_hash(tag.name)
+            if name_hash is not None:
+                _module = tag.module
+                if _module is not None:
+                    ns_hash = self.module_to_nshash(_module)
+                    if ns_hash is not None:
+                        return HTag(ns_hash, name_hash)
+                else:
+                    return HTag(self.node().tag.ns_hash if inherit_ns else 0, name_hash)
         return None
 
 class NamespaceMaps:
@@ -291,7 +334,7 @@ class NamespaceMaps:
     @property
     module_to_namespace: dict[str, NamespaceDescription]
 
-    def __init__(self,
+    def __init__(self: NamespaceMaps,
                     ns_to_namespace: dict[str, NamespaceDescription],
                     prefix_to_namespace: dict[str, NamespaceDescription],
                     module_to_namespace: dict[str, NamespaceDescription]):
@@ -313,7 +356,7 @@ class NamespaceDescription:
     @property
     module: str
 
-    def __init__(self,
+    def __init__(self: NamespaceDescription,
             cns: str,
             ns: str,
             prefix: str,
@@ -327,7 +370,7 @@ class NamespaceDescription:
         self.revision = revision
         self.module = module
 
-    def __str__(self):
+    def __str__(self: NamespaceDescription) -> str:
         return "NamespaceDescription(" \
             + self.cns + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
             + self.revision + "," + self.module + ")"
@@ -391,7 +434,7 @@ class RawNode:
     @property
     mount_id_hashes: ?(int, int) # ?tuple[int, int]
 
-    def __init__(self,
+    def __init__(self: RawNode,
             node_id: int,
             tag_hash: int,
             ns_hash: int,
@@ -503,7 +546,7 @@ class RawKeys:
     @property
     key_hashes: list[int]
 
-    def __init__(self, node_id: int, key_hashes: list[int]):
+    def __init__(self: RawKeys, node_id: int, key_hashes: list[int]):
         self.node_id = node_id
         self.key_hashes = key_hashes
 
@@ -530,11 +573,11 @@ class TypeId:
     # @property
     # name: str
 
-    def __init__(self, ns_hash: int, name: str):
+    def __init__(self: TypeId, ns_hash: int, name: str):
         self.ns_hash = ns_hash
         self.name = name
 
-    def __str__(self) -> str:
+    def __str__(self: TypeId) -> str:
         return str(self.ns_hash) + ":" + self.name
 
 extension TypeId(Hashable):
@@ -564,7 +607,7 @@ class Node:
     @property
     children: dict[HTag, Node]
 
-    def __init__(self, tag: HTag, min_occurs: int, max_occurs: int, flags: i64, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[HTag, Node]):
+    def __init__(self: Node, tag: HTag, min_occurs: int, max_occurs: int, flags: i64, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[HTag, Node]):
         self.tag = tag
         self.min_occurs = min_occurs
         self.max_occurs = max_occurs
@@ -588,43 +631,47 @@ class Node:
         # if self.is_leaf_list():
         #     self.node_type = NODE_LEAF_LIST
 
-    def is_container(self):
+    def is_container(self: Node) -> bool:
         return self.flags & CS_NODE_IS_CONTAINER != 0
 
-    def is_np_container(self):
+    def is_np_container(self: Node) -> bool:
         return self.is_container() and self.min_occurs == 1
 
-    def is_p_container(self):
+    def is_p_container(self: Node) -> bool:
         return self.is_container() and self.min_occurs == 0
 
-    def is_leaf(self):
+    def is_list(self: Node) -> bool:
+        return self.flags & CS_NODE_IS_LIST != 0
+
+    def is_leaf(self: Node) -> bool:
         # return self.value_type is not None
-        return not self.children and self.flags & (
+        # return not self.children and self.flags & (
+        return len(self.children) <= 0 and self.flags & (
                 CS_NODE_IS_CONTAINER |
                 CS_NODE_IS_LIST |
                 CS_NODE_IS_ACTION |
                 CS_NODE_IS_NOTIF |
                 CS_NODE_IS_LEAF_LIST) == 0
 
-    def is_empty_leaf(self):
+    def is_empty_leaf(self: Node) -> bool:
         return self.is_leaf() and self.conf_type == C_XMLTAG
 
-    def is_non_empty_leaf(self):
+    def is_non_empty_leaf(self: Node) -> bool:
         return self.is_leaf() and self.conf_type != C_XMLTAG
 
-    def is_leaf_list(self):
+    def is_leaf_list(self: Node) -> bool:
         return self.flags & CS_NODE_IS_LEAF_LIST != 0
 
-    def is_oper(self):
+    def is_oper(self: Node) -> bool:
         return self.flags & CS_NODE_IS_WRITE == 0
 
-    def is_mount_point(self):
+    def is_mount_point(self: Node) -> bool:
         return self.flags & CS_NODE_HAS_MOUNT_POINT != 0
 
-    # def get_namespace(self, schema: Schema) -> NamespaceDescription:
+    # def get_namespace(self: Node) -> bool, schema: Schema) -> NamespaceDescription:
     #     ...
 
-    # def get_name(self, schema: Schema) -> str:
+    # def get_name(self: Node) -> bool, schema: Schema) -> str:
     #     ...
 
 class Type(object):
@@ -637,7 +684,7 @@ class Type(object):
     # @property
     # derivation: str
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, conf_type: ?int):
+    def __init__(self: Type, type_id: TypeId, parent_type: ?Type, conf_type: ?int):
         self.type_id = type_id
         self.parent_type = parent_type
         self.conf_type = conf_type
@@ -785,7 +832,7 @@ class Type(object):
                 return Type(type_id, parent_type, None)
         return None
 
-    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+    def netconf_to_value(self: Type, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         retval = None
         parent = self.parent_type
         if parent is not None:
@@ -803,7 +850,7 @@ class Type(object):
                     retval = Any.netconf_to_value(s, shallow_type, cursor, prefix_to_ns)
         return retval
 
-    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?str:
+    def value_to_netconf(self: Type, v: ?value, cursor: Cursor) -> ?str:
         retval = None
         parent = self.parent_type
         if parent is not None:
@@ -812,7 +859,7 @@ class Type(object):
             retval = Any.value_to_netconf(v, cursor)
         return retval
 
-    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+    def value_to_eobject(self: Type, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         retval = None
         parent = self.parent_type
         if parent is not None:
@@ -821,13 +868,13 @@ class Type(object):
             retval = Any.value_to_eobject(v, cursor, use_ikp)
         return retval
 
-    def eobject_to_value(self, cursor: Cursor, obj: ?EObject) -> ?value:
+    def eobject_to_value(self: Type, cursor: Cursor, obj: ?EObject) -> ?value:
         return None
 
     # def netconf_to_eobject(self, node: Node, s: str) -> ?EObject:
     #     return netvalue_to_eobject(netconf_to_value(node, s))
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: Type, cursor: Cursor, v: ?value) -> bool:
         return False # TODO
 
 class EnumType(Type):
@@ -836,7 +883,7 @@ class EnumType(Type):
     @property
     ordinal_to_name: dict[int, str]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, name_to_ordinal: dict[str, int]):
+    def __init__(self: EnumType, type_id: TypeId, parent_type: ?Type, name_to_ordinal: dict[str, int]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -847,7 +894,7 @@ class EnumType(Type):
             _ordinal_to_name[ordinal] = name
         self.ordinal_to_name = _ordinal_to_name
 
-    def __str__(self):
+    def __str__(self: EnumType) -> str:
         return Type.__str__(self) + " enum " + str(self.name_to_ordinal)
 
     @staticmethod
@@ -865,7 +912,7 @@ class EnumType(Type):
             return EnumType(type_id, parent_type, name_to_ordinal)
         return None
 
-    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+    def value_to_eobject(self: EnumType, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         if v is not None:
             if isinstance(v, str):
                 ordinal = try_get(self.name_to_ordinal, v)
@@ -875,7 +922,7 @@ class EnumType(Type):
                 return ETuple([EInt(C_ENUM_VALUE), EInt(v)])
         return None
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: EnumType, cursor: Cursor, v: ?value) -> bool:
         if v is not None:
             if isinstance(v, str):
                 return v in self.name_to_ordinal
@@ -887,7 +934,7 @@ class UnionType(Type):
     @property
     types: list[Type]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, types: list[Type]):
+    def __init__(self: UnionType, type_id: TypeId, parent_type: ?Type, types: list[Type]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -913,14 +960,14 @@ class UnionType(Type):
             return UnionType(type_id, parent_type, utypes)
         return None
 
-    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+    def netconf_to_value(self: UnionType, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         for t in self.types:
             res = t.netconf_to_value(s, cursor, prefix_to_ns)
             if res is not None:
                 return res
         return None
 
-    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+    def value_to_eobject(self: UnionType, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         for t in self.types:
             res = t.value_to_eobject(v, cursor, use_ikp)
             if res is not None:
@@ -931,7 +978,7 @@ class RestrictedNumberType(Type):
     @property
     ranges: list[TypeRange]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, conf_type: ?int, ranges: list[TypeRange]):
+    def __init__(self: RestrictedNumberType, type_id: TypeId, parent_type: ?Type, conf_type: ?int, ranges: list[TypeRange]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -949,7 +996,7 @@ class BitsType(Type):
     @property
     name_to_pos: dict[str, int]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, conf_type: ?int, pos_to_name: dict[int, str]):
+    def __init__(self: BitsType, type_id: TypeId, parent_type: ?Type, conf_type: ?int, pos_to_name: dict[int, str]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -986,7 +1033,7 @@ class BitsType(Type):
                 return BitsType(type_id, parent_type, _conf_type, _pos_to_name)
         return None
 
-    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+    def netconf_to_value(self: BitsType, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         p = s.split(" ", -1)
         # mask: int = 0
         # BUG: Runtime error on bitwise operations
@@ -1006,7 +1053,7 @@ class BitsType(Type):
         v: set[str] = set(p)
         return v
 
-    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+    def value_to_eobject(self: BitsType, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         if v is not None:
             # if isinstance(v, set[str]):
             if isinstance(v, set):
@@ -1039,7 +1086,7 @@ class BitsType(Type):
                     return None
         return None
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: BitsType, cursor: Cursor, v: ?value) -> bool:
         # if v is not None and isinstance(v, Iterable):
         #     for bit_name in v:
         #         if bit_name not in self.name_to_pos:
@@ -1064,7 +1111,7 @@ class Decimal64Type(Type):
     @property
     ranges: list[TypeRange]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, fraction_digits: int, ranges: list[TypeRange]):
+    def __init__(self: Decimal64Type, type_id: TypeId, parent_type: ?Type, fraction_digits: int, ranges: list[TypeRange]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -1082,11 +1129,11 @@ class Decimal64Type(Type):
                 return Decimal64Type(type_id, parent_type, _fraction_digits.val, []) # TODO: ranges
         return None
 
-    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+    def netconf_to_value(self: Decimal64Type, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         d = Decimal64.try_parse(s)
         return d.try_lossless_realignment(-self.fraction_digits) if d is not None else None
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: Decimal64Type, cursor: Cursor, v: ?value) -> bool:
         # TODO
         return False
 
@@ -1094,7 +1141,7 @@ class ListType(Type):
     @property
     elem_type: Type
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, elem_type: Type):
+    def __init__(self: ListType, type_id: TypeId, parent_type: ?Type, elem_type: Type):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -1116,12 +1163,12 @@ class ListType(Type):
                     print("WARNING: Invalid schema list elem type_id ref:", type_id)
         return None
 
-    def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
+    def netconf_to_value(self: ListType, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         # Not really viable to parse multiple elements of any type ('string'-type in particular)
         # hence here we only allow single value
         return self.elem_type.netconf_to_value(s, cursor, prefix_to_ns)
 
-    def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
+    def value_to_eobject(self: ListType, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         # if v is not None and isinstance(v, Iterable):
         #     elems = []
         #     for o in v:
@@ -1158,7 +1205,7 @@ class ListRestrictionType(Type):
     @property
     ranges: list[TypeRange]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, ranges: list[TypeRange]):
+    def __init__(self: ListRestrictionType, type_id: TypeId, parent_type: ?Type, ranges: list[TypeRange]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -1170,12 +1217,12 @@ class ListRestrictionType(Type):
         # TODO
         return ListRestrictionType(type_id, parent_type, [])
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: ListRestrictionType, cursor: Cursor, v: ?value) -> bool:
         # TODO
         return False
 
 class DisplayHintType(Type):
-    def __init__(self, type_id: TypeId, parent_type: ?Type):
+    def __init__(self: DisplayHintType, type_id: TypeId, parent_type: ?Type):
         self.type_id = type_id
         self.parent_type = parent_type
         self.conf_type = None
@@ -1191,7 +1238,7 @@ class StringType(Type):
     @property
     pattern: ?value # TODO: regex
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, ranges: list[TypeRange], regex: ?value):
+    def __init__(self: StringType, type_id: TypeId, parent_type: ?Type, ranges: list[TypeRange], regex: ?value):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -1204,7 +1251,7 @@ class StringType(Type):
         # TODO
         return StringType(type_id, parent_type, [], None)
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: StringType, cursor: Cursor, v: ?value) -> bool:
         # TODO
         return False
 
@@ -1212,7 +1259,7 @@ class IdentityType(Type):
     @property
     identities: set[HTag]
 
-    def __init__(self, type_id: TypeId, parent_type: ?Type, identities: set[HTag]):
+    def __init__(self: IdentityType, type_id: TypeId, parent_type: ?Type, identities: set[HTag]):
         #super(self, type_id, parent_type, conf_type)
         self.type_id = type_id
         self.parent_type = parent_type
@@ -1242,15 +1289,15 @@ class IdentityType(Type):
     #         return v
     #     return None
 
-    def validate_value(self, cursor: Cursor, v: ?value) -> bool:
+    def validate_value(self: IdentityType, cursor: Cursor, v: ?value) -> bool:
         if v is not None and isinstance(v, Tag):
-            htag = cursor.lookup_htag(v)
+            htag = cursor.lookup_htag(v, False)
             if htag is not None:
                 return htag in self.identities
         return False
 
 class TypeRange:
-    def __init__(self, lo: ?value, hi: ?value, flags: i64):
+    def __init__(self: TypeRange, lo: ?value, hi: ?value, flags: i64):
         self.lo = lo
         self.hi = hi
         self.flags = flags
@@ -1290,7 +1337,7 @@ actor SchemaBuilder():
             return MaapiProtoError("Unexpected schema term")
         return True
 
-    def _on_ns_elem(elem: EObject):
+    def _on_ns_elem(elem: EObject) -> None:
         if isinstance(elem, ETuple):
             t = elem.elems
             if len(t) >= 1:
@@ -1330,7 +1377,7 @@ actor SchemaBuilder():
                         return
         #print("WARNING: Unexpected schema ns elem:", elem)
 
-    def _on_hash_elem(elem: EObject):
+    def _on_hash_elem(elem: EObject) -> None:
         #print(elem)
         if isinstance(elem, ETuple):
             t = elem.elems
@@ -1344,7 +1391,7 @@ actor SchemaBuilder():
                         return
         #print("WARNING: Unexpected schema hash_db elem:", elem)
 
-    def _on_mns_elem(elem: EObject):
+    def _on_mns_elem(elem: EObject) -> None:
         if isinstance(elem, ETuple):
             t = elem.elems
             if len(t) >= 1:
@@ -1397,7 +1444,7 @@ actor SchemaBuilder():
                             return
         #print("WARNING: Unexpected schema hash_db elem:", elem)
 
-    def _assemble_node_trees():
+    def _assemble_node_trees() -> None:
         for root_node_id in raw_roots:
             _roots = _build_node_tree(root_node_id)
             for tag, root in _roots.items():
@@ -1458,7 +1505,7 @@ actor SchemaBuilder():
         #_pretty_print_nodes(roots, "")
         #_pretty_print_types(types, "")
 
-        _roots: HTagDict[Node] = HTagDict()
+        _roots: dict[HTag, Node] = {}
         _cns_to_namespace: dict[str, NamespaceDescription] = {}
         _mount_id_maps: dict[HTag, NamespaceMaps] = {}
 
@@ -1480,7 +1527,7 @@ actor SchemaBuilder():
 
         return Schema(_roots, namespaces, _cns_to_namespace, hash_to_name, name_to_hash, _mount_id_maps)
 
-    def _pretty_print_nodes(nodes: dict[HTag, Node], indent: str):
+    def _pretty_print_nodes(nodes: dict[HTag, Node], indent: str) -> None:
         for node in nodes.values():
             keys = ""
             if node.keys:
@@ -1956,18 +2003,11 @@ class BasicTag:
             if use_ikp:
                 itag = cursor.lookup_itag(v)
                 if itag is not None:
-                    _ns = itag.ns
-                    if _ns is not None:
-                        return ETuple([EAtom(_ns), EAtom(itag.name)])
-                    else:
-                        return EAtom(itag.name)
+                    return itag.to_eobject()
             else:
-                htag = cursor.lookup_htag(v)
+                htag = cursor.lookup_htag(v, True)
                 if htag is not None:
-                    if htag.ns_hash == 0:
-                        return EInt(htag.name_hash)
-                    else:
-                        return ETuple([EInt(htag.ns_hash), EInt(htag.name_hash)])
+                    return htag.to_eobject()
         return None
 
 class InstanceIdentifier:
@@ -2198,7 +2238,7 @@ class Any:
     def value_to_eobject(v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         conf_type = cursor.node().conf_type
         if conf_type == C_NOEXISTS:
-            return EAtom('not_found')
+            return E_NOEXISTS
         elif conf_type == C_XMLTAG:
             return None # Deprecated?
         elif conf_type == C_SYMBOL:

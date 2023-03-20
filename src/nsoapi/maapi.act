@@ -21,6 +21,9 @@ _MAAPI_END_USER_SESSION = 101
 _MAAPI_START_TRANS = 140
 _MAAPI_FINISH_TRANS = 142 # AKA MAAPI_STOP_TRANS internally in java-api but finishTrans externally and maapi_finish_trans in c-api
 _MAAPI_APPLY_TRANS = 143
+_MAAPI_SET_ELEM = 172
+_MAAPI_DELETE = 174
+_MAAPI_CREATE = 175
 _MAAPI_GET_VALUES = 194
 _MAAPI_SET_VALUES = 195
 _MAAPI_LOAD_HASH_DB = 231
@@ -29,6 +32,16 @@ _MAAPI_LOAD_MNS_MAPS = 264
 _MAAPI_GET_MOUNT_ID = 265
 
 _ERL_EXTERN_FMT = Version
+
+_ERR_NOEXISTS = 1
+_ERR_ALREADY_EXISTS = 2
+_ERR_ACCESS_DENIED = 3
+_ERR_NOT_WRITABLE = 4
+_ERR_BADTYPE = 5
+_ERR_NOTCREATABLE = 6
+_ERR_NOTDELETABLE = 7
+_ERR_BADPATH = 8
+_ERR_INUSE = 11
 
 class MaapiException(ProtoError):
     def __init__(self, op: int, error_code: int, error_msg: ?str, conf_path: ?str):
@@ -223,7 +236,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     var conn: ?net.TCPIPConnection = None
 
     def _write(data: bytes):
-        #print("MaapiConnection TCP send:", data)
+        print("MaapiConnection TCP send:", data)
         if conn is not None:
             conn.write(data)
             # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
@@ -524,6 +537,23 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
                 retval = resp
         result_cb(self, retval)
 
+    def _some_result_cb(resp: ?value, transform_cb: pure(EObject) -> value, result_cb: action(MaapiConnection, value) -> None):
+        retval: value = False
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                ex = try_to_maapi_exception(resp)
+                if ex is not None:
+                    retval = ex
+                else:
+                    _t: ?EObject = resp.term
+                    if _t is not None:
+                        retval = transform_cb(_t)
+                    else:
+                        retval = MaapiProtoError("Unexpected response type: None")
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
     def _multi_response_cb(resp: ?value, op, term_cb: action(EObject) -> value, finished_cb: action(?Exception) -> None):
         has_more = False
         error: ?Exception = None
@@ -589,17 +619,44 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     action def finish_trans(thandle: int, result_cb: action(MaapiConnection, ?Exception) -> None):
         _send_user_maapi_request(_MAAPI_FINISH_TRANS, True, thandle, None, lambda v: _none_result_cb(v, result_cb))
 
-    action def set_values(thandle: int, path: EKeypath, values: list[ETagVal], result_cb: action(MaapiConnection, ?Exception) -> None):
+    action def set_values(thandle: int, path: EKeypath, eparams: list[EObject], result_cb: action(MaapiConnection, ?Exception) -> None):
         elems = []
         # elems.append(EList([v.to_eobject() for v in values], True))
-        velems = []
-        for v in values:
-            velems.append(v.to_eobject())
-        elems.append(EList(velems, True))
+        elems.append(EList(eparams, True))
         elems.append(path.to_eobject())
         e = ETuple(elems)
 
         _send_user_maapi_request(_MAAPI_SET_VALUES, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def set_elem(thandle: int, path: EKeypath, val: EObject, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = ETuple([val, path.to_eobject()])
+        _send_user_maapi_request(_MAAPI_SET_ELEM, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def delete(thandle: int, path: EKeypath, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = path.to_eobject()
+        _send_user_maapi_request(_MAAPI_DELETE, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def create(thandle: int, path: EKeypath, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = path.to_eobject()
+        _send_user_maapi_request(_MAAPI_CREATE, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def get_mount_id(thandle: int, path: EKeypath, result_cb: action(MaapiConnection, value) -> None):
+        e = ETuple([
+            EInt(thandle),
+            path.to_eobject(),
+            EInt(0) # use_ikp == 0 # TODO: Is this for the path argument, or the returned mount_id, or both?
+            ])
+
+        def _transform_result(res: EObject) -> value:
+            mount_id = nsoapi.schema.ROOT_MOUNT_ID
+            if isinstance(res, ETuple) and len(res.elems) == 2:
+                _ns_hash = res.elems[0]
+                _name_hash = res.elems[1]
+                if isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
+                    mount_id = HTag(_ns_hash.val, _name_hash.val)
+            return mount_id
+
+        _send_user_maapi_request(_MAAPI_GET_MOUNT_ID, True, None, e, lambda v: _some_result_cb(v, _transform_result, result_cb))
 
     action def load_schema(result_cb: action(MaapiConnection, ?value) -> None):
         # sb = SchemaBuilder()

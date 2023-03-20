@@ -98,6 +98,26 @@ def try_get[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
     else:
         return None
 
+def try_pop[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
+    # Without support for catching KeyError
+    # it looks like we need to do triple hash lookups for now
+    if m.__contains__(a):
+        b = m[a]
+        # del m[a]
+        m.__delitem__(a)
+        return b
+    else:
+        return None
+
+def list_pop[T](l: list[T]) -> T:
+    res = l[-1]
+    del l[-1]
+    return res
+
+def list_extend[T](target: list[T], source: Iterable[T]):
+    for item in source:
+        target.append(item)
+
 class Pair[A, B]:
     @property
     a: A
