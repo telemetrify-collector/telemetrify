@@ -1,11 +1,493 @@
+from nsoapi.conf import *
+from nsoapi.proto import *
 from nsoapi.maapi import *
 from nsoapi.mod import *
-from nsoapi.schema import Schema
+import nsoapi.schema as schema
+from nsoapi.utils import *
 
-actor MaapiWriter(mc: MaapiConnection, schema: Schema):
-    def write_at(keypath, node: Node, result_cb: action(?Exception) -> None):
-        # TODO:
-        result_cb(Exception("Not Implemented"))
+_STATE_IDLE = 0
+_STATE_PREPARE_EPARAMS = 1
+_STATE_AWAITING_MOUNT_ID = 2
+_STATE_AWAITING_PREPARATORY_SET_ELEM = 3
+_STATE_AWAITING_PREPARATORY_DELETE = 4
+_STATE_AWAITING_PREPARATORY_CREATE = 5
+_STATE_AWAITING_SET_VALUES = 6
 
-    def write(node: Node, result_cb: action(?Exception) -> None):
-        return write_at([], node, result_cb)
+_PARENT_STATE_NONE = 0
+_PARENT_STATE_PREFIX_CREATE = 1
+_PARENT_STATE_PREFIX_NOCREATE = 2
+_PARENT_STATE_PARAM = 3
+_PARENT_STATE_POSTFIX_NOCREATE = 4
+
+actor MaapiWriter(mc: MaapiConnection, _schema: schema.Schema):
+    # Task queue
+    #write_tasks: Queue[(Node, int, bool, action(?Exception) -> None)] = Queue()
+    write_tasks = Queue()
+
+    # Current write task
+    var thandle: int = -1
+    var prefix_epath: list[EObject] = []
+    var use_ikp: bool = False
+    var result_cb: ?(action(?Exception) -> None) = None
+    var state: int = _STATE_IDLE
+    var work_stack: list[(value, int)] = [] # list[(v: value, _parent_state: int)]
+    var cursor: schema.Cursor = schema.Cursor(_schema)
+    var epath: list[EObject] = [] # EKeypath
+    var eparams: list[EObject] = []
+    var pending_mount_id: ?HTag = None
+
+    def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
+        #result_cb(Exception("Not Implemented"))
+        write_tasks.append((node, thandle, use_ikp, result_cb))
+        if state == _STATE_IDLE:
+            _poll()
+
+    def _reset():
+        thandle = -1
+        prefix_epath = []
+        use_ikp = False
+        result_cb = None
+        state = _STATE_IDLE
+        work_stack = []
+        cursor = schema.Cursor(_schema)
+        epath = []
+        eparams = []
+        pending_mount_id = None
+
+    def _poll():
+        print("writer: begin poll")
+        while True:
+            if state == _STATE_IDLE:
+                print("writer:   STATE_IDLE")
+                if write_tasks:
+                    print("writer:     Setup write task")
+                    _setup_next_task()
+                else:
+                    print("writer:     No tasks")
+                    break
+            elif state == _STATE_PREPARE_EPARAMS:
+                print("writer:   STATE_PREPARE_EPARAMS")
+                _handle_state_prepare_eparams()
+            elif state == _STATE_AWAITING_PREPARATORY_SET_ELEM:
+                print("writer:   STATE_AWAITING_PREPARATORY_SET_ELEM")
+                break
+            elif state == _STATE_AWAITING_PREPARATORY_DELETE:
+                print("writer:   STATE_AWAITING_PREPARATORY_DELETE")
+                break
+            elif state == _STATE_AWAITING_PREPARATORY_CREATE:
+                print("writer:   STATE_AWAITING_PREPARATORY_CREATE")
+                break
+            elif state == _STATE_AWAITING_MOUNT_ID:
+                print("writer:   STATE_AWAITING_MOUNT_ID")
+                break
+            elif state == _STATE_AWAITING_SET_VALUES:
+                print("writer:   STATE_AWAITING_SET_VALUES")
+                break
+        print("writer: end poll")
+
+    def _setup_next_task():
+        write_task: (Node, int, bool, action(?Exception) -> None) = write_tasks.pop()
+        node: Node = write_task.0
+        thandle = write_task.1
+        prefix_epath = [] # TODO: Add prefix argument?
+        use_ikp = write_task.2
+        result_cb = write_task.3
+        epath = prefix_epath
+        work_stack.append((node, _PARENT_STATE_NONE))
+        state = _STATE_PREPARE_EPARAMS
+
+    def _handle_state_prepare_eparams():
+        print("writer:       work_stack len:", len(work_stack))
+        if len(work_stack) >= 1: #if work_stack:
+            _item: value, _parent_state: int = list_pop(work_stack)
+            if isinstance(_item, Node):
+                node: Node = _item
+                tag = node.tag()
+                if tag is not None:
+                    if pending_mount_id is None and not cursor.push(tag):
+                        _task_error("Unable to find child node with tag: " + str(tag))
+                    else:
+                        s_node = cursor.node()
+                        _e_htag = s_node.tag.to_eobject()
+
+                        # Leaf
+                        if s_node.is_leaf():
+                            print("writer:       LEAF")
+                            if node.op() in [OP_MERGE, OP_REPLACE]:
+                                if _parent_state == _PARENT_STATE_PREFIX_NOCREATE:
+                                    # TODO: Report error details
+                                    _task_error("Attempted to set leaf under NOCREATE path")
+                                    return
+                                elif s_node.is_non_empty_leaf():
+                                    _e_val = _node_value_to_eobject(cursor, node)
+                                    if _e_val is not None:
+                                        if _parent_state == _PARENT_STATE_NONE:
+                                            epath.append(_e_htag)
+                                            _call_set_elem(_e_val)
+                                            return
+                                        else:
+                                            eparams.append(ETagVal.xml_non_empty_leaf(_e_htag, _e_val))
+                                    else:
+                                        if _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
+                                            eparams.append(ETagVal.xml_noexists(_e_htag))
+                                        else:
+                                            _call_delete()
+                                            return
+                                elif s_node.is_empty_leaf():
+                                    if _parent_state == _PARENT_STATE_NONE:
+                                        epath.append(_e_htag)
+                                        _call_create()
+                                        return
+                                    else:
+                                        eparams.append(ETagVal.xml_empty_leaf(_e_htag))
+                            elif node.op() == OP_DELETE:
+                                if _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
+                                    eparams.append(ETagVal.xml_noexists(_e_htag))
+                                else:
+                                    _call_delete()
+                                    return
+                        # Container
+                        elif s_node.is_container():
+                            print("writer:       CONTAINER")
+                            _pending_mount_id: ?HTag = pending_mount_id
+                            if _pending_mount_id is not None:
+                                cursor.set_mount_id(_pending_mount_id)
+                                pending_mount_id = None
+                            else:
+                                epath.append(_e_htag)
+
+                                if s_node.is_mount_point():
+                                    work_stack.append((node, _parent_state)) # Revisit this node when we get the mount_id
+                                    _call_get_mount_point_id()
+                                    return
+
+                            if node.op() in [OP_MERGE, OP_REPLACE]:
+                                children = node.children()
+                                # Are there any benefits to making the prefix path as long as possible before switching
+                                # to eparams? I.e. that outweighs the presumed cost of the extra maapi_create calls?
+                                #if _parent_state == _PARENT_STATE_NONE or _parent_state == _PARENT_STATE_PREFIX_CREATE and len(children) <= 1:
+                                if _parent_state == _PARENT_STATE_NONE:
+                                    _extend_work_stack(children, _PARENT_STATE_PREFIX_CREATE)
+                                    _call_create()
+                                    return
+                                elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_PREFIX_CREATE]:
+                                    eparams.append(ETagVal.xml_begin(_e_htag))
+                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 1), _parent_state))
+                                    _extend_work_stack(children, _PARENT_STATE_PARAM)
+                                elif _parent_state in [_PARENT_STATE_PREFIX_NOCREATE, _PARENT_STATE_POSTFIX_NOCREATE]:
+                                    # TODO: Report error details
+                                    _task_error("Attempted to create container under NOCREATE path")
+                                    return
+                            elif node.op() == OP_NOCREATE:
+                                if _parent_state in [_PARENT_STATE_NONE, _PARENT_STATE_PREFIX_CREATE]:
+                                    _extend_work_stack(node.children(), _PARENT_STATE_PREFIX_NOCREATE)
+                                elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_POSTFIX_NOCREATE]:
+                                    _extend_work_stack(node.children(), _PARENT_STATE_POSTFIX_NOCREATE)
+                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 1), _parent_state))
+                            if node.op() == OP_DELETE and s_node.is_p_container() and _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
+                                eparams.append(ETagVal.xml_noexists(_e_htag))
+                                work_stack.append((_EndParam(None, 1), _parent_state))
+                            elif node.op() in [OP_DELETE, OP_REPLACE]:
+                                if node.op() != OP_REPLACE:
+                                    work_stack.append((_EndParam(None, 1), _parent_state))
+                                _call_delete()
+                                return
+
+                        # Leaf-list (element)
+                        elif s_node.is_leaf_list():
+                            print("writer:       LEAF-LIST")
+                            if node.op() in [OP_MERGE, OP_REPLACE]:
+                                if _parent_state == _PARENT_STATE_NONE:
+                                    _e_val = _node_value_to_eobject(cursor, node)
+                                    if _e_val is not None:
+                                        epath.append(_e_htag)
+                                        epath.append(ETuple([_e_val]))
+                                        _call_create()
+                                        return
+                                    else:
+                                        # TODO: Report error details
+                                        _task_error("Attempted to set leaf-list element as 'None'")
+                                        return
+                                elif _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
+                                    _e_val = _node_value_to_eobject(cursor, node)
+                                    if _e_val is not None:
+                                        eparams.append(ETagVal.xml_non_empty_leaf(_e_htag, _e_val))
+                                    else:
+                                        # TODO: Report error details
+                                        _task_error("Attempted to set leaf-list element as 'None'")
+                                        return
+                                else: # _parent_state == _PARENT_STATE_PREFIX_NOCREATE
+                                    # TODO: Report error details
+                                    _task_error("Attempted to set leaf under NOCREATE path")
+                                    return
+                            if node.op() in [OP_DELETE, OP_REPLACE]:
+                                epath.append(_e_htag)
+                                _e_val = _node_value_to_eobject(cursor, node)
+                                if _e_val is not None:
+                                    epath.append(ETuple([_e_val]))
+                                    work_stack.append((_EndParam(None, 2), _parent_state))
+                                else:
+                                    work_stack.append((_EndParam(None, 1), _parent_state))
+                                _call_delete()
+                                return
+                        # List (element)
+                        elif s_node.is_list():
+                            print("writer:       LIST")
+                            _pending_mount_id: ?HTag = pending_mount_id
+                            if _pending_mount_id is None:
+                                epath.append(_e_htag)
+
+                            key_leafs, other_children = _prepare_list_children(cursor, node)
+
+                            path_keys = []
+                            for key_leaf in key_leafs:
+                                key_tag = key_leaf.0
+                                key_val = key_leaf.1
+                                path_keys.append(key_val)
+                            has_path_keys = len(path_keys) > 0
+
+                            eparam_keys = []
+                            # actonc: Acton/Transform.hs:(222,1)-(223,57): Non-exhaustive patterns in function positem
+                            # def _get_eparam_keys():
+                            #     if len(key_leafs) != len(eparam_keys):
+                            #         for key_leaf in key_leafs:
+                            #             key_tag = key_leaf.0
+                            #             key_val = key_leaf.1
+                            #             eparam_keys.append(ETagVal.xml_non_empty_leaf(key_tag.to_eobject(), key_val))
+                            #     return eparam_keys
+                            def _get_eparam_keys(key_leafs: list[(HTag, EObject)], eparam_keys: list[EObject]) -> list[EObject]:
+                                if len(key_leafs) != len(eparam_keys):
+                                    for key_leaf in key_leafs:
+                                        key_tag = key_leaf.0
+                                        key_val = key_leaf.1
+                                        eparam_keys.append(ETagVal.xml_non_empty_leaf(key_tag.to_eobject(), key_val))
+                                return eparam_keys
+
+                            if _pending_mount_id is not None:
+                                cursor.set_mount_id(_pending_mount_id)
+                                pending_mount_id = None
+                            else:
+                                if has_path_keys:
+                                    epath.append(ETuple(path_keys))
+                                if s_node.is_mount_point():
+                                    work_stack.append((node, _parent_state)) # Revisit this node when we get the mount_id
+                                    _call_get_mount_point_id()
+                                    return
+
+                            if node.op() in [OP_MERGE, OP_REPLACE]:
+                                # Are there any benefits to making the prefix path as long as possible before switching
+                                # to eparams? I.e. that outweighs the presumed cost of the extra maapi_create calls?
+                                #if _parent_state == _PARENT_STATE_NONE or _parent_state == _PARENT_STATE_PREFIX_CREATE and len(other_children) <= 1:
+                                if _parent_state == _PARENT_STATE_NONE:
+                                    work_stack.append((_EndParam(None, 2 if has_path_keys else 1), _parent_state))
+                                    _extend_work_stack(other_children, _PARENT_STATE_PREFIX_CREATE)
+                                    _call_create()
+                                    return
+                                elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_PREFIX_CREATE]:
+                                    eparams.append(ETagVal.xml_begin(_e_htag))
+                                    #list_extend(eparams, _get_eparam_keys())
+                                    list_extend(eparams, _get_eparam_keys(key_leafs, eparam_keys))
+                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 2 if has_path_keys else 1), _parent_state))
+                                    _extend_work_stack(other_children, _PARENT_STATE_PARAM)
+                                elif _parent_state in [_PARENT_STATE_PREFIX_NOCREATE, _PARENT_STATE_POSTFIX_NOCREATE]:
+                                    # TODO: Report error details
+                                    _task_error("Attempted to create container under NOCREATE path")
+                                    return
+                            elif node.op() == OP_NOCREATE:
+                                if _parent_state in [_PARENT_STATE_NONE, _PARENT_STATE_PREFIX_CREATE]:
+                                    _extend_work_stack(other_children, _PARENT_STATE_PREFIX_NOCREATE)
+                                elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_POSTFIX_NOCREATE]:
+                                    _extend_work_stack(other_children, _PARENT_STATE_POSTFIX_NOCREATE)
+                                    work_stack.append((_EndParam(None, 2 if has_path_keys else 1), _parent_state))
+
+                            if node.op() == OP_DELETE and _parent_state == _PARENT_STATE_PARAM and has_path_keys:
+                                eparams.append(ETagVal.xml_begin_del(_e_htag))
+                                #list_extend(eparams, _get_eparam_keys())
+                                list_extend(eparams, _get_eparam_keys(key_leafs, eparam_keys))
+                                work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 2), _parent_state))
+                            elif node.op() in [OP_DELETE, OP_REPLACE]:
+                                if node.op() == OP_DELETE and _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_POSTFIX_NOCREATE]:
+                                    work_stack.append((_EndParam(None, 2 if has_path_keys else 1), _parent_state))
+                                _call_delete()
+                                return
+                        else:
+                            print("WARNING: Unhandled schema node type.")
+                else:
+                    _task_error("Encountered child node with missing tag")
+            elif isinstance(_item, _EndParam):
+                _eparam = _item.eparam
+                if _eparam is not None:
+                    eparams.append(_eparam)
+                for i in range(0, _item.epath_pop_count, 1):
+                    list_pop(epath)
+                cursor.pop()
+        else:
+            _call_set_values()
+
+    #def _extend_work_stack[T](items: Iterable[T], created_parent: bool):
+    def _extend_work_stack[T](items: list[T], parent_state: int):
+        for item in reversed(items):
+            work_stack.append((item, parent_state))
+
+    def _node_value_to_eobject(cursor: schema.Cursor, node: Node) -> ?EObject:
+        s_node = cursor.node()
+        _type = s_node.value_type
+        v: ?value = node.value()
+        if v is not None and _type is not None:
+            if isinstance(v, str):
+                _type.netconf_to_value(v, cursor, node.namespaces())
+            # TODO: Validate / report error details
+            return _type.value_to_eobject(v, cursor, use_ikp)
+        return None
+
+    def _prepare_list_children(cursor: schema.Cursor, node: Node) -> (list[(HTag, EObject)], list[Node]):
+        keys: list[(HTag, EObject)] = []
+
+        child_nodes: dict[HTag, Node] = {}
+        for c in node.children():
+            tag = c.tag()
+            if tag is not None:
+                htag = cursor.lookup_htag(tag, True)
+                if htag is not None:
+                    child_nodes[htag] = c
+
+        key_nodes = node.keys()
+        s_node = cursor.node()
+        if len(key_nodes) > 0: #if key_nodes:
+            key_s_nodes = s_node.keys
+            if len(key_s_nodes) != len(key_nodes):
+                return ([], node.children())
+            for i in range(0, len(key_s_nodes), 1):
+                key_tag: HTag = key_s_nodes[i].tag
+                child_key_node = try_pop(child_nodes, key_tag)
+                key_node: Node = child_key_node if child_key_node is not None else key_nodes[i]
+                if key_node is not None and cursor.push(key_tag):
+                    key_val: ?EObject = _node_value_to_eobject(cursor, key_node)
+                    cursor.pop()
+                    if key_val is not None:
+                        keys.append((key_tag, key_val))
+                        continue
+                # TODO: Report error details
+                return ([], node.children())
+            return (keys, list(child_nodes.values()))
+        else:
+            for key_s_node in s_node.keys:
+                key_tag = key_s_node.tag
+                key_node = try_pop(child_nodes, key_tag)
+                if key_node is not None and cursor.push(key_tag):
+                    key_val: ?EObject = _node_value_to_eobject(cursor, key_node)
+                    cursor.pop()
+                    if key_val is not None:
+                        keys.append((key_tag, key_val))
+                        continue
+                # TODO: Report error details
+                return ([], node.children())
+            return (keys, list(child_nodes.values()))
+
+    def _task_error(msg: str):
+        # TODO: Add path to error
+        err = ValueError(msg)
+        if result_cb is not None:
+            result_cb(err)
+        _reset()
+
+    def _call_set_elem(_e_val: EObject):
+        state = _STATE_AWAITING_PREPARATORY_SET_ELEM
+        mc.set_elem(thandle, EKeypath(epath), _e_val, _on_set_elem)
+
+    def _on_set_elem(_mc: MaapiConnection, err: ?Exception):
+        if err is not None:
+            # TODO: Report error details
+            # _task_error("Error deleting " + str(epath) + ": " + str(err))
+            _task_error("Error deleting: " + str(err))
+        else:
+            state = _STATE_PREPARE_EPARAMS
+        _poll()
+
+    def _call_delete():
+        state = _STATE_AWAITING_PREPARATORY_DELETE
+        mc.delete(thandle, EKeypath(epath), _on_delete)
+
+    def _on_delete(_mc: MaapiConnection, err: ?Exception):
+        if err is not None:
+            if isinstance(err, MaapiException) and err.error_code in [_ERR_NOEXISTS, _ERR_BADPATH]:
+                # This is fine (e.g. attempting to delete something not present)
+                state = _STATE_PREPARE_EPARAMS
+            else:
+                # TODO: Report error details
+                # _task_error("Error deleting " + str(epath) + ": " + str(err))
+                _task_error("Error deleting: " + str(err))
+        else:
+            state = _STATE_PREPARE_EPARAMS
+        _poll()
+
+    def _call_create():
+        state = _STATE_AWAITING_PREPARATORY_CREATE
+        mc.delete(thandle, EKeypath(epath), _on_create)
+
+    def _on_create(_mc: MaapiConnection, err: ?Exception):
+        if err is not None:
+            if isinstance(err, MaapiException) and err.error_code in [
+                                                                        _ERR_BADPATH,
+                                                                        _ERR_NOEXISTS,
+                                                                        _ERR_BADTYPE,
+                                                                        _ERR_ACCESS_DENIED,
+                                                                        _ERR_NOT_WRITABLE,
+                                                                        _ERR_NOTCREATABLE,
+                                                                        _ERR_INUSE,
+                                                                        _ERR_ALREADY_EXISTS]:
+                # This is fine (e.g. attempting to create something present)
+                state = _STATE_PREPARE_EPARAMS
+            else:
+                # TODO: Report error details
+                # _task_error("Error deleting " + str(epath) + ": " + str(err))
+                _task_error("Error deleting: " + str(err))
+        else:
+            state = _STATE_PREPARE_EPARAMS
+        _poll()
+
+    def _call_get_mount_point_id():
+        state = _STATE_AWAITING_MOUNT_ID
+        mc.get_mount_id(thandle, EKeypath(epath), _on_mount_id)
+
+    def _on_mount_id(_mc: MaapiConnection, v: value) -> None:
+        if isinstance(v, HTag):
+            state = _STATE_PREPARE_EPARAMS
+            pending_mount_id = v
+        elif isinstance(v, MaapiException) and v.error_code in [_ERR_NOEXISTS, _ERR_BADPATH]:
+            # TODO: Is this fine, e.g. when attempting to lookup mount_point on non-existing paths?
+            state = _STATE_PREPARE_EPARAMS
+            pending_mount_id = schema.ROOT_MOUNT_ID
+        else:
+            # TODO: Report error details
+            #_task_error("Error looking up mount id for " + str(epath) + ": " + str(err))
+            _task_error("Error looking up mount id for " + str(epath))
+        _poll()
+
+    def _call_set_values():
+        state = _STATE_AWAITING_SET_VALUES
+        mc.set_values(thandle, EKeypath(prefix_epath), eparams, _on_set_values)
+
+    def _on_set_values(_mc: MaapiConnection, err: ?Exception) -> None:
+        if err is not None:
+            # TODO: Report error details
+            # _task_error("Error using set_value " + str(epath) + ": " + str(err))
+            _task_error("Error using set_value: " + str(err))
+        else:
+            if result_cb is not None:
+                result_cb(None)
+            state = _STATE_IDLE
+        _poll()
+
+    # def write_at(keypath, node: Node, result_cb: action(?Exception) -> None):
+    #     write(node, result_cb)
+
+class _EndParam:
+    @property
+    eparam: ?EObject
+    @property
+    epath_pop_count: int
+
+    def __init__(self: _EndParam, eparam: ?EObject, epath_pop_count: int):
+        self.eparam = eparam
+        self.epath_pop_count = epath_pop_count

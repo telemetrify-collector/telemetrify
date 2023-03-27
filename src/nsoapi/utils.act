@@ -98,6 +98,26 @@ def try_get[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
     else:
         return None
 
+def try_pop[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
+    # Without support for catching KeyError
+    # it looks like we need to do triple hash lookups for now
+    if m.__contains__(a):
+        b = m[a]
+        # del m[a]
+        m.__delitem__(a)
+        return b
+    else:
+        return None
+
+def list_pop[T](l: list[T]) -> T:
+    res = l[-1]
+    del l[-1]
+    return res
+
+def list_extend[T](target: list[T], source: Iterable[T]):
+    for item in source:
+        target.append(item)
+
 class Pair[A, B]:
     @property
     a: A
@@ -110,7 +130,7 @@ class Pair[A, B]:
         self.b = b
 
 def try_parse_int(s: str) -> ?int:
-    s = s.strip(" \t\r\n")
+    s = s.strip(" \t")
 
     v = 0
     sign = 1
@@ -140,7 +160,7 @@ def try_parse_int(s: str) -> ?int:
     return sign * v
 
 def try_parse_float(s: str) -> ?float:
-    s = s.strip(" \t\r\n")
+    s = s.strip(" \t")
 
     p = s.split('e', -1)
     plen = len(p)
@@ -272,29 +292,493 @@ def nibble_to_hex(v: int) -> str:
     else:
         raise ValueError("Value out of nibble range.")
 
+def uint_to_bytes_le(v: int) -> bytes:
+    if v < 0:
+        raise ValueError("Negative value")
+    if v == 0:
+        return bytes([0])
+    bs: list[int] = []
+    while v != 0:
+        # bs.append(v & 0xFF) # BUG: Runtime error on bitwise operations
+        # v >>= 8 # BUG: Runtime error on bitwise operations
+        bs.append(v % 0x100)
+        v /= 0x100
+    return bytes(bs)
+
 class Decimal64:
-    pass
+    @property
+    significand: int
+    @property
+    exponent: int
+
+    def __init__(self, significand: int, exponent: int):
+        self.significand = significand
+        self.exponent = exponent
+
+    @staticmethod
+    def try_parse(s: str) -> ?Decimal64:
+        s = s.strip(" \t")
+
+        f = s.split(".", -1)
+        flen = len(f)
+
+        significand: int = 0
+        exp: int = 0
+
+        if flen == 1:
+            _s = try_parse_int(f[0])
+            if _s is not None:
+                significand = _s
+            else:
+                return None
+        elif flen == 2:
+            ip = f[0]
+            fp = f[1]
+            if not fp.isdecimal():
+                return None
+            _s = try_parse_int(ip + fp)
+            if _s is not None:
+                significand = _s
+            else:
+                return None
+            exp += len(fp)
+        else:
+            return None
+
+        return Decimal64(significand, exp)
+
+    def try_lossless_realignment(self, new_exponent: int) -> ?Decimal64:
+        exponent_diff = self.exponent - new_exponent
+        if exponent_diff == 0:
+            return self
+        elif exponent_diff < 0:
+            divider = 10**-exponent_diff
+            if self.significand % divider == 0:
+                # TODO: Validate IEEE 754 Decimal64 limits
+                return Decimal64(self.significand // divider, new_exponent)
+            else:
+                return None # Loss of precision
+        else: # alignment > 0:
+            # TODO: Validate IEEE 754 Decimal64 limits
+            return Decimal64(self.significand * 10**exponent_diff, new_exponent)
+
+    def to_float(self) -> float:
+        return float(self.significand) / float(10**(self.exponent))
+
+    def integral_part(self) -> int:
+        if self.exponent >= 0:
+            return self.significand
+        else:
+            return self.significand // 10**-self.exponent
+
+    def fractional_part(self) -> Decimal64:
+        divider = 10**-self.exponent
+        return Decimal64(self.significand % divider, self.exponent)
 
 class IPv4Address:
-    pass
+    @property
+    data: (int, int, int, int)
+
+    def __init__(self, data: (int, int, int, int)):
+        self.data = data
+
+    @staticmethod
+    def try_parse(s: str) -> ?IPv4Address:
+        #return IPv4Address((1,2,3,4))
+        NotImplemented
 
 class IPv6Address:
-    pass
+    @property
+    data: (int, int, int, int, int, int, int, int)
 
-class IPv4AddressAndMask:
-    pass
+    def __init__(self, data: (int, int, int, int, int, int, int, int)):
+        self.data = data
 
-class IPv6AddressAndMask:
-    pass
+    @staticmethod
+    def try_parse(s: str) -> ?IPv6Address:
+        #return IPv6Address((1,2,3,4,5,6,7,8))
+        NotImplemented
+
+class IPv4Network:
+    @property
+    address: IPv4Address
+    @property
+    mask_len: int
+
+    def __init__(self, address: IPv4Address, mask_len: int):
+        self.address = address
+        self.mask_len = mask_len
+
+    @staticmethod
+    def try_parse(s: str) -> ?IPv4Network:
+        p = s.strip(" \t").split("/", -1)
+        if len(p) == 2:
+            addr = IPv4Address.try_parse(p[0])
+            if addr is not None:
+                _mask_len = try_parse_int(p[1])
+                if _mask_len is not None and _mask_len >= 0 and _mask_len <= 32:
+                    return IPv4Network(addr, _mask_len)
+        return None
+
+    # def is_strict(self):
+    #     # TODO: if all host bits are zero
+
+class IPv6Network:
+    @property
+    address: IPv6Address
+    @property
+    mask_len: int
+
+    def __init__(self, address: IPv6Address, mask_len: int):
+        self.address = address
+        self.mask_len = mask_len
+
+    @staticmethod
+    def try_parse(s: str) -> ?IPv6Network:
+        p = s.strip(" \t").split("/", -1)
+        if len(p) == 2:
+            addr = IPv6Address.try_parse(p[0])
+            if addr is not None:
+                _mask_len = try_parse_int(p[1])
+                if _mask_len is not None and _mask_len >= 0 and _mask_len <= 128:
+                    return IPv6Network(addr, _mask_len)
+        return None
+
+    # def is_strict(self):
+    #     # TODO: if all host bits are zero
 
 class DateTime:
-    pass
+    @property
+    year: int
+    @property
+    month: int
+    @property
+    day: int
+    @property
+    hour: int
+    @property
+    minute: int
+    @property
+    second: int
+    @property
+    microsecond: int
+    @property
+    timezone_hour: ?int
+    @property
+    timezone_minute: ?int
+
+    def __init__(self, year: int, month: int, day: int, hour: int, minute: int, second: int, microsecond: int, timezone_hour: ?int, timezone_minute: ?int):
+        self.year = year
+        self.month = month
+        self.day = day
+        self.hour = hour
+        self.minute = minute
+        self.second = second
+        self.microsecond = microsecond
+        self.timezone_hour = timezone_hour
+        self.timezone_minute = timezone_minute
+
+    @staticmethod
+    def try_parse(s: str) -> ?DateTime:
+        s = s.strip(" ")
+        p = s.split("T", -1)
+        if len(p) != 2:
+            return None
+
+        p0: str = p[0]
+        p1: str = p[1]
+
+        p_date = p0.split("-", 3)
+        if len(p_date) != 3:
+            return None
+
+        _year = try_parse_int(p_date[0])
+        _month = try_parse_int(p_date[1])
+        _day = try_parse_int(p_date[2])
+
+        p_time = p1.split(":", -1)
+        _hour = try_parse_int(p_time[0])
+        _minute = try_parse_int(p_time[1])
+
+        p_rest: str = p_time[2]
+        p_sec = ""
+        p_tz = ""
+        _tz_h = None
+        _tz_m = None
+
+        p_z = p_rest.split("Z", -1)
+        if len(p_z) >= 2:
+            p_sec = p_z[0]
+            _tz_h = 0
+            _tz_m = 0
+        else:
+            p_ptz = p_rest.split("+", -1)
+            if len(p_ptz) >= 2:
+                p_sec = p_ptz[0]
+                p_tz = p_ptz[1]
+            else:
+                p_ptz = p_rest.split("-", -1)
+                if len(p_ptz) >= 2:
+                    p_sec = p_ptz[0]
+                    p_tz = "-" + p_ptz[1]
+                else:
+                    p_sec = p_rest
+
+        _seconds = Decimal64.try_parse(p_sec)
+
+        if p_tz:
+            pp_tz = p_tz.split(":", -1)
+            if len(pp_tz) >= 1:
+                _tz_h = try_parse_int(pp_tz[0])
+                if len(pp_tz) >= 2:
+                    _tz_m = try_parse_int(pp_tz[1])
+                else:
+                    _tz_m = 0
+
+        if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int) \
+                and isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
+            _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
+            if _microseconds is not None:
+                return DateTime(_year, _month, _day, _hour, _minute, _seconds.integral_part(), _microseconds.significand, _tz_h, _tz_m)
+
+        return None
+
+    # @staticmethod
+    # def try_parse(s: str, fmt: str):
+    #     pass
+
+    # @staticmethod
+    # def try_parse_iso(s: str):
+    #     return DateTime.try_parse(s, "%Y-%m-%dT%H:%M:%S.%f%z")
 
 class Date:
-    pass
+    @property
+    year: int
+    @property
+    month: int
+    @property
+    day: int
+    @property
+    timezone_hour: ?int
+    @property
+    timezone_minute: ?int
+
+    def __init__(self, year: int, month: int, day: int, timezone_hour: ?int, timezone_minute: ?int):
+        self.year = year
+        self.month = month
+        self.day = day
+        self.timezone_hour = timezone_hour
+        self.timezone_minute = timezone_minute
+
+    @staticmethod
+    def try_parse(s: str) -> ?Date:
+        s = s.strip(" ")
+
+        p_date = s.split("-", 3)
+        if len(p_date) != 3:
+            return None
+
+        _year = try_parse_int(p_date[0])
+        _month = try_parse_int(p_date[1])
+
+        p_rest: str = p_date[2]
+        p_day = ""
+        p_tz = ""
+        _tz_h = None
+        _tz_m = None
+
+        p_z = p_rest.split("Z", -1)
+        if len(p_z) >= 2:
+            p_day = p_z[0]
+            _tz_h = 0
+            _tz_m = 0
+        else:
+            p_ptz = p_rest.split("+", -1)
+            if len(p_ptz) >= 2:
+                p_day = p_ptz[0]
+                p_tz = p_ptz[1]
+            else:
+                p_ptz = p_rest.split("-", -1)
+                if len(p_ptz) >= 2:
+                    p_day = p_ptz[0]
+                    p_tz = "-" + p_ptz[1]
+                else:
+                    p_day = p_rest
+
+        _day = try_parse_int(p_day)
+
+        if p_tz:
+            pp_tz = p_tz.split(":", -1)
+            if len(pp_tz) >= 1:
+                _tz_h = try_parse_int(pp_tz[0])
+                if len(pp_tz) >= 2:
+                    _tz_m = try_parse_int(pp_tz[1])
+                else:
+                    _tz_m = 0
+
+        if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int):
+            return Date(_year, _month, _day, _tz_h, _tz_m)
+
+        return None
 
 class Time:
-    pass
+    @property
+    hour: int
+    @property
+    minute: int
+    @property
+    second: int
+    @property
+    microsecond: int
+    @property
+    timezone_hour: ?int
+    @property
+    timezone_minute: ?int
+
+    def __init__(self, hour: int, minute: int, second: int, microsecond: int, timezone_hour: ?int, timezone_minute: ?int):
+        self.hour = hour
+        self.minute = minute
+        self.second = second
+        self.microsecond = microsecond
+        self.timezone_hour = timezone_hour
+        self.timezone_minute = timezone_minute
+
+    @staticmethod
+    def try_parse(s: str) -> ?Time:
+        s = s.strip(" ")
+
+        p_time = s.split(":", -1)
+        _hour = try_parse_int(p_time[0])
+        _minute = try_parse_int(p_time[1])
+
+        p_rest: str = p_time[2]
+        p_sec = ""
+        p_tz = ""
+        _tz_h = None
+        _tz_m = None
+
+        p_z = p_rest.split("Z", -1)
+        if len(p_z) >= 2:
+            p_sec = p_z[0]
+            _tz_h = 0
+            _tz_m = 0
+        else:
+            p_ptz = p_rest.split("+", -1)
+            if len(p_ptz) >= 2:
+                p_sec = p_ptz[0]
+                p_tz = p_ptz[1]
+            else:
+                p_ptz = p_rest.split("-", -1)
+                if len(p_ptz) >= 2:
+                    p_sec = p_ptz[0]
+                    p_tz = "-" + p_ptz[1]
+                else:
+                    p_sec = p_rest
+
+        _seconds = Decimal64.try_parse(p_sec)
+
+        if p_tz:
+            pp_tz = p_tz.split(":", -1)
+            if len(pp_tz) >= 1:
+                _tz_h = try_parse_int(pp_tz[0])
+                if len(pp_tz) >= 2:
+                    _tz_m = try_parse_int(pp_tz[1])
+                else:
+                    _tz_m = 0
+
+        if isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
+            _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
+            if _microseconds is not None:
+                return Time(_hour, _minute, _seconds.integral_part(), _microseconds.significand, _tz_h, _tz_m)
+
+        return None
 
 class Duration:
-    pass
+    @property
+    year: int
+    @property
+    month: int
+    @property
+    day: int
+    @property
+    hour: int
+    @property
+    minute: int
+    @property
+    second: int
+    @property
+    microsecond: int
+
+    def __init__(self, year: int, month: int, day: int, hour: int, minute: int, second: int, microsecond: int):
+        self.year = year
+        self.month = month
+        self.day = day
+        self.hour = hour
+        self.minute = minute
+        self.second = second
+        self.microsecond = microsecond
+
+    @staticmethod
+    def try_parse(s: str) -> ?Duration:
+        fmt = "PYMDTHMS"
+        fmt_len = len(fmt)
+        s = s.strip(" PT")
+
+        _year: ?int = 0
+        _month: ?int = 0
+        _day: ?int = 0
+        _hour: ?int = 0
+        _minute: ?int = 0
+        _seconds: ?Decimal64 = Decimal64(0, 0)
+
+        fmt_i = 0
+        n_begin = 0
+        n_end = 0
+
+        for i in range(0, len(s), 1):
+            c = s[i]
+            if c.isdecimal() or c == ".":
+                n_end += 1
+            else:
+                while True:
+                    if c != fmt[fmt_i]:
+                        fmt_i += 1
+                        if fmt_i >= fmt_len:
+                            return None
+                        else:
+                            continue
+
+                    if c == 'P':
+                        if n_begin != n_end:
+                            return None
+                    if c == 'Y':
+                        _year = try_parse_int(s[n_begin:n_end:1])
+                    elif c == 'M':
+                        _month = try_parse_int(s[n_begin:n_end:1])
+                    elif c == 'D':
+                        _day = try_parse_int(s[n_begin:n_end:1])
+                    elif c == 'T':
+                        if n_begin != n_end:
+                            return None
+                    elif c == 'H':
+                        _hour = try_parse_int(s[n_begin:n_end:1])
+                    elif c == 'M':
+                        _minute = try_parse_int(s[n_begin:n_end:1])
+                    elif c == 'S':
+                        _seconds = Decimal64.try_parse(s[n_begin:n_end:1])
+                    n_end += 1
+                    n_begin = n_end
+                    fmt_i += 1
+
+        if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int) \
+                and isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
+            _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
+            if _microseconds is not None:
+                return Duration(_year, _month, _day, _hour, _minute, _seconds.integral_part(), _microseconds.significand)
+
+        return None
+
+# Workaround actonc error:
+# ld.lld: error: undefined symbol: $EqOptG_new
+def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
+    return a is not None and b is not None and a == b or a is None and b is None

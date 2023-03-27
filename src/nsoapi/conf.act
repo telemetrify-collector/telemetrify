@@ -55,9 +55,22 @@ C_XMLMOVEAFTER = 52 # ordered-by-user move after
 # Special conf values
 #
 
+E_NOEXISTS = EAtom('not_found')
+E_DEFAULT = EAtom('default')
+
+class ConfNoExists:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_NOEXISTS
+
 class ConfDefault:
     def __init__(self):
         pass
+
+    def to_eobject(self) -> EObject:
+        return E_DEFAULT
 
 V_NOEXISTS = None # TODO: object() # 'not_found'
 V_DEFAULT = ConfDefault() # TODO: object() # 'default'
@@ -74,32 +87,33 @@ class EKeypath:
 #         return EAtom('')
 
 class ETagVal:
-    def __init__(self, qtag: EObject, val: EObject):
-        self.qtag = qtag
-        self.val = val
-
     @staticmethod
     def xml_begin(qtag: EObject):
-        return ETagVal(qtag, EAtom('start'))
+        return ETuple([qtag, EAtom('start')])
 
     @staticmethod
     def xml_begin_index(qtag: EObject, index: int): # CDB only, not for MAAPI :/
-        return ETagVal(qtag, ETuple([EAtom('start'), EInt(index)]))
+        return ETuple([qtag, ETuple([EAtom('start'), EInt(index)])])
 
     @staticmethod
     def xml_end(qtag: EObject):
-        return ETagVal(qtag, EAtom('stop'))
+        return ETuple([qtag, EAtom('stop')])
 
     @staticmethod
     def xml_empty_leaf(qtag: EObject):
-        return ETagVal(qtag, EAtom('leaf'))
+        return ETuple([qtag, EAtom('leaf')])
+
+    @staticmethod
+    def xml_non_empty_leaf(qtag: EObject, value: EObject):
+        return ETuple([qtag, value])
 
     @staticmethod
     def xml_begin_del(qtag: EObject): # Delete list-entries only :/
-        return ETagVal(qtag, EAtom('delete'))
+        return ETuple([qtag, EAtom('delete')])
 
-    def to_eobject(self) -> EObject:
-        return ETuple([self.qtag, self.val])
+    @staticmethod
+    def xml_noexists(qtag: EObject):
+        return ETuple([qtag, EAtom('not_found')])
 
 class Tag:
     pass
@@ -116,6 +130,12 @@ class HTag(Tag):
 
     def __str__(self) -> str:
         return "HTag(" + str(self.ns_hash) + ", " + str(self.name_hash) + ")"
+
+    def to_eobject(self) -> EObject:
+        if self.ns_hash == 0:
+            return EInt(self.name_hash)
+        else:
+            return EList([EInt(self.ns_hash), EInt(self.name_hash)], False)
 
 extension HTag(Hashable):
     def __eq__(self, other: HTag) -> bool:
@@ -138,16 +158,19 @@ class ITag(Tag):
         _ns = self.ns
         return _ns + ":" + self.name if _ns is not None else self.name
 
+    def to_eobject(self) -> EObject:
+        _ns = self.ns
+        if _ns is not None:
+            return EList([EAtom(_ns), EAtom(self.name)], False)
+        else:
+            return EAtom(self.name)
+
 extension ITag(Hashable):
     def __eq__(self, other: ITag) -> bool:
         # return self.name == other.name and self.ns == other.ns
         # Workaround actonc error:
         # ld.lld: error: undefined symbol: $EqOptG_new
-        if self.name != other.name:
-            return False
-        self_ns: ?str = self.ns
-        other_ns: ?str = other.ns
-        return self_ns is not None and other_ns is not None and self_ns == other_ns or self_ns is None and other_ns is None
+        return self.name == other.name and eq_optional(self.ns, other.ns)
 
     def __hash__(self) -> int:
         _ns = self.ns
@@ -172,64 +195,85 @@ extension PTag(Hashable):
         # return self.name == other.name and self.prefix == other.prefix
         # Workaround actonc error:
         # ld.lld: error: undefined symbol: $EqOptG_new
-        if self.name != other.name:
-            return False
-        self_prefix: ?str = self.prefix
-        other_prefix: ?str = other.prefix
-        return self_prefix is not None and other_prefix is not None and self_prefix == other_prefix or self_prefix is None and other_prefix is None
+        return self.name == other.name and eq_optional(self.prefix, other.prefix)
 
     def __hash__(self) -> int:
         _prefix = self.prefix
         return hash(_prefix) + hash(self.name) if _prefix is not None else hash(self.name)
 
+class MTag(Tag):
+    @property
+    module: ?str
+    @property
+    name: str
+
+    def __init__(self, module: ?str, name: str):
+        self.module = module
+        self.name = name
+
+    def __str__(self) -> str:
+        _module = self.module
+        return _module + ":" + self.name if _module is not None else self.name
+
+extension MTag(Hashable):
+    def __eq__(self, other: MTag) -> bool:
+        # return self.name == other.name and self.module == other.module
+        # Workaround actonc error:
+        # ld.lld: error: undefined symbol: $EqOptG_new
+        return self.name == other.name and eq_optional(self.module, other.module)
+
+    def __hash__(self) -> int:
+        _module = self.module
+        return hash(_module) + hash(self.name) if _module is not None else hash(self.name)
+
 # class ConfObject:
 #     pass
 
-class HTagDict[T](object):
-    @property
-    names: dict[int, value]
+# class HTagDict[T](object):
+#     @property
+#     names: dict[int, value]
 
-    def __init__(self):
-        self.names = {}
+#     def __init__(self):
+#         self.names = {}
 
-    def try_get_tag(self, k: HTag) -> ?T:
-        e: ?value = try_get(self.names, k.name_hash)
-        if e is not None:
-            if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
-                if e.a == k.ns_hash:
-                    return e.b
-            elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
-                return try_get(e, k.ns_hash)
-        return None
+#     def try_get_tag(self, k: HTag) -> ?T:
+#         e: ?value = try_get(self.names, k.name_hash)
+#         if e is not None:
+#             if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+#                 if e.a == k.ns_hash:
+#                     return e.b
+#             elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+#                 return try_get(e, k.ns_hash)
+#         return None
 
-    def try_get_unique_name(self, name_hash: int, hint_ns_hash: int) -> ?T:
-        e: ?value = try_get(self.names, name_hash)
-        if e is not None:
-            if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
-                # Accept unique name
-                return e.b
-            elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
-                # Require hinted ns_hash if name is not unique
-                return try_get(e, hint_ns_hash)
-        return None
+#     def try_get_unique_name(self, name_hash: int, hint_ns_hash: int) -> ?T:
+#         e: ?value = try_get(self.names, name_hash)
+#         if e is not None:
+#             if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+#                 # Accept unique name
+#                 return e.b
+#             elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+#                 # Require hinted ns_hash if name is not unique
+#                 return try_get(e, hint_ns_hash)
+#         return None
 
-extension HTagDict[T](Indexed[HTag, T]):
-    def __getitem__(self, k: HTag):
-        raise Exception("Not Implemented")
+# extension HTagDict[T](Indexed[HTag, T]):
+#     def __getitem__(self, k: HTag):
+#         raise Exception("Not Implemented")
 
-    def __setitem__(self, k: HTag, v: T):
-        e: ?value = try_get(self.names, k.name_hash)
-        if e is not None:
-            if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
-                self.names[k.name_hash] = {e.a: e.b, k.ns_hash: v}
-            elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
-                    e[k.ns_hash] = v
-        else:
-            #self.names[k.name_hash] = (k.ns_hash, v) # tuple is not subtype of value
-            self.names[k.name_hash] = Pair(k.ns_hash, v)
+#     def __setitem__(self, k: HTag, v: T):
+#         e: ?value = try_get(self.names, k.name_hash)
+#         if e is not None:
+#             if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+#                 self.names[k.name_hash] = {e.a: e.b, k.ns_hash: v}
+#             elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+#                     e[k.ns_hash] = v
+#         else:
+#             #self.names[k.name_hash] = (k.ns_hash, v) # tuple is not subtype of value
+#             self.names[k.name_hash] = Pair(k.ns_hash, v)
 
-    def __delitem__(self, k: HTag):
-        raise Exception("Not Implemented")
+#     def __delitem__(self, k: HTag):
+#         raise Exception("Not Implemented")
 
 class Keypath:
     pass

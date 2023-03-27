@@ -64,19 +64,29 @@ class BufferWriter(object):
             self.write_tag(Int)
             self.write_i32_be(v)
         else:
+            # While this compiles it does lead to segfault when attempting to use the variable b later
+            # if v < 0:
+            #     b = -v
+            #     s = 1
+            # else:
+            #     b = v
+            #     s = 0
+            b: int = v
+            s: int = 0
             if v < 0:
                 b = -v
                 s = 1
-            else:
-                b = v
-                s = 0
             d = []
-            while b != 0:
+            while True:
                 # Little-endian
                 # BUG: Runtime error on bitwise operations
                 # d.append(b & 0xFF)
+                # if b == 0:
+                #     break
                 # b >>= 8
                 d.append(b % 0x100)
+                if b == 0:
+                    break
                 b //= 0x100
             self.write_bytes(bytes([SmallBig, len(d), s]))
             self.write_bytes(bytes(d))
