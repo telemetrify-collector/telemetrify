@@ -1,0 +1,19 @@
+name: Build & Test
+
+on:
+  push:
+
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Check out repository code"
+        uses: actions/checkout@v3
+      - name: "Install acton"
+        run: |
+          wget https://github.com/actonlang/acton/releases/download/tip/acton_tip_amd64.deb
+          sudo dpkg -i acton_*.deb
+      - name: "Build"
+        run: |
+          actonc build
