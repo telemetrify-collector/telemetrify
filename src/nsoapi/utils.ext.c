@@ -1,5 +1,11 @@
 #include <arpa/inet.h>
 
+#ifdef __APPLE__ && __MACH__
+    #ifndef s6_addr16
+        #define s6_addr16 __u6_addr.__u6_addr16
+    #endif
+#endif
+
 void nsoapiQ_utilsQ___ext_init__() {
     // NOP
 }
