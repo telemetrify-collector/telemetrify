@@ -1,0 +1,306 @@
+import net
+import process
+import xml
+
+import nsoapi.mod as mod
+from nsoapi.conf import ITag
+from nsoapi.io import IncompleteReadError, Buffer
+from nsoapi.utils import try_parse_int, try_pop, try_get
+
+"""Netconf client"""
+
+SEPARATOR_FRAMING: int = 0
+CHUNKED_FRAMING: int = 1
+
+CHUNK_SIZE_MAX: int = 4294967295
+
+LEGACY_SEPARATOR_STR = "]]>]]>"
+LEGACY_SEPARATOR_BYTES = LEGACY_SEPARATOR_STR.encode()
+
+CHUNK_TAG_PREFIX = "\n#".encode()
+CHUNK_TAG_END_OF_MSG = "#".encode()
+CHUNK_TAG_POSTFIX = "\n".encode()
+
+CAP_NC_1_1 = "urn:ietf:params:netconf:base:1.1"
+
+NS_NC_1_1 = "urn:ietf:params:xml:ns:netconf:base:1.0"
+NS_YANG_ACTION = "urn:ietf:params:xml:ns:yang:1"
+
+actor Client(auth: process.ProcessAuth, address: str, port: int, username: str, password: ?str, key: ?str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, on_notif: ?action(Client, xml.Node) -> None):
+    var framing = SEPARATOR_FRAMING
+    var recv_buf = Buffer()
+    var chunk_buf = Buffer()
+
+    var session_id: ?str = None
+    var capabilities: list[str] = []
+
+    var message_id = 1
+    var rpc_cbs: dict[str, action(Client, xml.Node) -> None] = {}
+
+    var p: ?process.Process = None
+
+    def p_on_stderr(p, data):
+        print("STDERR: ", data)
+
+    def p_on_exit(p, exit_code, term_signal):
+        print("Exit!!!")
+
+    def p_on_error(p, error):
+        print("Error from process:", error)
+
+    cmd_env = None
+    if key is not None:
+        cmd = ["ssh", "-p", str(port), "-l", username, "-i", key]
+    elif password is not None:
+        cmd_env = {"SSHPASS": password}
+        #cmd = ["/usr/bin/env", "sshpass", "-e", "/usr/bin/ssh", "-p", str(port), "-l", username]
+        #cmd = ["/usr/bin/sshpass", "-e", "/usr/bin/ssh", "-p", str(port), "-l", username]
+        cmd = ["sshpass", "-e", "ssh", "-p", str(port), "-l", username]
+    else:
+        cmd = ["/usr/bin/ssh", "-p", str(port), "-l", username]
+    cmd += [address, "-s", "netconf"]
+    #print("Try process: " + str(cmd))
+
+    def _send_message(data: Buffer) -> None:
+        if p is not None:
+            if framing == SEPARATOR_FRAMING:
+                data.write_bytes(LEGACY_SEPARATOR_BYTES)
+                _msg = data.read_all_bytes()
+                if isinstance(_msg, bytes):
+                    p.write(_msg)
+                # else:
+                #     raise InternalError()
+            elif framing == CHUNKED_FRAMING:
+                while True:
+                    chunk_size = CHUNK_SIZE_MAX if data.unread_bytes > CHUNK_SIZE_MAX else data.unread_bytes
+                    if chunk_size <= 0:
+                        p.write("\n##\n".encode())
+                        break
+
+                    _chunk = data.read_bytes(chunk_size)
+                    if isinstance(_chunk, bytes):
+                        p.write(("\n#" + str(chunk_size) + "\n").encode())
+                        p.write(_chunk)
+                    # else:
+                    #     raise InternalError()
+        else:
+            raise Exception("Internal error")
+
+    def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(Client, xml.Node) -> None) -> None:
+        message_id_text = str(message_id)
+        message_id += 1
+
+        rpc_attrs = [("message-id", str(message_id_text))] + add_rpc_attrs
+        root = xml.Node("rpc", [(None, NS_NC_1_1)], None, rpc_attrs, [content], None, None)
+
+        buf: Buffer = Buffer()
+        buf.write_str(xml.encode(root))
+
+        rpc_cbs[message_id_text] = callback
+        _send_message(buf)
+
+    def rpc_action(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(Client, xml.Node) -> None) -> None:
+        action_node = xml.Node("action", [(None, NS_YANG_ACTION)], None, [], [content], None, None)
+        rpc(action_node, add_rpc_attrs, callback)
+
+    def send_hello() -> None:
+        hello = """<?xml version="1.0" encoding="UTF-8"?>
+        <hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+            <capabilities>
+                <capability>urn:ietf:params:netconf:base:1.0</capability>
+                <capability>urn:ietf:params:netconf:base:1.1</capability>
+            </capabilities>
+        </hello>"""
+        buf: Buffer = Buffer()
+        buf.write_str(hello)
+        _send_message(buf)
+
+    def handle_msg(msg: str) -> None:
+        print("MSG:", msg)
+        # try:
+        root = xml.decode(msg) # TODO: Modify xml.decode to return error OR catch exception when supported by actonc
+        # except Exception:
+        #     pass # TODO
+        if root.tag == "notification": # TODO: check namespace as well?
+            _on_msg_notification(root)
+        elif root.tag == "rpc-reply": # TODO: check namespace as well?
+            _on_msg_rpc_reply(root)
+        elif root.tag == "hello": # TODO: check namespace as well?
+            _on_msg_hello(root)
+        else:
+            print("WARNING: Unhandled message type:", root.tag)
+
+    def _on_msg_hello(root: xml.Node) -> None:
+        for n in root.children:
+            if n.tag == "capabilities": # TODO: check namespace as well?
+                capabilities.clear()
+                for cap in n.children:
+                    if cap.tag == "capability": # TODO: check namespace as well?
+                        cap_body = cap.text # cap_body = cap.text.strip()
+                        _on_capability(cap)
+                    else:
+                        pass # TODO: Warn?
+            elif n.tag == "session-id": # TODO: check namespace as well?
+                session_id = n.text
+        on_connect(self)
+
+    def _on_capability(cap: xml.Node) -> None:
+        cap_text = cap.text # cap_text = cap.text.strip()
+        if cap_text is not None:
+            capabilities.append(cap_text)
+            if cap_text == CAP_NC_1_1:
+                framing = CHUNKED_FRAMING
+
+    def _on_msg_rpc_reply(root: xml.Node) -> None:
+        _msg_id: ?str = None
+        for attr_name, attr_val in root.attributes:
+            if attr_name.split(":", -1)[-1] == "message-id": # TODO: check prefix->namespace as well
+                _msg_id = attr_val
+                break
+
+        if _msg_id is not None:
+            _cb: ?action(Client, xml.Node) -> None = try_pop(rpc_cbs, _msg_id)
+            if _cb is not None:
+                _cb(self, root)
+            else:
+                print("WARNING: Received rpc-reply with unexpected message-id:", _msg_id)
+        else:
+            print("WARNING: Received rpc-reply without message-id")
+
+    def _on_msg_notification(root: xml.Node) -> None:
+        _on_notif = on_notif
+        if _on_notif is not None:
+            _on_notif(self, root)
+
+    def p_on_stdout(p, data: bytes) -> None:
+        print("DATA:", data)
+        recv_buf.write_bytes(data)
+        try_read: bool = True
+        # while recv_buf.has_unread_bytes() and try_read: # actonc: Name try_read is not in scope
+        while recv_buf.has_unread_bytes():
+            if not try_read:
+                break
+            if framing == SEPARATOR_FRAMING:
+                try_read = _on_legacy_msg_data()
+            elif framing == CHUNKED_FRAMING:
+                try_read = _on_chunked_msg_data()
+            else:
+                try_read = False
+                _on_session_defunct_error("Not Implemented")
+
+    def _on_legacy_msg_data() -> bool:
+        i = recv_buf.find_bytes(LEGACY_SEPARATOR_BYTES)
+        if isinstance(i, int):
+            _msg_data = recv_buf.read_bytes(i)
+            if isinstance(_msg_data, bytes):
+                recv_buf.skip_bytes(len(LEGACY_SEPARATOR_BYTES))
+                recv_buf.consume()
+                handle_msg(_msg_data.decode())
+                return True
+        recv_buf.rewind()
+        return False
+
+    def _on_chunked_msg_data() -> bool:
+        m = recv_buf.match_bytes(CHUNK_TAG_PREFIX)
+        if isinstance(m, IncompleteReadError):
+            recv_buf.rewind()
+            return False
+        elif isinstance(m, bool):
+            if not m:
+                _on_session_defunct_error("Invalid chunk framing data.")
+                return False
+            _len_text_len = recv_buf.find_bytes(CHUNK_TAG_POSTFIX)
+            if isinstance(_len_text_len, IncompleteReadError):
+                recv_buf.rewind()
+                return False
+            elif isinstance(_len_text_len, int):
+                _len_text = recv_buf.read_bytes(_len_text_len)
+
+                _skip = recv_buf.skip_bytes(len(CHUNK_TAG_POSTFIX))
+                if isinstance(_skip, IncompleteReadError):
+                    recv_buf.rewind()
+                    return False
+                elif isinstance(_skip, bool) and _skip:
+                    if isinstance(_len_text, bytes):
+                        if _len_text == CHUNK_TAG_END_OF_MSG:
+                            _msg_data = chunk_buf.read_all_bytes()
+                            chunk_buf.consume()
+                            handle_msg(_msg_data.decode())
+                            return True
+                        else:
+                            _len = try_parse_int(_len_text.decode())
+                            if _len is not None:
+                                _chunk = recv_buf.read_bytes(_len)
+                                if isinstance(_chunk, IncompleteReadError):
+                                    recv_buf.rewind()
+                                    return False
+                                elif isinstance(_chunk, bytes):
+                                    chunk_buf.write_bytes(_chunk)
+                                    recv_buf.consume()
+                                    return True
+        _on_session_defunct_error("Internal error")
+        return False
+
+    def _on_session_defunct_error(msg: str):
+        pass # TODO
+
+    p = process.Process(auth, cmd, None, cmd_env, p_on_stdout, p_on_stderr, p_on_exit, p_on_error)
+    send_hello()
+
+class NsMaps(object):
+    @property
+    nsmap: dict[str, str]
+    @property
+    parent: ?NsMaps
+
+    def __init__(self: NsMaps, namespaces: list[(?str, str)], parent: ?NsMaps):
+        _nsmap: dict[str, str] = {}
+        for _prefix, _ns in namespaces:
+            _nsmap[_prefix if _prefix is not None else ""] = _ns
+        self.nsmap = _nsmap
+
+    def lookup(self: NsMaps, prefix: ?str) -> ?str:
+        _inst = self
+        while True:
+            ns: ?str = try_get(_inst.nsmap, prefix if prefix is not None else "")
+            if ns is not None:
+                return ns
+            _parent = _inst.parent
+            if _parent is not None:
+                _inst = _parent
+            else:
+                return None
+
+def netconf_to_xnode(xml_node: xml.Node, namespaces: list[(?str, str)], default_op: int) -> mod.XNode:
+    nsmaps = NsMaps(namespaces, None)
+    return _netconf_to_xnode(xml_node, nsmaps, default_op)
+
+def _netconf_to_xnode(xml_node: xml.Node, nsmaps: NsMaps, default_op: int) -> mod.XNode:
+    _nsmaps = nsmaps
+    if len(xml_node.nsdefs) > 0:
+        _nsmaps = NsMaps(xml_node.nsdefs, nsmaps)
+
+    _prefix = xml_node.prefix
+    _ns = _nsmaps.lookup(_prefix)
+
+    # TODO: Use netconf operation attribute
+    _op = default_op
+
+    tag = ITag(_ns, xml_node.tag)
+
+    # if not xml_node.children: # list.__bool__ bugged?
+    if len(xml_node.children) > 0:
+        children = []
+        for xml_child in xml_node.children:
+            children.append(_netconf_to_xnode(xml_child, _nsmaps, default_op))
+        return mod.XTree(_op, tag, _nsmaps.lookup, children)
+    else:
+        val = None
+        _text = xml_node.text
+        _tail = xml_node.tail
+        if _text is not None or _tail is not None:
+            _val = _text if _text is not None else ""
+            if _tail is not None:
+                _val += _tail
+            val = _val
+        return mod.XLeaf(_op, tag, _nsmaps.lookup, val)

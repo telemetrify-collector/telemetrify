@@ -1,3 +1,5 @@
+from nsoapi.io import IncompleteReadError
+
 # class Tag:
 Double = 70
 Compressed = 80
@@ -28,10 +30,6 @@ AtomLengthMax = 255 # longest allowed Erlang atom length
 
 CDB_REL_FLAG_MASK = 0x80000000
 CDB_ERROR_FLAG_MASK = CDB_REL_FLAG_MASK
-
-class IncompleteReadError(Exception):
-    def __init__(self):
-        pass
 
 class ProtoError(Exception):
     def __init__(self):

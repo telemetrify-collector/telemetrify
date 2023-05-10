@@ -1,5 +1,6 @@
 import file
 import net
+from nsoapi.io import IncompleteReadError
 from nsoapi.proto import *
 from nsoapi.conf import *
 from nsoapi.schema import * # Actors not imported by '*'? E.g. SchemaBuilder

@@ -1,9 +1,9 @@
+BUILD_ARGS=
 ifeq ($(DEV),true)
 	OUTPUT=out/dev
-	BUILD_ARGS=--dev
+	BUILD_ARGS+=--dev
 else
 	OUTPUT=out/rel
-	BUILD_ARGS=
 endif
 ARGS?=
 

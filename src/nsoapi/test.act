@@ -1,6 +1,9 @@
 import file
+import process
+import xml
 import nsoapi.maapi
 import nsoapi.writer
+import nsoapi.netconf
 from nsoapi.conf import *
 from nsoapi.maapi import *
 from nsoapi.mod import *
@@ -55,11 +58,19 @@ actor main(env):
     def run_test_writer(env: Env, opts: Opts):
         test_writer(env, opts)
 
+    def run_test_netconf_client_nso(env: Env, opts: Opts):
+        test_netconf_client_nso(env, opts)
+
+    def run_test_netconf_client_vr_vmx(env: Env, opts: Opts):
+        test_netconf_client_vr_vmx(env, opts)
+
     tests: dict[str, proc(Env, Opts) -> None] = {
         "maapi-schema": run_test_maapi_session_schema,
         "set-values-ikp": run_test_set_values_ikp,
         "set-values-hkp": run_test_set_values_hkp,
         "writer": run_test_writer,
+        "netconf-client-nso": run_test_netconf_client_nso,
+        "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
     }
 
     args = env.argv
@@ -351,3 +362,65 @@ actor test_writer(env: Env, opts: Opts):
 
     print("Starting up...")
     sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+actor test_netconf_client_nso(env: Env, opts: Opts):
+    def _on_error(c, e):
+        print("NETCONF client failed:", e)
+        await async env.exit(1)
+
+    def _on_connect(c):
+        print("NETCONF client connected!!!!")
+
+        # n = \
+        #     xml.Node("alarms", [(None, "http://tail-f.com/ns/ncs-alarms")], None, [], [
+        #         xml.Node("filter-alarms", [], None, [], [
+        #             xml.Node("alarm-status", [], None, [], [], "any", None)
+        #         ], None, None)
+        #     ], None, None)
+
+        # c.rpc_action(n, [], _on_rpc_reply)
+
+        n = \
+            xml.Node("establish-subscription", [(None, "urn:ietf:params:xml:ns:yang:ietf-subscribed-notifications"), ("yp", "urn:ietf:params:xml:ns:yang:ietf-yang-push")], None, [], [
+                xml.Node("datastore", [("ds", "urn:ietf:params:xml:ns:yang:ietf-datastores")], "yp", [], [], "ds:operational", None),
+                xml.Node("datastore-xpath-filter", [("nm", "http://tail-f.com/yang/ncs-monitoring")], "yp", [], [], "/nm:ncs-state/version", None),
+                xml.Node("periodic", [], "yp", [], [
+                    xml.Node("period", [], "yp", [], [], "500", None),
+                ], None, None),
+            ], None, None)
+
+        c.rpc(n, [], _on_rpc_reply)
+
+    def _on_rpc_reply(c, n: xml.Node):
+        print("Received reply:\n", xml.encode(n))
+
+    def _on_notif(c, n: xml.Node):
+        print("Received notif:\n", xml.encode(n))
+
+    print("Starting up...")
+    sess = nsoapi.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
+
+
+actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
+    def _on_error(c, e):
+        print("NETCONF client failed:", e)
+        await async env.exit(1)
+
+    def _on_connect(c):
+        print("NETCONF client connected!!!!")
+
+        # n = \
+        #     xml.Node("get-bgp-summary-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        n = \
+            xml.Node("get-bridge-instance-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+
+        # print("Calling rpc:\n", xml.encode(n))
+
+        c.rpc(n, [], _on_rpc_reply)
+
+    def _on_rpc_reply(c, n: xml.Node):
+        print("Received reply:\n", xml.encode(n))
+        await async env.exit(0)
+
+    print("Starting up...")
+    sess = nsoapi.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
