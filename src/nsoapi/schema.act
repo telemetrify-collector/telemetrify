@@ -41,6 +41,32 @@ CONFD_RANGE_MAX_EXCLUSIVE: i64 = 1 << 3
 
 ROOT_MOUNT_ID = HTag(0, 0)
 
+class TypeId:
+    @property
+    ns_hash: int
+    @property
+    name: str
+    # @property
+    # ns_descr: NamespaceDescription
+    # @property
+    # name: str
+
+    def __init__(self: TypeId, ns_hash: int, name: str):
+        self.ns_hash = ns_hash
+        self.name = name
+
+    def __str__(self: TypeId) -> str:
+        return str(self.ns_hash) + ":" + self.name
+
+extension TypeId(Hashable):
+    def __eq__(self, other: TypeId) -> bool:
+        return self.name == other.name and self.ns_hash == other.ns_hash
+
+    def __hash__(self) -> int:
+        return self.ns_hash + hash(self.name)
+
+pass
+
 class Schema:
     # @property
     # _roots: HTagDict[Node]
@@ -562,30 +588,6 @@ class RawKeys:
                     if isinstance(e, EInt):
                         keys.append(e.val)
                 return RawKeys(_node_id.val, keys)
-
-class TypeId:
-    @property
-    ns_hash: int
-    @property
-    name: str
-    # @property
-    # ns_descr: NamespaceDescription
-    # @property
-    # name: str
-
-    def __init__(self: TypeId, ns_hash: int, name: str):
-        self.ns_hash = ns_hash
-        self.name = name
-
-    def __str__(self: TypeId) -> str:
-        return str(self.ns_hash) + ":" + self.name
-
-extension TypeId(Hashable):
-    def __eq__(self, other: TypeId) -> bool:
-        return self.name == other.name and self.ns_hash == other.ns_hash
-
-    def __hash__(self) -> int:
-        return self.ns_hash + hash(self.name)
 
 class Node:
     # @property:
