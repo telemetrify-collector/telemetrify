@@ -84,7 +84,7 @@ actor main(env):
     read_file_auth = file.ReadFileAuth(file_auth)
     http_client = prometheusapi.http.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
 
-    for i in range(0, 20, 1):
+    for i in range(0, 200, 1):
         epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
 
         epoch_time = epoch_file.read()
@@ -94,11 +94,11 @@ actor main(env):
         fake_ping = 15.0 + mod
         fake_ping_str = str(fake_ping) 
 
-        json_string = "{ \"tags\": { \"__name__\": \"dummy_ping\", \"id\": \"bar\" }, \"timestamp\": " + epoch_time.decode().strip("\n") + ", \"value\": " + fake_ping_str + " }"
+        json_string = "{ \"tags\": { \"__name__\": \"dummy_ping\", \"id\": \"bar\" }, \"timestamp\": \"" + epoch_time.decode().strip("\n") + "\", \"value\": " + fake_ping_str + " }"
 
         print(json_string)
         http_client.post("/api/v1/json/write", json_string.encode(), on_response)
 
-        acton.rts.sleep(1)
+        #acton.rts.sleep(1)
 
     await async env.exit(0)
