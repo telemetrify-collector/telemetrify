@@ -446,3 +446,8 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
         req = build_request(address, b"GET", path.encode(), b"1.1", {}, b"")
         _on_response.append((req, on_response))
         conn.write(req)
+
+    def post(path: str, body: bytes, on_response: action(Client, Response) -> None):
+        req = build_request(address, b"POST", path.encode(), b"1.1", {}, body)
+        _on_response.append((req, on_response))
+        conn.write(req)
