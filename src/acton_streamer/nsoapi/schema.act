@@ -1,7 +1,9 @@
-import nsoapi.conf as conf
-from nsoapi.conf import *
-from nsoapi.proto import *
-from nsoapi.utils import *
+import acton_streamer.nsoapi.conf as conf
+from acton_streamer.common.mod import Tag, ITag, PTag, MTag
+from acton_streamer.common.utils import *
+from acton_streamer.nsoapi.conf import *
+from acton_streamer.nsoapi.proto import *
+
 
 # confd_cs_node.flags
 CS_NODE_IS_LIST: i64 = 1

@@ -1,0 +1,166 @@
+class IncompleteReadError(Exception):
+    def __init__(self):
+        pass
+
+class Buffer(object):
+    @property
+    parts: list[bytes]
+    @property
+    i: int
+    @property
+    j: int
+    @property
+    total_bytes: int
+    @property
+    unread_bytes: int
+
+    def __init__(self):
+        self.parts = []
+        self.i = 0
+        self.j = 0
+        self.total_bytes = 0
+        self.unread_bytes = 0
+
+    def write_bytes(self: Buffer, data: bytes):
+        l = len(data)
+        self.parts.append(data)
+        self.total_bytes += l
+        self.unread_bytes += l
+
+    def write_str(self: Buffer, data: str):
+        self.write_bytes(data.encode())
+
+    def consume(self: Buffer):
+        #print("CONSUME!", self.i, self.j)
+        if self.i > 0:
+            # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
+            self.parts = self.parts[self.i:]
+            self.i = 0
+        if self.j > 0:
+            if len(self.parts) > 0:
+                #self.parts[0] = self.parts[0][self.j:]
+                parts: list[bytes] = self.parts # Workaround type-checker bug?
+                parts[0] = parts[0][self.j:]
+            self.j = 0
+        self.total_bytes = self.unread_bytes
+        #print("CONSUMED!", self.parts)
+
+    def rewind(self: Buffer):
+        #print("REWIND!")
+        self.i = 0
+        self.j = 0
+        self.unread_bytes = self.total_bytes
+
+    def read_bytes_count(self: Buffer) -> int:
+        return self.total_bytes - self.unread_bytes
+
+    def has_unread_bytes(self: Buffer) -> bool:
+        return self.unread_bytes > 0
+
+    def assert_unread_bytes(self: Buffer, count: int) -> value: # (bool | IncompleteReadError)
+        # if self.unread_bytes < count:
+        #     raise IncompleteReadError()
+        if self.unread_bytes < count:
+            return IncompleteReadError()
+        else:
+            return True
+
+    def read_bytes(self: Buffer, count: int) -> value: # (bytes | IncompleteReadError)
+        #print("READ", count)
+        #print("READ0!", self.i, self.j)
+        # if count > self.unread_bytes:
+        #     raise IncompleteReadError()
+        if count > self.unread_bytes:
+            return IncompleteReadError()
+        remaining = count
+        acc = []
+        parts: list[bytes] = self.parts # Workaround type-checker bug?
+        while remaining > 0:
+            #part = self.parts[self.i]
+            part = parts[self.i]
+            next_j = self.j + remaining
+            chunk = part[self.j:next_j]
+            chunk_len = len(chunk)
+            remaining -= chunk_len
+            if next_j >= len(part):
+                self.i += 1
+                next_j = 0
+            self.j = next_j
+            acc.append(chunk)
+        self.unread_bytes -= count
+        #print("READ1!", self.i, self.j)
+        return bytes([]).join(acc)
+
+    def read_all_bytes(self: Buffer) -> bytes:
+        b = self.read_bytes(self.unread_bytes)
+        if isinstance(b, bytes):
+            return b
+        else:
+            return bytes([])
+
+    def skip_bytes(self: Buffer, count: int) -> value: # (bool | IncompleteReadError):
+        #print("SKIP", count)
+        #print("SKIP0!", self.i, self.j)
+        if count > self.unread_bytes:
+            return IncompleteReadError()
+        remaining = count
+        parts: list[bytes] = self.parts # Workaround type-checker bug?
+        while remaining > 0:
+            #part = self.parts[self.i]
+            part = parts[self.i]
+            part_len = len(part)
+            part_remain = part_len - self.j
+            if remaining < part_remain:
+                self.j += remaining
+                break
+            remaining -= part_remain
+            self.i += 1
+            self.j = 0
+        self.unread_bytes -= count
+        #print("SKIP0!", self.i, self.j)
+        return True
+
+    def find_bytes(self: Buffer, pattern: bytes) -> value: # (index: int | err: IncompleteReadError)
+        index: int = 0
+        pattern_index: int = 0
+        _i = self.i
+        _j = self.j
+        pattern_len = len(pattern)
+        if pattern_len == 0:
+            return index
+        elif pattern_len > self.unread_bytes:
+            return IncompleteReadError()
+
+        parts: list[bytes] = self.parts # Workaround type-checker bug?
+        parts_len = len(parts)
+        part = parts[_i]
+        part_len = len(part)
+        while True:
+            b = part[_j]
+
+            if b == pattern[pattern_index]:
+                pattern_index += 1
+
+            index += 1
+
+            if pattern_index == pattern_len:
+                #return index - pattern_len
+                break
+
+            _j += 1
+            if _j >= part_len:
+                _i += 1
+                _j = 0
+                if _i >= parts_len:
+                    return IncompleteReadError()
+                part = parts[_i]
+                part_len = len(part)
+
+        return index - pattern_len
+
+    def match_bytes(self: Buffer, pattern: bytes) -> value: # (is_match: bool | err: IncompleteReadError)
+        b = self.read_bytes(len(pattern))
+        if isinstance(b, bytes):
+            return b == pattern
+        else:
+            return b

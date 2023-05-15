@@ -1,9 +1,9 @@
-from nsoapi.conf import *
-from nsoapi.proto import *
-from nsoapi.maapi import *
-from nsoapi.mod import *
-import nsoapi.schema as schema
-from nsoapi.utils import *
+from acton_streamer.common.mod import *
+from acton_streamer.nsoapi.conf import *
+from acton_streamer.nsoapi.proto import *
+from acton_streamer.nsoapi.maapi import *
+import acton_streamer.nsoapi.schema as schema
+from acton_streamer.common.utils import *
 
 _STATE_IDLE = 0
 _STATE_PREPARE_EPARAMS = 1

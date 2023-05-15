@@ -6,15 +6,16 @@ ifeq ($(DEV),true)
 else
 	BUILD_PATH=$(PROJECT_DIR)/out/rel
 endif
-ARGS?=maapi-schema
-NCS_D?=ncs
+ARGS?=netconf-client-vr-vmx
+VR_NAME?=test-vmx1
 
 start:
-	ncs --cd $(SELF_DIR)$(NCS_D)
-	ncs --wait-started 600
+	docker run -it -d --privileged --name $(VR_NAME) -p 10022:22 -p 10830:830 gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 --trace
+	@echo "Awaiting healthy ${VR_NAME} ..."
+	@while [ "$$(docker inspect -f {{.State.Health.Status}} $(VR_NAME))" != "healthy" ]; do sleep 1; done
 
 stop:
-	ncs --stop
+	docker stop $(VR_NAME) && docker rm $(VR_NAME)
 
 test:
 	$(BUILD_PATH)/bin/acton_streamer.test $(ARGS)

@@ -1,10 +1,11 @@
 import file
 import net
-from nsoapi.proto import *
-from nsoapi.conf import *
-from nsoapi.schema import * # Actors not imported by '*'? E.g. SchemaBuilder
-import nsoapi.schema
-from nsoapi.utils import *
+from acton_streamer.common.io import IncompleteReadError
+from acton_streamer.nsoapi.proto import *
+from acton_streamer.nsoapi.conf import *
+from acton_streamer.nsoapi.schema import * # Actors not imported by '*'? E.g. SchemaBuilder
+import acton_streamer.nsoapi.schema
+from acton_streamer.common.utils import *
 
 DB_CANDIDATE = 1
 DB_RUNNING = 2
@@ -648,7 +649,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             ])
 
         def _transform_result(res: EObject) -> value:
-            mount_id = nsoapi.schema.ROOT_MOUNT_ID
+            mount_id = acton_streamer.nsoapi.schema.ROOT_MOUNT_ID
             if isinstance(res, ETuple) and len(res.elems) == 2:
                 _ns_hash = res.elems[0]
                 _name_hash = res.elems[1]
@@ -662,7 +663,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         # sb = SchemaBuilder()
         # ERROR: Error when compiling nsoapi.maapi module: Compilation error
         # Name 'SchemaBuilder$newact' is not in scope
-        sb = nsoapi.schema.SchemaBuilder()
+        sb = acton_streamer.nsoapi.schema.SchemaBuilder()
         # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self, v if v is not None else sb.build())) # Type inference conflict
         def _on_load_all_ns(v: ?value):
             _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_HASH_DB, lambda e: sb.on_hash_term(e), _on_load_hash_db)
