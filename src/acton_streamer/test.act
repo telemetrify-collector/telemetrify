@@ -1,15 +1,15 @@
 import file
 import process
 import xml
-import nsoapi.maapi
-import nsoapi.writer
-import nsoapi.netconf
-from nsoapi.conf import *
-from nsoapi.maapi import *
-from nsoapi.mod import *
-from nsoapi.proto import *
-from nsoapi.schema import *
-from nsoapi.writer import *
+import acton_streamer.nsoapi.maapi
+import acton_streamer.nso.writer
+import acton_streamer.net.netconf
+from acton_streamer.common.mod import *
+from acton_streamer.nso.writer import *
+from acton_streamer.nsoapi.conf import *
+from acton_streamer.nsoapi.maapi import *
+from acton_streamer.nsoapi.proto import *
+from acton_streamer.nsoapi.schema import *
 
 _OPT_RECORD_TO = '--record-to'
 
@@ -128,7 +128,7 @@ actor test_maapi_session_schema(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
 
 actor test_set_values_ikp(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -201,7 +201,7 @@ actor test_set_values_ikp(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
 
 actor test_set_values_hkp(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -272,7 +272,7 @@ actor test_set_values_hkp(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
 
 actor test_writer(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -311,7 +311,7 @@ actor test_writer(env: Env, opts: Opts):
             print("MAAPI started transaction thandle:", thandle)
 
             #writer = MaapiWriter(c, v)
-            writer = nsoapi.writer.MaapiWriter(c, schema)
+            writer = acton_streamer.nso.writer.MaapiWriter(c, schema)
 
             tree = \
                 XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'python-vm'), None, [
@@ -361,7 +361,7 @@ actor test_writer(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
 
 actor test_netconf_client_nso(env: Env, opts: Opts):
     def _on_error(c, e):
@@ -398,7 +398,7 @@ actor test_netconf_client_nso(env: Env, opts: Opts):
         print("Received notif:\n", xml.encode(n))
 
     print("Starting up...")
-    sess = nsoapi.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
+    sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
 
 
 actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
@@ -423,4 +423,4 @@ actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
         await async env.exit(0)
 
     print("Starting up...")
-    sess = nsoapi.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
+    sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)

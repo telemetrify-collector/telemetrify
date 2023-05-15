@@ -1,4 +1,4 @@
-from nsoapi.io import IncompleteReadError
+from acton_streamer.common.io import IncompleteReadError
 
 # class Tag:
 Double = 70
@@ -770,6 +770,9 @@ class ConfResponse(object):
             + ", err=" + str(self.is_error) \
             + ", errcode=" + str(self.error_code) \
             + ", errstr=" + error_msg + ")"
+
+protocol ToEObject:
+    to_eobject: () -> EObject
 
 # # # EObject
 # # protocol EObject:

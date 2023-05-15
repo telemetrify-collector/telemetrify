@@ -2,10 +2,10 @@ import net
 import process
 import xml
 
-import nsoapi.mod as mod
-from nsoapi.conf import ITag
-from nsoapi.io import IncompleteReadError, Buffer
-from nsoapi.utils import try_parse_int, try_pop, try_get
+import acton_streamer.common.mod as mod
+from acton_streamer.common.mod import ITag
+from acton_streamer.common.io import IncompleteReadError, Buffer
+from acton_streamer.common.utils import try_parse_int, try_pop, try_get
 
 """Netconf client"""
 

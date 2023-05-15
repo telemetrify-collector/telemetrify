@@ -18,10 +18,10 @@ stop:
 	docker stop $(VR_NAME) && docker rm $(VR_NAME)
 
 test:
-	$(BUILD_PATH)/bin/nsoapi.test $(ARGS)
+	$(BUILD_PATH)/bin/acton_streamer.test $(ARGS)
 
 test-debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/nsoapi.test --rts-wthreads 1 $(ARGS)
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/acton_streamer.test --rts-wthreads 1 $(ARGS)
 
 cli:
 	ncs_cli -u admin

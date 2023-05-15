@@ -1,0 +1,177 @@
+from acton_streamer.common.utils import eq_optional
+
+OP_NONE: int = 0
+OP_MERGE: int = 1
+OP_REPLACE: int = 2
+OP_DELETE: int = 3
+OP_NOCREATE: int = 4
+# OP_MOVE = 5 # Additional key values
+# OP_INSERT = 6 # Additional key values
+
+class Tag:
+    pass
+
+class ITag(Tag):
+    @property
+    ns: ?str
+    @property
+    name: str
+
+    def __init__(self, ns: ?str, name: str):
+        self.ns = ns
+        self.name = name
+
+    def __str__(self) -> str:
+        _ns = self.ns
+        return _ns + ":" + self.name if _ns is not None else self.name
+
+    # def to_eobject(self) -> EObject:
+    #     _ns = self.ns
+    #     if _ns is not None:
+    #         return EList([EAtom(_ns), EAtom(self.name)], False)
+    #     else:
+    #         return EAtom(self.name)
+
+extension ITag(Hashable):
+    def __eq__(self, other: ITag) -> bool:
+        # return self.name == other.name and self.ns == other.ns
+        # Workaround actonc error:
+        # ld.lld: error: undefined symbol: $EqOptG_new
+        return self.name == other.name and eq_optional(self.ns, other.ns)
+
+    def __hash__(self) -> int:
+        _ns = self.ns
+        return hash(_ns) + hash(self.name) if _ns is not None else hash(self.name)
+
+class PTag(Tag):
+    @property
+    prefix: ?str
+    @property
+    name: str
+
+    def __init__(self, prefix: ?str, name: str):
+        self.prefix = prefix
+        self.name = name
+
+    def __str__(self) -> str:
+        _prefix = self.prefix
+        return _prefix + ":" + self.name if _prefix is not None else self.name
+
+extension PTag(Hashable):
+    def __eq__(self, other: PTag) -> bool:
+        # return self.name == other.name and self.prefix == other.prefix
+        # Workaround actonc error:
+        # ld.lld: error: undefined symbol: $EqOptG_new
+        return self.name == other.name and eq_optional(self.prefix, other.prefix)
+
+    def __hash__(self) -> int:
+        _prefix = self.prefix
+        return hash(_prefix) + hash(self.name) if _prefix is not None else hash(self.name)
+
+class MTag(Tag):
+    @property
+    module: ?str
+    @property
+    name: str
+
+    def __init__(self, module: ?str, name: str):
+        self.module = module
+        self.name = name
+
+    def __str__(self) -> str:
+        _module = self.module
+        return _module + ":" + self.name if _module is not None else self.name
+
+extension MTag(Hashable):
+    def __eq__(self, other: MTag) -> bool:
+        # return self.name == other.name and self.module == other.module
+        # Workaround actonc error:
+        # ld.lld: error: undefined symbol: $EqOptG_new
+        return self.name == other.name and eq_optional(self.module, other.module)
+
+    def __hash__(self) -> int:
+        _module = self.module
+        return hash(_module) + hash(self.name) if _module is not None else hash(self.name)
+
+class Node:
+    def op(self) -> int:
+        return OP_NONE
+
+    def tag(self) -> ?Tag:
+        return None
+
+    def namespaces(self) -> ?(?str) -> ?str:
+        return None
+
+    def keys(self) -> list[Node]:
+        return []
+
+    def value(self) -> ?value:
+        return None
+
+    def children(self) -> list[Node]:
+        return []
+
+    def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
+        raise Exception("Not implemented")
+
+class XNode(Node):
+    @property
+    _op: int
+    @property
+    _tag: ?Tag
+    @property
+    _namespaces: ?(?str) -> ?str
+
+    # def __init__(self, tag: ?Tag, namespaces: ?(?str) -> ?str):
+    #     self._tag = tag
+    #     self._namespaces = namespaces
+
+    def op(self) -> int:
+        return self._op
+
+    def tag(self) -> ?Tag:
+        return self._tag
+
+    def namespaces(self) -> ?(?str) -> ?str:
+        return self._namespaces
+
+class XTree(XNode):
+    @property
+    _children: list[Node]
+
+    def __init__(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, children: list[Node]):
+        self._op = op
+        self._tag = tag
+        self._namespaces = namespaces
+        self._children = children
+
+    def children(self) -> list[Node]:
+        return self._children
+
+    def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
+        if keys:
+            raise ValueError("XTree does not allow keys")
+        if value is not None:
+            raise ValueError("XTree does not allow value")
+        return XTree(op, tag, namespaces, children)
+
+class XLeaf(XNode):
+    @property
+    _value: ?value
+
+    def __init__(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, value: ?value):
+        self._op = op
+        self._tag = tag
+        self._namespaces = namespaces
+        self._value = value
+
+    def value(self) -> ?value:
+        return self._value
+
+    def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
+        if keys:
+            raise ValueError("XTree does not allow keys")
+        if children:
+            raise ValueError("XTree does not allow children")
+        return XLeaf(op, tag, namespaces, value)
