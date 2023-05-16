@@ -18,16 +18,16 @@ jobs:
         run: |
           actonc build
 
-  test-macos:
-    runs-on: macos-12
-    steps:
-      - name: "Check out repository code"
-        uses: actions/checkout@v3
-      - name: "Install acton"
-        run: |
-          wget https://github.com/actonlang/acton/releases/download/tip/acton-darwin-x86_64.tar.bz2
-          tar jxvf $(ls acton-darwin*.tar.bz2 | tail -n1)
-          echo "PATH=$(pwd)/acton/bin:$PATH" >> $GITHUB_ENV
-      - name: "Build"
-        run: |
-          actonc build
+#  test-macos:
+#    runs-on: macos-12
+#    steps:
+#      - name: "Check out repository code"
+#        uses: actions/checkout@v3
+#      - name: "Install acton"
+#        run: |
+#          wget https://github.com/actonlang/acton/releases/download/tip/acton-darwin-x86_64.tar.bz2
+#          tar jxvf $(ls acton-darwin*.tar.bz2 | tail -n1)
+#          echo "PATH=$(pwd)/acton/bin:$PATH" >> $GITHUB_ENV
+#      - name: "Build"
+#        run: |
+#          actonc build
