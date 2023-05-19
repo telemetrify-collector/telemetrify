@@ -66,6 +66,9 @@ actor main(env):
     #var count = 0
 
     def on_response(conn: prometheusapi.http.Client, resp: prometheusapi.http.Response):
+        print("HTTP RESPONSE RECEIVED")
+        print(resp.status)
+        print(resp.headers)
         print(resp.body.decode())
 
     #def request_some(conn, n):
@@ -84,7 +87,7 @@ actor main(env):
     read_file_auth = file.ReadFileAuth(file_auth)
     http_client = prometheusapi.http.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
 
-    for i in range(0, 200, 1):
+    for i in range(0, 20, 1):
         epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
 
         epoch_time = epoch_file.read()
