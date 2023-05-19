@@ -1,0 +1,22 @@
+version: "3.3"
+services:
+    m3db:
+        image: quay.io/m3db/m3dbnode:v1.1.0
+        ports:
+            - 7201:7201
+            - 7203:7203
+        volumes:
+            - type: bind
+              source: ./m3db_data
+              target: /var/lib/m3db
+
+    grafana:
+        image: grafana/grafana
+        depends_on:
+            - m3db
+        ports:
+            - 3000:3000
+        volumes:
+            - type: bind
+              source: ./grafana_data
+              target: /var/lib/grafana
