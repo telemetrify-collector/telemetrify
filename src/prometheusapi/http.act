@@ -416,6 +416,7 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
 
     def on_tcp_receive(conn: net.TCPIPConnection, data: bytes) -> None:
         buf += data
+        print("Received TCP data")
 
         while True:
             r, buf = parse_response(buf)
