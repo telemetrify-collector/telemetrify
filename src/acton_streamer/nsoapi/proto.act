@@ -31,7 +31,13 @@ AtomLengthMax = 255 # longest allowed Erlang atom length
 CDB_REL_FLAG_MASK = 0x80000000
 CDB_ERROR_FLAG_MASK = CDB_REL_FLAG_MASK
 
+_ERL_EXTERN_FMT = Version
+
 class ProtoError(Exception):
+    def __init__(self):
+        pass
+
+class ServerVersionError(ProtoError):
     def __init__(self):
         pass
 

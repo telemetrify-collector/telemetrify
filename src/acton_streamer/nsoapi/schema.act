@@ -1,5 +1,5 @@
 import acton_streamer.nsoapi.conf as conf
-from acton_streamer.common.mod import Tag, ITag, PTag, MTag
+from acton_streamer.common.mod import Tag, ITag, HTag, PTag, MTag, Keypath
 from acton_streamer.common.utils import *
 from acton_streamer.nsoapi.conf import *
 from acton_streamer.nsoapi.proto import *
@@ -872,7 +872,12 @@ class Type(object):
             retval = Any.value_to_eobject(v, cursor, use_ikp)
         return retval
 
-    def eobject_to_value(self: Type, cursor: Cursor, obj: ?EObject) -> ?value:
+    def eobject_to_value(self: Type, obj: ?EObject, cursor: Cursor) -> ?value:
+        conf_type: int, _value: ?value = eobject_to_conf_type_and_value(obj)
+
+        self_conf_type = self.conf_type
+        if self_conf_type is not None and conf_type == self_conf_type or conf_type == cursor.node().conf_type:
+            return _value
         return None
 
     # def netconf_to_eobject(self, node: Node, s: str) -> ?EObject:
@@ -926,6 +931,22 @@ class EnumType(Type):
                 return ETuple([EInt(C_ENUM_VALUE), EInt(v)])
         return None
 
+    def eobject_to_value(self: EnumType, obj: ?EObject, cursor: Cursor) -> ?value:
+        # if obj is not None and isinstance(obj, ETuple): # actonc: #### findAttr' fails for acton_streamer.nsoapi.proto.EObject . elems
+        #     _elems = obj.elems
+        if obj is not None:
+            _obj: EObject = obj
+            if isinstance(_obj, ETuple):
+                _elems = _obj.elems
+                if len(_elems) == 2:
+                    _conf_type = _elems[0]
+                    _ordinal = _elems[1]
+                    if isinstance(_conf_type, EInt) and _conf_type.val == C_ENUM_VALUE and isinstance(_ordinal, EInt):
+                        ordinal = _ordinal.val
+                        name = try_get(self.ordinal_to_name, ordinal)
+                        return name if name is not None else ordinal
+        return None
+
     def validate_value(self: EnumType, cursor: Cursor, v: ?value) -> bool:
         if v is not None:
             if isinstance(v, str):
@@ -974,6 +995,13 @@ class UnionType(Type):
     def value_to_eobject(self: UnionType, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         for t in self.types:
             res = t.value_to_eobject(v, cursor, use_ikp)
+            if res is not None:
+                return res
+        return None
+
+    def eobject_to_value(self: UnionType, obj: ?EObject, cursor: Cursor) -> ?value:
+        for t in self.types:
+            res = t.eobject_to_value(obj, cursor)
             if res is not None:
                 return res
         return None
@@ -1649,7 +1677,15 @@ class Bit:
             elif conf_type == C_BIT64:
                 return ETuple([EInt(C_BIT64), EInt(v)])
             elif conf_type == C_BITBIG:
-                raise Exception("Not Implemented")
+                # Little-endian
+                b: list[int] = []
+                _v: int = v
+                while True:
+                    unsafe_list_append(b, _v % 0x100)
+                    _v //= 0x100
+                    if _v == 0:
+                        break
+                return ETuple([EInt(C_BITBIG), EBinary(bytes(b))])
         return None
 
 class Float_:
@@ -2105,23 +2141,37 @@ class Decimal64_:
 
 class DottedQuad:
     @staticmethod
-    def confstr_to_value(s: str) -> ?int:
-        # TODO: Implement
+    def netconf_to_value(s: str) -> ?bytes:
+        p = s.split(".", -1)
+        vl = []
+        if len(p) > 0:
+            for h in p:
+                v = try_parse_int(h)
+                if v is not None and v <= 0xFF:
+                    vl.append(v)
+                else:
+                    return None
+            return bytes(vl)
         return None
 
     @staticmethod
-    def value_to_netconf(v: ?value,) -> ?str:
-        # TODO: Implement
+    def value_to_netconf(v: ?value) -> ?str:
+        if v is not None and isinstance(v, bytes):
+            sl = []
+            for b in v:
+                sl.append(str(b))
+            return ".".join(sl)
         return None
 
     @staticmethod
     def value_to_eobject(v: ?value) -> ?EObject:
-        # TODO: Implement
+        if v is not None and isinstance(v, bytes):
+            return ETuple([EInt(C_DQUAD), EBinary(v)])
         return None
 
 class HexString:
     @staticmethod
-    def netconf_to_value(s: str) -> ?bytes:
+    def confstr_to_value(s: str) -> ?bytes:
         s = s.strip("<>\"")
         p = s.split(":", -1)
         vl = []
@@ -2224,9 +2274,9 @@ class Any:
         elif conf_type == C_DECIMAL64:
             return Decimal64_.netconf_to_value(s)
         elif conf_type == C_DQUAD:
-            return DottedQuad.confstr_to_value(s)
+            return DottedQuad.netconf_to_value(s)
         elif conf_type == C_HEXSTR:
-            return HexString.netconf_to_value(s)
+            return HexString.confstr_to_value(s)
         elif conf_type == C_IPV4_AND_PLEN:
             return IPv4AndPrefixLen.netconf_to_value(s)
         elif conf_type == C_IPV6_AND_PLEN:

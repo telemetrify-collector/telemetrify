@@ -1,6 +1,8 @@
 import file
 import net
+import acton_streamer.nsoapi.channel as channel
 from acton_streamer.common.io import IncompleteReadError
+from acton_streamer.common.mod import HTag
 from acton_streamer.nsoapi.proto import *
 from acton_streamer.nsoapi.conf import *
 from acton_streamer.nsoapi.schema import * # Actors not imported by '*'? E.g. SchemaBuilder
@@ -31,8 +33,6 @@ _MAAPI_LOAD_HASH_DB = 231
 _MAAPI_LOAD_ALL_NS = 232
 _MAAPI_LOAD_MNS_MAPS = 264
 _MAAPI_GET_MOUNT_ID = 265
-
-_ERL_EXTERN_FMT = Version
 
 _ERR_NOEXISTS = 1
 _ERR_ALREADY_EXISTS = 2
@@ -69,10 +69,6 @@ class MaapiException(ProtoError):
             + ", errcode=" + str(self.error_code) \
             + ", errmsg=" + error_msg \
             + ", path=" + conf_path + ")"
-
-class ServerVersionError(ProtoError):
-    def __init__(self):
-        pass
 
 def addr_to_eobject(addr: str) -> EObject:
     if addr != "127.0.0.1":
@@ -235,6 +231,12 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
     # Workaround compiler ordering issue
     var conn: ?net.TCPIPConnection = None
+
+    def close():
+        # TODO: Impl support for destructor in actonc and/or manual close?
+        # if conn is not None:
+        #     conn.close()
+        pass
 
     def _write(data: bytes):
         print("MaapiConnection TCP send:", data)
@@ -427,80 +429,10 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         _write(payload_data)
 
     def _maapi_response_cb(op: ?int, read_op: bool, response_cb: action(?value) -> None) -> ?value:
-        result = ConfResponse(op if op is not None else -1, None, False, 0, None)
-        retval: ?value = result
-        _response_len = input_stream.read_i32_be()
-        if isinstance(_response_len, int):
-            response_len: int = _response_len
-            #print("Recv maapi response len:", response_len)
-            expected_len = response_len + 4
-            e = input_stream.assert_unread_bytes(response_len)
-            if isinstance(e, IncompleteReadError):
-                return e
-            e2 = __maapi_response_read_content(read_op, result, expected_len)
-            if e2 is not None:
-                if isinstance(e2, IncompleteReadError):
-                    return e2
-                retval = e2
-            else:
-                read_len = input_stream.read_bytes_count()
-                if read_len != expected_len:
-                    print("WARNING: Inconsistent length of MAAPI response, expected:", expected_len, ", actual:", read_len)
-
-        else:
-            if isinstance(_response_len, IncompleteReadError):
-                return _response_len
-            retval = _response_len
-        response_cb(retval)
-
-    def __maapi_response_read_content(read_op: bool, result, expected_len: int) -> ?value:
-        if not read_op:
-            return __maapi_response_read_term(result)
-        else:
-            _res_op = input_stream.read_u32_be()
-            if isinstance(_res_op, int):
-                result.op = _res_op
-                #if result.op & CDB_ERROR_FLAG_MASK != 0: # BUG: Runtime error on bitwise operations
-                if (result.op // CDB_ERROR_FLAG_MASK) % 2 == 1:
-                    result.is_error = True
-                    _error_code = input_stream.read_i32_be()
-                    if isinstance(_error_code, int):
-                        result.error_code = _error_code
-                        _error_obj = EObject.decode_tagged(input_stream)
-                        if isinstance(_error_obj, EObject):
-                            if isinstance(_error_obj, EBinary):
-                                #result.error_msg = str(_error_obj)
-                                result.error_msg = str(_error_obj)
-                            elif isinstance(_error_obj, ETuple):
-                                # {String, AppTag} ?
-                                if len(_error_obj.elems) >= 1:
-                                    e = _error_obj.elems[0]
-                                    if isinstance(e, EBinary):
-                                        #result.error_msg = str(e)
-                                        result.error_msg = str(e)
-                            else:
-                                result.error_msg = str(_error_obj)
-                            return
-                        else:
-                            return _error_obj
-                    else:
-                        return _error_code
-                else:
-                    if input_stream.read_bytes_count() < expected_len:
-                        return __maapi_response_read_term(result)
-                    else:
-                        return
-            else:
-                return _res_op
-            return
-
-    def __maapi_response_read_term(result) -> ?value:
-        # _response = EObject.decode_tagged(input_stream)
-        _response = EObject.decode_tagged(input_stream)
-        if isinstance(_response, EObject):
-            result.term = _response
-        else:
-            return _response
+        result: ?value = channel.read_response(input_stream, op, read_op)
+        if result is not None and isinstance(result, IncompleteReadError):
+            return result
+        response_cb(result)
 
     def try_to_maapi_exception(resp: ConfResponse) -> ?MaapiException:
         if resp.is_error:

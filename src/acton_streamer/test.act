@@ -1,12 +1,14 @@
 import file
 import process
 import xml
+import acton_streamer.nsoapi.cdb
 import acton_streamer.nsoapi.maapi
 import acton_streamer.nso.writer
 import acton_streamer.net.netconf
 from acton_streamer.common.mod import *
 from acton_streamer.nso.writer import *
 from acton_streamer.nsoapi.conf import *
+from acton_streamer.nsoapi.cdb import *
 from acton_streamer.nsoapi.maapi import *
 from acton_streamer.nsoapi.proto import *
 from acton_streamer.nsoapi.schema import *
@@ -64,6 +66,9 @@ actor main(env):
     def run_test_netconf_client_vr_vmx(env: Env, opts: Opts):
         test_netconf_client_vr_vmx(env, opts)
 
+    def run_test_cdb_wait_start(env: Env, opts: Opts):
+        test_cdb_wait_start(env, opts)
+
     tests: dict[str, proc(Env, Opts) -> None] = {
         "maapi-schema": run_test_maapi_session_schema,
         "set-values-ikp": run_test_set_values_ikp,
@@ -71,6 +76,7 @@ actor main(env):
         "writer": run_test_writer,
         "netconf-client-nso": run_test_netconf_client_nso,
         "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
+        "cdb-wait-start": run_test_cdb_wait_start,
     }
 
     args = env.argv
@@ -278,9 +284,6 @@ actor test_writer(env: Env, opts: Opts):
     def _on_connect_error(e):
         print("MAAPI connect failed:", e)
 
-    def _on_connect_e(e):
-        print("MAAPI connect failed:", e)
-
     def _on_connect(c):
         print("MAAPI connected!!!!")
         c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
@@ -424,3 +427,21 @@ actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
 
     print("Starting up...")
     sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
+
+actor test_cdb_wait_start(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("CDB connect failed:", e)
+
+    def _on_connect(c):
+        print("CDB connected!!!!")
+        c.wait_start(_on_wait_start)
+
+    def _on_wait_start(c, e):
+        if e is None:
+            print("CDB wait start ok!!!!")
+            await async env.exit(0)
+        else:
+            print("CDB wait start failed:", e)
+            await async env.exit(1)
+
+    sess = acton_streamer.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer", _on_connect, _on_connect_error, opts.record_to)

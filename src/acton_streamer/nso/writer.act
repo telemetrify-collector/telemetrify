@@ -334,8 +334,9 @@ actor MaapiWriter(mc: MaapiConnection, _schema: schema.Schema):
         _type = s_node.value_type
         v: ?value = node.value()
         if v is not None and _type is not None:
-            if isinstance(v, str):
-                _type.netconf_to_value(v, cursor, node.namespaces())
+            _v: ?value = v
+            if isinstance(_v, str):
+                v = _type.netconf_to_value(_v, cursor, node.namespaces())
             # TODO: Validate / report error details
             return _type.value_to_eobject(v, cursor, use_ikp)
         return None
