@@ -1,7 +1,7 @@
 import acton.rts
 import file
 import net
-import prometheusapi.http
+import tsdb.http
 
 _OPT_RECORD_TO = '--record-to'
 
@@ -65,7 +65,7 @@ actor main(env):
     #var outstanding = 0
     #var count = 0
 
-    def on_response(conn: prometheusapi.http.Client, resp: prometheusapi.http.Response):
+    def on_response(conn: tsdb.http.Client, resp: tsdb.http.Response):
         print("HTTP RESPONSE RECEIVED")
         print(resp.status)
         print(resp.headers)
@@ -85,7 +85,7 @@ actor main(env):
     listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
     file_auth = file.FileAuth(env.auth)
     read_file_auth = file.ReadFileAuth(file_auth)
-    http_client = prometheusapi.http.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
+    http_client = tsdb.http.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
 
     for i in range(0, 20, 1):
         epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
