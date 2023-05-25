@@ -9,7 +9,7 @@ endif
 NCS_D?=ncs
 
 start:
-	docker compose up
+	docker compose up -d
 
 stop:
 	docker compose down
