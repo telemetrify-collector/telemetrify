@@ -1,0 +1,50 @@
+import acton.rts
+import file
+import net
+import json
+import time
+import tsdb.http
+
+class Metric(object):
+    @property
+    name: str
+    @property
+    tags: dict[str, str]
+    @property
+    value: float
+
+    def __init__(self, name: str, tags: dict[str, str], value: float):
+        self.name = name
+        self.tags = tags
+        self.value = value
+
+    def __str__(self):
+        return "<tsdb.Request " + str(self.name) + " " + str(self.value) + ">"
+
+actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
+
+    def _on_connect(client: tsdb.http.Client):
+        await async on_connect(self)
+
+    def _on_error(client: tsdb.http.Client, error: str):
+        await async on_error(self, error)
+
+    http_client = tsdb.http.Client(auth, address, port, _on_connect, _on_error)
+
+    def send_metric(metric: Metric, on_response: action(tsdb.http.Client, tsdb.http.Response) -> None):
+        #epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
+
+        json_dict = { "tags": [], "value": metric.value }
+
+        #for k, v in metric.tags:
+        #    if isinstance(k, str) and isinstance(v, str):
+        #        json_dict["tags"][k] = v
+
+        if isinstance(metric.name, str):
+            json_dict["tags"]["__name__"] = metric.name
+
+        json_dict["timestamp"] = str(time.time().second)
+        json_string = json.encode(json_dict)
+
+        print(json_string)
+        http_client.post("/api/v1/json/write", json_string.encode(), on_response)
