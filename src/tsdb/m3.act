@@ -34,14 +34,12 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
     def send_metric(metric: Metric, on_response: action(tsdb.http.Client, tsdb.http.Response) -> None):
         #epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
 
-        json_dict = { "tags": [], "value": metric.value }
+        mtags = {}
+        for k, v in metric.tags.items():
+            mtags[k] = v
 
-        #for k, v in metric.tags:
-        #    if isinstance(k, str) and isinstance(v, str):
-        #        json_dict["tags"][k] = v
-
-        if isinstance(metric.name, str):
-            json_dict["tags"]["__name__"] = metric.name
+        mtags["__name__"] = metric.name
+        json_dict = { "tags": mtags, "value": metric.value }
 
         json_dict["timestamp"] = str(time.time().second)
         json_string = json.encode(json_dict)
