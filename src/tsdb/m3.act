@@ -31,7 +31,7 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
 
     http_client = tsdb.http.Client(auth, address, port, _on_connect, _on_error)
 
-    def send_metric(metric: Metric, on_response: action(tsdb.http.Client, tsdb.http.Response) -> None):
+    def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
         #epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
 
         mtags = {}
@@ -44,5 +44,8 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
         json_dict["timestamp"] = str(time.time().second)
         json_string = json.encode(json_dict)
 
+        def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
+            await async on_response(self, response.status == 200)
+
         print(json_string)
-        http_client.post("/api/v1/json/write", json_string.encode(), on_response)
+        http_client.post("/api/v1/json/write", json_string.encode(), _on_response)
