@@ -31,6 +31,13 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
 
     http_client = tsdb.http.Client(auth, address, port, _on_connect, _on_error)
 
+    def quick_init(on_response: action(Client, bool) -> None):
+        def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
+            await async on_response(self, response.status == 200)
+
+        json_dict = { "type": "local", "namespaceName": "default", "retentionTime": "12h" }
+        http_client.post("/api/v1/database/create", json.encode(json_dict).encode(), _on_response)
+
     def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
         #epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
 
