@@ -1,7 +1,7 @@
-import acton.rts
 import file
 import net
 import tsdb.http
+import tsdb.m3
 
 _OPT_RECORD_TO = '--record-to'
 
@@ -65,11 +65,11 @@ actor main(env):
     #var outstanding = 0
     #var count = 0
 
-    def on_response(conn: tsdb.http.Client, resp: tsdb.http.Response):
-        print("HTTP RESPONSE RECEIVED")
-        print(resp.status)
-        print(resp.headers)
-        print(resp.body.decode())
+    def on_response(conn: tsdb.m3.Client, success: bool):
+        if success:
+            print("M3 metric delivered successfully")
+        else:
+            print("Error sending M3 metric")
 
     #def request_some(conn, n):
     #    for i in range(0, n, 1):
@@ -83,25 +83,19 @@ actor main(env):
         print("Error: " + err)
 
     listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
-    file_auth = file.FileAuth(env.auth)
-    read_file_auth = file.ReadFileAuth(file_auth)
-    http_client = tsdb.http.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
+    m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
 
-    for i in range(0, 20, 1):
-        epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
-
-        epoch_time = epoch_file.read()
-        epoch_file.close()
+    def metric_iters(i: int):
+        if i == 0:
+            return
 
         mod = float(i % 10)
         fake_ping = 15.0 + mod
-        fake_ping_str = str(fake_ping) 
 
-        json_string = "{ \"tags\": { \"__name__\": \"dummy_ping\", \"id\": \"bar\" }, \"timestamp\": \"" + epoch_time.decode().strip("\n") + "\", \"value\": " + fake_ping_str + " }"
+        metric = tsdb.m3.Metric("fake_ping", {"id": "foo"}, fake_ping)
 
-        print(json_string)
-        http_client.post("/api/v1/json/write", json_string.encode(), on_response)
+        m3.send_metric(metric, on_response)
 
-        #acton.rts.sleep(1)
+        after 1: metric_iters(i - 1)
 
     await async env.exit(0)
