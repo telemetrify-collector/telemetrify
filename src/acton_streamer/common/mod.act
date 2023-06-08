@@ -93,6 +93,32 @@ extension MTag(Hashable):
         _module = self.module
         return hash(_module) + hash(self.name) if _module is not None else hash(self.name)
 
+class HTag(Tag):
+    @property
+    ns_hash: int
+    @property
+    name_hash: int
+
+    def __init__(self, ns_hash: int, name_hash: int):
+        self.ns_hash = ns_hash
+        self.name_hash = name_hash
+
+    def __str__(self) -> str:
+        return "HTag(" + str(self.ns_hash) + ", " + str(self.name_hash) + ")"
+
+extension HTag(Hashable):
+    def __eq__(self, other: HTag) -> bool:
+        return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
+
+    def __hash__(self) -> int:
+        return self.ns_hash + self.name_hash
+
+class Keypath:
+    pass
+
+class KeypathBuilder(object):
+    pass
+
 class Node:
     def op(self) -> int:
         return OP_NONE
@@ -112,8 +138,8 @@ class Node:
     def children(self) -> list[Node]:
         return []
 
-    def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
-        raise Exception("Not implemented")
+    # def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
+    #     raise Exception("Not implemented")
 
 class XNode(Node):
     @property
@@ -149,12 +175,12 @@ class XTree(XNode):
     def children(self) -> list[Node]:
         return self._children
 
-    def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
-        if keys:
-            raise ValueError("XTree does not allow keys")
-        if value is not None:
-            raise ValueError("XTree does not allow value")
-        return XTree(op, tag, namespaces, children)
+    # def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
+    #     if keys:
+    #         raise ValueError("XTree does not allow keys")
+    #     if value is not None:
+    #         raise ValueError("XTree does not allow value")
+    #     return XTree(op, tag, namespaces, children)
 
 class XLeaf(XNode):
     @property
@@ -169,9 +195,61 @@ class XLeaf(XNode):
     def value(self) -> ?value:
         return self._value
 
-    def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
-        if keys:
-            raise ValueError("XTree does not allow keys")
-        if children:
-            raise ValueError("XTree does not allow children")
-        return XLeaf(op, tag, namespaces, value)
+    # def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
+    #     if keys:
+    #         raise ValueError("XTree does not allow keys")
+    #     if children:
+    #         raise ValueError("XTree does not allow children")
+    #     return XLeaf(op, tag, namespaces, value)
+
+# class Key:
+#     pass
+
+# class Container(Node):
+#     _tag: PTag
+
+#     def ptag(self) -> PTag:
+#         return _tag
+
+#     # Node
+#     def tag(self) -> ?Tag:
+#         return self._tag
+
+#     def children(self) -> list[Node]:
+#         return []
+#     #
+
+# class List(Node):
+#     _tag: PTag
+
+#     def ptag(self) -> PTag:
+#         return _tag
+
+#     # Node
+#     def tag(self) -> ?Tag:
+#         return None
+
+#     def children(self) -> list[Node]:
+#         return []
+#     #
+
+# class ListElem(Container):
+#     # Node
+#     def keys(self) -> list[Node]:
+#         return []
+#     #
+
+# class Leaf(Node):
+#     _tag: PTag
+#     _value: value
+
+#     def ptag(self) -> PTag:
+#         return _tag
+
+#     # Node
+#     def tag(self) -> ?Tag:
+#         return None
+
+#     def value(self) -> ?value:
+#         return None
+#     #

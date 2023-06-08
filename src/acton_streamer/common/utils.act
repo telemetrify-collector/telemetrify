@@ -118,6 +118,14 @@ def list_extend[T](target: list[T], source: Iterable[T]):
     for item in source:
         target.append(item)
 
+pure def unsafe_list_append[T](target: list[T], item: T) -> None:
+    """
+    Used with care, e.g. when we want to append to a list owned within a pure function
+    where list.append would would mark the calling function as non-pure regardless.
+    """
+    # target.append(item)
+    NotImplemented
+
 class Pair[A, B]:
     @property
     a: A

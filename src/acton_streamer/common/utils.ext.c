@@ -10,6 +10,12 @@ void acton_streamerQ_commonQ_utilsQ___ext_init__() {
     // NOP
 }
 
+B_NoneType acton_streamerQ_commonQ_utilsQ_unsafe_list_append (B_list target, $WORD item) {
+    B_Sequence W_768 = (B_Sequence)B_SequenceD_listG_witness;
+    ((B_NoneType (*) (B_Sequence, B_list, $WORD))W_768->$class->append)(W_768, target, item);
+    return B_None;
+}
+
 acton_streamerQ_commonQ_utilsQ_IPv4Address acton_streamerQ_commonQ_utilsQ_IPv4AddressD_try_parse (B_str s) {
     struct in_addr addr;
 
