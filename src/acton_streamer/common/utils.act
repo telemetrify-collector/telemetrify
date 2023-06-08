@@ -1,3 +1,8 @@
+# Workaround actonc error:
+# ld.lld: error: undefined symbol: $EqOptG_new
+def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
+    return a is not None and b is not None and a == b or a is None and b is None
+
 _SCALE: int = 3
 
 class Queue[T](object):
@@ -322,6 +327,21 @@ def uint_to_bytes_le(v: int) -> bytes:
         v /= 0x100
     return bytes(bs)
 
+def safe_hash(h: int) -> int: # TODO: Remove when https://github.com/actonlang/acton/issues/1348 is fixed
+    limit = 2**63-1
+    sign = 1
+    if h < 0:
+        limit = 2**63
+        sign = -1
+        h = -h
+
+    while h > limit:
+        f = h // limit
+        h %= limit
+        h += f
+
+    return sign * h
+
 class Decimal64:
     @property
     significand: int
@@ -392,6 +412,15 @@ class Decimal64:
         divider = 10**-self.exponent
         return Decimal64(self.significand % divider, self.exponent)
 
+extension Decimal64(Hashable):
+    def __eq__(self, other: Decimal64) -> bool:
+        # TODO: Might want to compare realigned values, otoh in
+        #       our use-case(s) the exponent is usually fixed by (YANG) model?
+        return self.significand == other.significand and self.exponent == other.exponent
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.significand))
+
 class IPv4Address:
     @property
     data: (int, int, int, int)
@@ -404,6 +433,22 @@ class IPv4Address:
         #return IPv4Address((1,2,3,4))
         NotImplemented
 
+extension IPv4Address(Hashable):
+    def __eq__(self, other: IPv4Address) -> bool:
+        # return self.data == other.data
+        s = self.data
+        o = other.data
+        return \
+            s.0 == o.0 and \
+            s.1 == o.1 and \
+            s.2 == o.2 and \
+            s.3 == o.3
+
+    def __hash__(self) -> int:
+        #return hash(self.data)
+        d = self.data
+        return safe_hash(2*hash(d.3) + 3*hash(d.2) + 5*hash(d.1) + 7*hash(d.0))
+
 class IPv6Address:
     @property
     data: (int, int, int, int, int, int, int, int)
@@ -415,6 +460,26 @@ class IPv6Address:
     def try_parse(s: str) -> ?IPv6Address:
         #return IPv6Address((1,2,3,4,5,6,7,8))
         NotImplemented
+
+extension IPv6Address(Hashable):
+    def __eq__(self, other: IPv6Address) -> bool:
+        # return self.data == other.data
+        s = self.data
+        o = other.data
+        return \
+            s.0 == o.0 and \
+            s.1 == o.1 and \
+            s.2 == o.2 and \
+            s.3 == o.3 and \
+            s.4 == o.4 and \
+            s.5 == o.5 and \
+            s.6 == o.6 and \
+            s.7 == o.7
+
+    def __hash__(self) -> int:
+        #return hash(self.data)
+        d = self.data
+        return safe_hash(2*hash(d.7) + 3*hash(d.6) + 5*hash(d.5) + 7*hash(d.4) + hash(d.3) + 11*hash(d.2) + 13*hash(d.1) + 17*hash(d.0))
 
 class IPv4Network:
     @property
@@ -440,6 +505,13 @@ class IPv4Network:
     # def is_strict(self):
     #     # TODO: if all host bits are zero
 
+extension IPv4Network(Hashable):
+    def __eq__(self, other: IPv4Network) -> bool:
+        return self.address == other.address and self.mask_len == other.mask_len
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
+
 class IPv6Network:
     @property
     address: IPv6Address
@@ -463,6 +535,13 @@ class IPv6Network:
 
     # def is_strict(self):
     #     # TODO: if all host bits are zero
+
+extension IPv6Network(Hashable):
+    def __eq__(self, other: IPv6Network) -> bool:
+        return self.address == other.address and self.mask_len == other.mask_len
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
 
 class DateTime:
     @property
@@ -568,6 +647,33 @@ class DateTime:
     # def try_parse_iso(s: str):
     #     return DateTime.try_parse(s, "%Y-%m-%dT%H:%M:%S.%f%z")
 
+extension DateTime(Hashable):
+    def __eq__(self, other: DateTime) -> bool:
+        return \
+            self.year == other.year and \
+            self.month == other.month and \
+            self.day == other.day and \
+            self.hour == other.hour and \
+            self.minute == other.minute and \
+            self.second == other.second and \
+            self.microsecond == other.microsecond and \
+            eq_optional(self.timezone_hour, other.timezone_hour) and \
+            eq_optional(self.timezone_minute, other.timezone_minute)
+
+    def __hash__(self) -> int:
+        _tz_h = self.timezone_hour
+        _tz_m = self.timezone_minute
+        return safe_hash(
+            23 * hash(self.year) +
+            19 * hash(self.month) +
+            17 * hash(self.day) +
+            13 * hash(self.hour) +
+            11 * hash(self.minute) +
+            7 * hash(self.second) +
+            5 * hash(self.microsecond) +
+            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
+            (2 * hash(_tz_m)) if _tz_m is not None else 0)
+
 class Date:
     @property
     year: int
@@ -637,6 +743,25 @@ class Date:
             return Date(_year, _month, _day, _tz_h, _tz_m)
 
         return None
+
+extension Date(Hashable):
+    def __eq__(self, other: Date) -> bool:
+        return \
+            self.year == other.year and \
+            self.month == other.month and \
+            self.day == other.day and \
+            eq_optional(self.timezone_hour, other.timezone_hour) and \
+            eq_optional(self.timezone_minute, other.timezone_minute)
+
+    def __hash__(self) -> int:
+        _tz_h = self.timezone_hour
+        _tz_m = self.timezone_minute
+        return safe_hash(
+            11 * hash(self.year) +
+            7 * hash(self.month) +
+            5 * hash(self.day) +
+            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
+            (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
 class Time:
     @property
@@ -709,6 +834,27 @@ class Time:
                 return Time(_hour, _minute, _seconds.integral_part(), _microseconds.significand, _tz_h, _tz_m)
 
         return None
+
+extension Time(Hashable):
+    def __eq__(self, other: Time) -> bool:
+        return \
+            self.hour == other.hour and \
+            self.minute == other.minute and \
+            self.second == other.second and \
+            self.microsecond == other.microsecond and \
+            eq_optional(self.timezone_hour, other.timezone_hour) and \
+            eq_optional(self.timezone_minute, other.timezone_minute)
+
+    def __hash__(self) -> int:
+        _tz_h = self.timezone_hour
+        _tz_m = self.timezone_minute
+        return safe_hash(
+            13 * hash(self.hour) +
+            11 * hash(self.minute) +
+            7 * hash(self.second) +
+            5 * hash(self.microsecond) +
+            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
+            (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
 class Duration:
     @property
@@ -795,7 +941,49 @@ class Duration:
 
         return None
 
-# Workaround actonc error:
-# ld.lld: error: undefined symbol: $EqOptG_new
-def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
-    return a is not None and b is not None and a == b or a is None and b is None
+extension Duration(Hashable):
+    def __eq__(self, other: Duration) -> bool:
+        return \
+            self.year == other.year and \
+            self.month == other.month and \
+            self.day == other.hour and \
+            self.hour == other.hour and \
+            self.minute == other.minute and \
+            self.second == other.second and \
+            self.microsecond == other.microsecond
+
+    def __hash__(self) -> int:
+        return safe_hash(
+            23 * hash(self.year) +
+            19 * hash(self.month) +
+            17 * hash(self.day) +
+            13 * hash(self.hour) +
+            11 * hash(self.minute) +
+            7 * hash(self.second) +
+            5 * hash(self.microsecond))
+
+class Oid:
+    _ids: list[int]
+
+    def __init__(self, ids: list[int]):
+        self._ids = ids
+
+    def ids(self) -> list[int]:
+        return self._ids
+
+extension Oid(Hashable):
+    def __eq__(self, other: Oid) -> bool:
+        # return self._ids == other._ids
+        self_len = len(self._ids)
+        if self_len != len(other._ids):
+            return False
+        for i in range(0, self_len, 1):
+            if not self._ids[i] == other._ids[i]:
+                return False
+        return True
+
+    def __hash__(self) -> int:
+        _hash: int = 0
+        for _id in self._ids:
+            _hash = _hash * 7 + hash(_id)
+        return safe_hash(_hash)

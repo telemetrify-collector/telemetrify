@@ -65,7 +65,7 @@ extension TypeId(Hashable):
         return self.name == other.name and self.ns_hash == other.ns_hash
 
     def __hash__(self) -> int:
-        return self.ns_hash + hash(self.name)
+        return safe_hash(self.ns_hash + hash(self.name))
 
 pass
 
@@ -2079,9 +2079,9 @@ class InstanceIdentifier:
         # TODO: Implement
         return None
 
-class Oid:
+class Oid_:
     @staticmethod
-    def netconf_to_value(s: str) -> ?list[int]:
+    def netconf_to_value(s: str) -> ?Oid:
         retval = []
         for p in s.split(".", -1):
             n = Integer.netconf_to_value(p)
@@ -2089,7 +2089,7 @@ class Oid:
                 retval.append(n)
             else:
                 return None
-        return retval if len(retval) > 0 else None
+        return Oid(retval) if len(retval) > 0 else None
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2275,7 +2275,7 @@ class Any:
         elif conf_type == C_INSTANCE_IDENTIFIER:
             return InstanceIdentifier.netconf_to_value(s, cursor, prefix_to_ns)
         elif conf_type == C_OID:
-            return Oid.netconf_to_value(s)
+            return Oid_.netconf_to_value(s)
         elif conf_type == C_BINARY:
             return Binary.confstr_to_value(s)
         elif conf_type == C_IPV4PREFIX:
@@ -2363,7 +2363,7 @@ class Any:
         elif conf_type == C_INSTANCE_IDENTIFIER:
             return InstanceIdentifier.value_to_eobject(v, cursor)
         elif conf_type == C_OID:
-            return Oid.value_to_eobject(v)
+            return Oid_.value_to_eobject(v)
         elif conf_type == C_BINARY:
             return Binary.value_to_eobject(v)
         elif conf_type == C_IPV4PREFIX:

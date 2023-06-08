@@ -1,4 +1,4 @@
-from acton_streamer.common.utils import eq_optional
+from acton_streamer.common.utils import *
 
 OP_NONE: int = 0
 OP_MERGE: int = 1
@@ -8,7 +8,10 @@ OP_NOCREATE: int = 4
 # OP_MOVE = 5 # Additional key values
 # OP_INSERT = 6 # Additional key values
 
-class Tag:
+class Id:
+    pass
+
+class Tag(Id):
     pass
 
 class ITag(Tag):
@@ -41,7 +44,7 @@ extension ITag(Hashable):
 
     def __hash__(self) -> int:
         _ns = self.ns
-        return hash(_ns) + hash(self.name) if _ns is not None else hash(self.name)
+        return safe_hash(hash(_ns) + hash(self.name) if _ns is not None else hash(self.name))
 
 class PTag(Tag):
     @property
@@ -66,7 +69,7 @@ extension PTag(Hashable):
 
     def __hash__(self) -> int:
         _prefix = self.prefix
-        return hash(_prefix) + hash(self.name) if _prefix is not None else hash(self.name)
+        return safe_hash(hash(_prefix) + hash(self.name) if _prefix is not None else hash(self.name))
 
 class MTag(Tag):
     @property
@@ -91,7 +94,7 @@ extension MTag(Hashable):
 
     def __hash__(self) -> int:
         _module = self.module
-        return hash(_module) + hash(self.name) if _module is not None else hash(self.name)
+        return safe_hash(hash(_module) + hash(self.name) if _module is not None else hash(self.name))
 
 class HTag(Tag):
     @property
@@ -111,7 +114,7 @@ extension HTag(Hashable):
         return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
 
     def __hash__(self) -> int:
-        return self.ns_hash + self.name_hash
+        return safe_hash(self.ns_hash + self.name_hash)
 
 class Keypath:
     pass
@@ -119,7 +122,7 @@ class Keypath:
 class KeypathBuilder(object):
     pass
 
-class Node:
+class Node(object):
     def op(self) -> int:
         return OP_NONE
 
@@ -202,54 +205,813 @@ class XLeaf(XNode):
     #         raise ValueError("XTree does not allow children")
     #     return XLeaf(op, tag, namespaces, value)
 
-# class Key:
+def _eq_value(a: value, b: value) -> bool:
+    if isinstance(a, int) and isinstance(b, int):
+        return a == b
+    elif isinstance(a, str) and isinstance(b, str):
+        return a == b
+    elif isinstance(a, bool) and isinstance(b, bool):
+        return a == b
+    elif isinstance(a, bytes) and isinstance(b, bytes):
+        return a == b
+    elif isinstance(a, HTag) and isinstance(b, HTag):
+        return a == b
+    elif isinstance(a, PTag) and isinstance(b, PTag):
+        return a == b
+    elif isinstance(a, ITag) and isinstance(b, ITag):
+        return a == b
+    elif isinstance(a, MTag) and isinstance(b, MTag):
+        return a == b
+    elif isinstance(a, Decimal64) and isinstance(b, Decimal64):
+        return a == b
+    elif isinstance(a, IPv4Address) and isinstance(b, IPv4Address):
+        return a == b
+    elif isinstance(a, IPv6Address) and isinstance(b, IPv6Address):
+        return a == b
+    elif isinstance(a, IPv4Network) and isinstance(b, IPv4Network):
+        return a == b
+    elif isinstance(a, IPv6Network) and isinstance(b, IPv6Network):
+        return a == b
+    elif isinstance(a, DateTime) and isinstance(b, DateTime):
+        return a == b
+    elif isinstance(a, Date) and isinstance(b, Date):
+        return a == b
+    elif isinstance(a, Time) and isinstance(b, Time):
+        return a == b
+    elif isinstance(a, Duration) and isinstance(b, Duration):
+        return a == b
+    elif isinstance(a, Oid) and isinstance(b, Oid):
+        return a == b
+    raise Exception("_eq_value: Not Implemented")
+
+def _hash_value(v: value) -> int:
+    # Looks like we need to do this for now?
+    # But it would be nice if we could express a `Hashable` constraint on a common super-type to all relevant key/leaf values
+    # without needing to e.g. wrap `int`, `str` etc.
+    if isinstance(v, int):
+        return hash(v)
+    elif isinstance(v, str):
+        return hash(v)
+    elif isinstance(v, bool):
+        return hash(v)
+    elif isinstance(v, bytes):
+        return hash(v)
+    elif isinstance(v, HTag):
+        return hash(v)
+    elif isinstance(v, PTag):
+        return hash(v)
+    elif isinstance(v, ITag):
+        return hash(v)
+    elif isinstance(v, MTag):
+        return hash(v)
+    elif isinstance(v, Decimal64):
+        return hash(v)
+    elif isinstance(v, IPv4Address):
+        return hash(v)
+    elif isinstance(v, IPv6Address):
+        return hash(v)
+    elif isinstance(v, IPv4Network):
+        return hash(v)
+    elif isinstance(v, IPv6Network):
+        return hash(v)
+    elif isinstance(v, DateTime):
+        return hash(v)
+    elif isinstance(v, Date):
+        return hash(v)
+    elif isinstance(v, Time):
+        return hash(v)
+    elif isinstance(v, Duration):
+        return hash(v)
+    elif isinstance(v, Oid):
+        return hash(v)
+    raise Exception("_hash_value: Not Implemented")
+
+class Key(Id):
+    _keys: list[value]
+
+    def __init__(self, keys: list[value]):
+        self._keys = keys
+
+extension Key(Hashable):
+    def __eq__(self, other: Key) -> bool:
+        # return self._keys == other._keys
+        self_len = len(self._keys)
+        if self_len != len(other._keys):
+            return False
+        for i in range(0, self_len, 1):
+            if not _eq_value(self._keys[i], other._keys[i]):
+                return False
+        return True
+
+    def __hash__(self) -> int:
+        _hash: int = 0
+        for _key in self._keys:
+            _hash = _hash * 7 + _hash_value(_key)
+        return safe_hash(_hash)
+
+class TNode(Node):
+    @property
+    _op: int
+    @property
+    _tag: Tag
+
+    def __init__(self, op: int, tag: Tag):
+        self._op = op
+        self._tag = tag
+
+    def iter(self) -> Iterator[TNode]:
+        return [].__iter__()
+
+    #
+    # Node
+    #
+
+    def op(self) -> int:
+        return self._op
+
+    def tag(self) -> ?Tag:
+        return self._tag
+
+    #
+    # TNode
+    #
+
+    def ttag(self) -> Tag:
+        return self._tag
+
+    def tree(self, op: ?int, _id: Id) -> TNode:
+        #raise Exception("Not implemented")
+        return self
+
+    def leaf(self, op: ?int, _id: Id, _val: ?value) -> TNode:
+        #raise Exception("Not implemented")
+        return self
+
+    def cont(self, op: ?int, tag: Tag) -> TNode:
+        return self.tree(op, tag)
+
+    def elem(self, op: ?int, keys: list[value]) -> TNode:
+        return self.tree(op, Key(keys))
+
+    def leaf_elem(self, op: ?int, _val: value) -> TNode:
+        return self.leaf(op, Key([_val]), _val)
+
+    def remove(self, _id: Id) -> ?TNode:
+        return self
+
+    def clear(self) -> TNode:
+        return self
+
+    def merge(self, other: TNode) -> TNode:
+        return self
+
+    def _copy_deep(self, new_op: ?int) -> TNode:
+        return self
+
+    def go(self, _id: value) -> TNode:
+        """Try to get node or return dummy if not found."""
+        node = self.get(_id)
+        return node if node is not None else (TNode(OP_NONE, _id if isinstance(_id, Tag) else self._tag))
+
+    def exists(self) -> bool:
+        return False
+
+    def get(self, _id: value) -> ?TNode:
+        return None
+
+    #
+    # values
+    #
+
+    def try_value(self) -> ?value:
+        return None
+
+    def try_int(self) -> ?int:
+        return None
+
+    def try_str(self) -> ?str:
+        return None
+
+    def try_bool(self) -> ?bool:
+        return None
+
+    def try_bytes(self) -> ?bytes:
+        return None
+
+    def try_decimal64(self) -> ?Decimal64:
+        return None
+
+    def try_itag(self) -> ?ITag:
+        return None
+
+    def try_ptag(self) -> ?PTag:
+        return None
+
+    def try_mtag(self) -> ?MTag:
+        return None
+
+    def try_htag(self) -> ?HTag:
+        return None
+
+    def try_ipv4address(self) -> ?IPv4Address:
+        return None
+
+    def try_ipv6address(self) -> ?IPv6Address:
+        return None
+
+    def try_ipv4network(self) -> ?IPv4Network:
+        return None
+
+    def try_ipv6network(self) -> ?IPv6Network:
+        return None
+
+    def try_datetime(self) -> ?DateTime:
+        return None
+
+    def try_date(self) -> ?Date:
+        return None
+
+    def try_time(self) -> ?Time:
+        return None
+
+    def try_duration(self) -> ?Duration:
+        return None
+
+    def try_oid(self) -> ?Oid:
+        return None
+
+    #
+    # Require value
+    #
+
+    def req_value(self) -> ?value:
+        _val = self.try_value()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_int(self) -> int:
+        _val = self.try_int()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_str(self) -> str:
+        _val = self.try_str()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_bool(self) -> bool:
+        _val = self.try_bool()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_bytes(self) -> bytes:
+        _val = self.try_bytes()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_decimal64(self) -> Decimal64:
+        _val = self.try_decimal64()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_itag(self) -> ITag:
+        _val = self.try_itag()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_ptag(self) -> PTag:
+        _val = self.try_ptag()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_mtag(self) -> MTag:
+        _val = self.try_mtag()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_jtag(self) -> HTag:
+        _val = self.try_htag()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_ipv4address(self) -> IPv4Address:
+        _val = self.try_ipv4address()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_ipv6address(self) -> IPv6Address:
+        _val = self.try_ipv6address()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_ipv4network(self) -> IPv4Network:
+        _val = self.try_ipv4network()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_ipv6network(self) -> IPv6Network:
+        _val = self.try_ipv6network()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_datetime(self) -> DateTime:
+        _val = self.try_datetime()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_date(self) -> Date:
+        _val = self.try_date()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_time(self) -> Time:
+        _val = self.try_time()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_duration(self) -> Duration:
+        _val = self.try_duration()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    def req_oid(self) -> Oid:
+        _val = self.try_oid()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
+    #
+    # Value or default
+    #
+
+    def def_int(self, default: int) -> int:
+        _val = self.try_int()
+        return _val if _val is not None else default
+
+    def def_str(self, default: str) -> str:
+        _val = self.try_str()
+        return _val if _val is not None else default
+
+    def def_bool(self, default: bool) -> bool:
+        _val = self.try_bool()
+        return _val if _val is not None else default
+
+    def def_bytes(self, default: bytes) -> bytes:
+        _val = self.try_bytes()
+        return _val if _val is not None else default
+
+    def def_decimal64(self, default: Decimal64) -> Decimal64:
+        _val = self.try_decimal64()
+        return _val if _val is not None else default
+
+    def def_itag(self, default: ITag) -> ITag:
+        _val = self.try_itag()
+        return _val if _val is not None else default
+
+    def def_ptag(self, default: PTag) -> PTag:
+        _val = self.try_ptag()
+        return _val if _val is not None else default
+
+    def def_mtag(self, default: MTag) -> MTag:
+        _val = self.try_mtag()
+        return _val if _val is not None else default
+
+    def def_htag(self, default: HTag) -> HTag:
+        _val = self.try_htag()
+        return _val if _val is not None else default
+
+    def def_ipv4address(self, default: IPv4Address) -> IPv4Address:
+        _val = self.try_ipv4address()
+        return _val if _val is not None else default
+
+    def def_ipv6address(self, default: IPv6Address) -> IPv6Address:
+        _val = self.try_ipv6address()
+        return _val if _val is not None else default
+
+    def def_ipv4network(self, default: IPv4Network) -> IPv4Network:
+        _val = self.try_ipv4network()
+        return _val if _val is not None else default
+
+    def def_ipv6network(self, default: IPv6Network) -> IPv6Network:
+        _val = self.try_ipv6network()
+        return _val if _val is not None else default
+
+    def def_datetime(self, default: DateTime) -> DateTime:
+        _val = self.try_datetime()
+        return _val if _val is not None else default
+
+    def def_date(self, default: Date) -> Date:
+        _val = self.try_date()
+        return _val if _val is not None else default
+
+    def def_time(self, default: Time) -> Time:
+        _val = self.try_time()
+        return _val if _val is not None else default
+
+    def def_duration(self, default: Duration) -> Duration:
+        _val = self.try_duration()
+        return _val if _val is not None else default
+
+    def def_oid(self, default: Oid) -> Oid:
+        _val = self.try_oid()
+        return _val if _val is not None else default
+
+extension TNode(Indexed[Id, TNode]):
+    def __getitem__(self, _id: Id) -> TNode:
+        return self.go(_id)
+
+    #def __setitem__(self, _id: Id, _id: TNode) -> None:
+    def __setitem__(self, _id: Id, _val: value) -> None:
+        # TODO: ?
+        raise Exception("Not implemented")
+
+    def __delitem__(self, _id: Id) -> None:
+        self.remove(_id)
+
+extension TNode(Iterable[TNode]):
+    def __iter__(self) -> Iterator[TNode]:
+        return self.iter()
+
+class TTree(TNode):
+    @property
+    _children: dict[Id, TNode]
+
+    def __init__(self, op: int, tag: Tag, children: dict[Id, TNode]):
+        self._op = op
+        self._tag = tag
+        self._children = children
+
+    def iter(self) -> Iterator[TNode]:
+        return self._children.values()
+
+    #
+    # TNode
+    #
+
+    def tree(self, op: ?int, _id: Id) -> TNode:
+        old = try_get(self._children, _id)
+        if old is not None:
+            if op is not None and old._op != op:
+                old.merge(TTree(op, _id if isinstance(_id, Tag) else self._tag, {}))
+            return old
+        else:
+            new = TTree(op if op is not None else OP_NONE, _id if isinstance(_id, Tag) else self._tag, {})
+            self._children[_id] = new
+            return new
+
+    def leaf(self, op: ?int, _id: Id, _val: ?value) -> TNode:
+        new = TLeaf(op if op is not None else OP_NONE, _id if isinstance(_id, Tag) else self._tag, _val)
+        self._children[_id] = new
+        return new
+
+    def remove(self, _id: Id) -> ?TNode:
+        return try_pop(self._children, _id)
+
+    def clear(self) -> TNode:
+        #self._children.clear()
+        self._children = {}
+        return self
+
+    def merge(self, other: TNode) -> TNode:
+        if isinstance(other, TTree):
+            if other._op == OP_NOCREATE and self._op == OP_DELETE:
+                return self
+
+            if other._op in [OP_DELETE, OP_REPLACE]:
+                self.clear()
+                if other._op == OP_DELETE:
+                    if self._op != OP_NONE:
+                        self._op = other._op
+                    return self
+
+            if other._op == OP_MERGE:
+                if self._op == OP_DELETE:
+                    self._op = OP_REPLACE
+                elif self._op == OP_NOCREATE:
+                    self._op = OP_MERGE
+
+            for child_id, other_child in other._children.items():
+                self_child: ?TNode = try_get(self._children, child_id)
+                if self_child is not None:
+                    if other_child._op == OP_DELETE and self_child._op != OP_NONE:
+                        try_pop(self._children, child_id)
+                    else:
+                        self._children[child_id] = self_child.merge(other_child)
+                else:
+                    self._children[child_id] = other_child._copy_deep(OP_NONE if self._op == OP_NONE else None)
+
+            return self
+        else:
+            return other
+
+    def _copy_deep(self, new_op: ?int) -> TNode:
+        children: dict[Id, TNode] = {}
+        for child_id, child in self._children.items():
+            children[child_id] = child._copy_deep(new_op)
+        return TTree(new_op if new_op is not None else self._op, self._tag, children)
+
+    def exists(self) -> bool:
+        return self._op not in [OP_DELETE, OP_NOCREATE]
+
+    def get(self, _id: value) -> ?TNode:
+        if isinstance(_id, Id):
+            return try_get(self._children, _id)
+        # TODO: For future convenience
+        # elif isinstance(_id, str):
+        #     ...
+        # elif isinstance(_id, int):
+        #     ...
+        # elif isinstance(_id, list):
+        #     ...
+        # elif isinstance(_id, tuple):
+        #     ...
+        return None
+
+    #
+    # Node
+    #
+
+    def children(self) -> list[Node]:
+        l: list[Node] = []
+        for _id, _node in self._children.items():
+            if isinstance(_id, Tag):
+                l.append(_node)
+            elif isinstance(_id, Key):
+                l.extend(_node.children())
+            else:
+                raise Exception("TTree.children: Not Implemented")
+        return l
+
+extension TTree(Iterable[TNode]):
+    def __iter__(self) -> Iterator[TNode]:
+        return self.iter()
+
+# class TContainer(TTree):
 #     pass
 
-# class Container(Node):
-#     _tag: PTag
+# class TList(TTree):
+#     pass
 
-#     def ptag(self) -> PTag:
-#         return _tag
+# class TLeafList(TTree):
+#     pass
+
+class TLeaf(TNode):
+    @property
+    _value: ?value
+
+    def __init__(self, op: int, tag: Tag, val: ?value):
+        self._op = op
+        self._tag = tag
+        self._value = val
+
+    #
+    # TNode
+    #
+
+    def remove(self, _id: Id) -> ?TNode:
+        self.clear()
+        return self
+
+    def clear(self) -> TNode:
+        self._op = OP_DELETE
+        self._value = None
+        return self
+
+    def merge(self, other: TNode) -> TNode:
+        if isinstance(other, TLeaf):
+            if other._op == OP_DELETE:
+                self.clear()
+            elif other._op in [OP_MERGE, OP_REPLACE]:
+                if self._op in [OP_DELETE, OP_NOCREATE]:
+                    self._op = OP_NONE
+                self._value = other._value
+            return self
+        else:
+            return other
+
+    def _copy_deep(self, new_op: ?int) -> TNode:
+        return TLeaf(new_op if new_op is not None else self._op, self._tag, self._value)
+
+    def exists(self) -> bool:
+        return self._op not in [OP_DELETE, OP_NOCREATE]
+
+    def try_value(self) -> ?value:
+        return self._value
+
+    def try_int(self) -> ?int:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, int) else None
+
+    def try_str(self) -> ?str:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, str) else None
+
+    def try_bool(self) -> ?bool:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, bool) else None
+
+    def try_bytes(self) -> ?bytes:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, bytes) else None
+
+    def try_decimal64(self) -> ?Decimal64:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, Decimal64) else None
+
+    def try_itag(self) -> ?ITag:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, ITag) else None
+
+    def try_ptag(self) -> ?PTag:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, PTag) else None
+
+    def try_mtag(self) -> ?MTag:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, MTag) else None
+
+    def try_htag(self) -> ?HTag:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, HTag) else None
+
+    def try_ipv4address(self) -> ?IPv4Address:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, IPv4Address) else None
+
+    def try_ipv6address(self) -> ?IPv6Address:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, IPv6Address) else None
+
+    def try_ipv4network(self) -> ?IPv4Network:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, IPv4Network) else None
+
+    def try_ipv6network(self) -> ?IPv6Network:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, IPv6Network) else None
+
+    def try_datetime(self) -> ?DateTime:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, DateTime) else None
+
+    def try_date(self) -> ?Date:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, Date) else None
+
+    def try_time(self) -> ?Time:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, Time) else None
+
+    def try_duration(self) -> ?Duration:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, Duration) else None
+
+    def try_oid(self) -> ?Oid:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, Oid) else None
+
+    #
+    # Node
+    #
+
+    def value(self) -> ?value:
+        return self._value
+
+# class TNode[T(Tag, Hashable)](Node):
+#     @property
+#     _tag: T
+
+#     def ttag(self) -> T:
+#         return self._tag
+
+#     # def container(self) -> ?TContainer[T]:
+#     #     return None
+
+#     # def list(self) -> ?TList[T]:
+#     #     return None
+
+#     # def elem(self):
+#     #     return None
+
+#     # def leaf(self) -> ?TLeaf[T]:
+#     #     return None
 
 #     # Node
 #     def tag(self) -> ?Tag:
 #         return self._tag
 
-#     def children(self) -> list[Node]:
-#         return []
-#     #
+# class TList[T(Tag, Hashable)](TNode[T]):
+#     @property
+#     _children: dict[Key, XNode]
 
-# class List(Node):
-#     _tag: PTag
+#     def __init__(self):
+#         self._children = {}
 
-#     def ptag(self) -> PTag:
-#         return _tag
-
-#     # Node
-#     def tag(self) -> ?Tag:
+#     def elem(self, key: Key) -> ?TContainer[T]:
 #         return None
 
-#     def children(self) -> list[Node]:
-#         return []
-#     #
+# class TContainer[T(Tag, Hashable)](TNode[T]):
+#     @property
+#     _children: dict[T, XNode]
 
-# class ListElem(Container):
-#     # Node
-#     def keys(self) -> list[Node]:
-#         return []
-#     #
+#     def __init__(self):
+#         self._children = {}
 
-# class Leaf(Node):
-#     _tag: PTag
-#     _value: value
-
-#     def ptag(self) -> PTag:
-#         return _tag
-
-#     # Node
-#     def tag(self) -> ?Tag:
+#     def container(self) -> ?TContainer[T]:
 #         return None
 
-#     def value(self) -> ?value:
+#     def list(self) -> ?TList[T]:
 #         return None
-#     #
+
+#     def leaf(self) -> ?TLeaf[T]:
+#         return None
+
+# # class TElem[T(Tag, Hashable)](TContainer):
+# #     def __init__(self):
+# #         self._children = {}
+
+# class TLeaf[T(Tag, Hashable)](TNode[T]):
+#     @property
+#     _value: ?value
+
+#     def __init__(self):
+#         self._value = None
+
+extension Id(Hashable):
+    def __eq__(self, other: Id):
+        if isinstance(self, Tag) and isinstance(other, Tag):
+            return self == other
+        elif isinstance(self, Key) and isinstance(other, Key):
+            return self == other
+        else:
+            raise Exception("Id.__eq__: Not Implemented")
+
+    def __hash__(self):
+        if isinstance(self, Tag):
+            return hash(self)
+        elif isinstance(self, Key):
+            return hash(self)
+        else:
+            raise Exception("Id.__hash__: Not Implemented")
+
+extension Tag(Hashable):
+    def __eq__(self, other: Id):
+        if isinstance(self, ITag) and isinstance(other, ITag):
+            return self == other
+        elif isinstance(self, PTag) and isinstance(other, PTag):
+            return self == other
+        elif isinstance(self, MTag) and isinstance(other, MTag):
+            return self == other
+        elif isinstance(self, HTag) and isinstance(other, HTag):
+            return self == other
+        else:
+            raise Exception("Tag.__eq__: Not Implemented")
+
+    def __hash__(self):
+        if isinstance(self, ITag):
+            return hash(self)
+        elif isinstance(self, PTag):
+            return hash(self)
+        elif isinstance(self, MTag):
+            return hash(self)
+        elif isinstance(self, HTag):
+            return hash(self)
+        else:
+            raise Exception("Tag.__hash__: Not Implemented")

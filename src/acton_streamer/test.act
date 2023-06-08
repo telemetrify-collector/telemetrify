@@ -76,6 +76,9 @@ actor main(env):
     def run_test_cdb_wait_start(env: Env, opts: Opts):
         test_cdb_wait_start(env, opts)
 
+    def run_test_tnode(env: Env, opts: Opts):
+        test_tnode(env, opts)
+
     tests: dict[str, proc(Env, Opts) -> None] = {
         "maapi-schema": run_test_maapi_session_schema,
         "set-values-ikp": run_test_set_values_ikp,
@@ -85,6 +88,7 @@ actor main(env):
         "netconf-client-nso": run_test_netconf_client_nso,
         "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
         "cdb-wait-start": run_test_cdb_wait_start,
+        "tnode": run_test_tnode,
     }
 
     args = env.argv
@@ -612,3 +616,38 @@ actor test_cdb_wait_start(env: Env, opts: Opts):
             await async env.exit(1)
 
     sess = acton_streamer.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer", _on_connect, _on_connect_error, opts.record_to)
+
+actor test_tnode(env: Env, opts: Opts):
+    root = TTree(OP_NONE, PTag(None, ""), {})
+    dev1 = root.cont(None, PTag("ncs", "devices")).cont(None, PTag("ncs", "device")).elem(None, ["router1"]).leaf(None, PTag("x", "test"), 42)
+    if dev1.req_int() != 42:
+        await async env.exit(1)
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].req_int() != 42:
+        await async env.exit(1)
+    _val = root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].try_int()
+    if _val is not None:
+        await async env.exit(1)
+
+    merge_root = TTree(OP_MERGE, PTag(None, ""), {})
+    merge_root.cont(OP_MERGE, PTag("ncs", "devices")).cont(OP_MERGE, PTag("ncs", "device")).elem(OP_MERGE, ["router2"]).leaf(OP_MERGE, PTag("x", "test"), 43)    
+
+    root.merge(merge_root)
+
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].req_int() != 42:
+        await async env.exit(1)
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].req_int() != 43:
+        await async env.exit(1)
+
+    delete_root = TTree(OP_NOCREATE, PTag(None, ""), {})
+    delete_root.cont(OP_NOCREATE, PTag("ncs", "devices")).cont(OP_NOCREATE, PTag("ncs", "device")).elem(OP_NOCREATE, ["router1"]).leaf(OP_DELETE, PTag("x", "test"), None)
+
+    root.merge(delete_root)
+
+    _val2 = root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].try_int()
+    if _val2 is not None:
+        await async env.exit(1)
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].req_int() != 43:
+        await async env.exit(1)
+
+    print("Success!")
+    await async env.exit(0)
