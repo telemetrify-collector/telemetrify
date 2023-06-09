@@ -15,7 +15,7 @@ stop:
 	docker compose down
 
 test:
-	$(BUILD_PATH)/bin/prometheusapi.test
+	$(BUILD_PATH)/bin/tsdb.test
 
 test-debug:
 	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/prometheusapi.test --rts-wthreads 1 $(ARGS)

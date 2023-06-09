@@ -33,6 +33,8 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
 
     def quick_init(on_response: action(Client, bool) -> None):
         def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
+            print("HTTP response status: " + str(response.status))
+            print(response.body.decode())
             await async on_response(self, response.status == 200)
 
         json_dict = { "type": "local", "namespaceName": "default", "retentionTime": "12h" }
@@ -52,6 +54,8 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
         json_string = json.encode(json_dict)
 
         def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
+            print("HTTP response status: " + str(response.status))
+            print(response.body.decode())
             await async on_response(self, response.status == 200)
 
         print(json_string)
