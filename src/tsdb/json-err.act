@@ -1,0 +1,14 @@
+import json
+import time
+
+actor main(env):
+        mtags = {"__name__": "fake_ping", "id": "foo"}
+
+        json_dict = { "tags": mtags, "value": 20.0 }
+
+        json_dict["timestamp"] = "1686668385"
+        json_string = json.encode(json_dict)
+
+        print(json_dict)
+        print(json_string)
+        await async env.exit(0)
