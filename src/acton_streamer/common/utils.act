@@ -314,6 +314,13 @@ def nibble_to_hex(v: int) -> str:
     else:
         raise ValueError("Value out of nibble range.")
 
+def to_n_dec_str(v: int, min_dec: int) -> str:
+    s = str(v)
+    sl = []
+    for i in range(0, min_dec - len(s), 1):
+        unsafe_list_append(sl, "0")
+    return "".join(sl) + s
+
 def uint_to_bytes_le(v: int) -> bytes:
     if v < 0:
         raise ValueError("Negative value")
@@ -351,6 +358,14 @@ class Decimal64:
     def __init__(self, significand: int, exponent: int):
         self.significand = significand
         self.exponent = exponent
+
+    def __str__(self) -> str:
+        #return str(self.significand) + "e" + str(self.exponent)
+        s = str(self.integral_part())
+        if self.exponent < 0:
+            f = self.fractional_part()
+            s += to_n_dec_str(f.significand, -f.exponent)
+        return s
 
     @staticmethod
     def try_parse(s: str) -> ?Decimal64:
@@ -428,6 +443,10 @@ class IPv4Address:
     def __init__(self, data: (int, int, int, int)):
         self.data = data
 
+    def __str__(self) -> str:
+        d = self.data
+        return str(d.0) + "." + str(d.1) + "." + str(d.2) + "." + str(d.3)
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Address:
         #return IPv4Address((1,2,3,4))
@@ -455,6 +474,12 @@ class IPv6Address:
 
     def __init__(self, data: (int, int, int, int, int, int, int, int)):
         self.data = data
+
+    def __str__(self) -> str:
+        # TODO: conventional format
+        d = self.data
+        return hex(d.0) + ":" + hex(d.1) + ":" + hex(d.2) + ":" + hex(d.3) \
+            + ":" + hex(d.4) + ":" + hex(d.5) + ":" + hex(d.6) + ":" + hex(d.7)
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Address:
@@ -491,6 +516,9 @@ class IPv4Network:
         self.address = address
         self.mask_len = mask_len
 
+    def __str__(self) -> str:
+        return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Network:
         p = s.strip(" \t").split("/", -1)
@@ -521,6 +549,9 @@ class IPv6Network:
     def __init__(self, address: IPv6Address, mask_len: int):
         self.address = address
         self.mask_len = mask_len
+
+    def __str__(self) -> str:
+        return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Network:
@@ -574,6 +605,26 @@ class DateTime:
         self.timezone_hour = timezone_hour
         self.timezone_minute = timezone_minute
 
+    def __str__(self) -> str:
+        tz = ""
+        tz_h = self.timezone_hour
+        tz_m = self.timezone_minute
+        if tz_h is not None and tz_m is not None:
+            if tz_h == 0 and tz_m == 0:
+                tz = "Z"
+            else:
+                # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+                # e.g. "-0:30" as the sign is carried by the 'hour' integer
+                # TODO: Test actual nso behavour
+                if tz_h == 0 and tz_m < 0:
+                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                else:
+                    tz = str(tz_h) + ":" + str(tz_m)
+
+        return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + "T" \
+            + to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) \
+            + tz
+
     @staticmethod
     def try_parse(s: str) -> ?DateTime:
         s = s.strip(" ")
@@ -599,6 +650,7 @@ class DateTime:
         p_rest: str = p_time[2]
         p_sec = ""
         p_tz = ""
+        p_tz_sign = "+"
         _tz_h = None
         _tz_m = None
 
@@ -616,7 +668,8 @@ class DateTime:
                 p_ptz = p_rest.split("-", -1)
                 if len(p_ptz) >= 2:
                     p_sec = p_ptz[0]
-                    p_tz = "-" + p_ptz[1]
+                    p_tz_sign = "-"
+                    p_tz = p_ptz[1]
                 else:
                     p_sec = p_rest
 
@@ -630,6 +683,17 @@ class DateTime:
                     _tz_m = try_parse_int(pp_tz[1])
                 else:
                     _tz_m = 0
+                if p_tz_sign == "-":
+                    if eq_optional(_tz_h, 0) and eq_optional(_tz_m, 0):
+                        _tz_h = None
+                        _tz_m = None
+                    else:
+                        # Is the sign for tz_minutes inherited from tz_hour or is it independent?
+                        # TODO: Test actual nso behavour
+                        if _tz_h is not None:
+                            _tz_h = -_tz_h
+                        if _tz_m is not None:
+                            _tz_m = -_tz_m
 
         if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int) \
                 and isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
@@ -693,6 +757,24 @@ class Date:
         self.timezone_hour = timezone_hour
         self.timezone_minute = timezone_minute
 
+    def __str__(self) -> str:
+        tz = ""
+        tz_h = self.timezone_hour
+        tz_m = self.timezone_minute
+        if tz_h is not None and tz_m is not None:
+            if tz_h == 0 and tz_m == 0:
+                tz = "Z"
+            else:
+                # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+                # e.g. "-0:30" as the sign is carried by the 'hour' integer
+                # TODO: Test actual nso behavour
+                if tz_h == 0 and tz_m < 0:
+                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                else:
+                    tz = str(tz_h) + ":" + str(tz_m)
+
+        return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + tz
+
     @staticmethod
     def try_parse(s: str) -> ?Date:
         s = s.strip(" ")
@@ -707,6 +789,7 @@ class Date:
         p_rest: str = p_date[2]
         p_day = ""
         p_tz = ""
+        p_tz_sign = "+"
         _tz_h = None
         _tz_m = None
 
@@ -724,7 +807,8 @@ class Date:
                 p_ptz = p_rest.split("-", -1)
                 if len(p_ptz) >= 2:
                     p_day = p_ptz[0]
-                    p_tz = "-" + p_ptz[1]
+                    p_tz_sign = "-"
+                    p_tz = p_ptz[1]
                 else:
                     p_day = p_rest
 
@@ -738,6 +822,17 @@ class Date:
                     _tz_m = try_parse_int(pp_tz[1])
                 else:
                     _tz_m = 0
+                if p_tz_sign == "-":
+                    if eq_optional(_tz_h, 0) and eq_optional(_tz_m, 0):
+                        _tz_h = None
+                        _tz_m = None
+                    else:
+                        # Is the sign for tz_minutes inherited from tz_hour or is it independent?
+                        # TODO: Test actual nso behavour
+                        if _tz_h is not None:
+                            _tz_h = -_tz_h
+                        if _tz_m is not None:
+                            _tz_m = -_tz_m
 
         if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int):
             return Date(_year, _month, _day, _tz_h, _tz_m)
@@ -785,6 +880,24 @@ class Time:
         self.timezone_hour = timezone_hour
         self.timezone_minute = timezone_minute
 
+    def __str__(self) -> str:
+        tz = ""
+        tz_h = self.timezone_hour
+        tz_m = self.timezone_minute
+        if tz_h is not None and tz_m is not None:
+            if tz_h == 0 and tz_m == 0:
+                tz = "Z"
+            else:
+                # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+                # e.g. "-0:30" as the sign is carried by the 'hour' integer
+                # TODO: Test actual nso behavour
+                if tz_h == 0 and tz_m < 0:
+                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                else:
+                    tz = str(tz_h) + ":" + str(tz_m)
+
+        return to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) + tz
+
     @staticmethod
     def try_parse(s: str) -> ?Time:
         s = s.strip(" ")
@@ -796,6 +909,7 @@ class Time:
         p_rest: str = p_time[2]
         p_sec = ""
         p_tz = ""
+        p_tz_sign = "+"
         _tz_h = None
         _tz_m = None
 
@@ -813,7 +927,8 @@ class Time:
                 p_ptz = p_rest.split("-", -1)
                 if len(p_ptz) >= 2:
                     p_sec = p_ptz[0]
-                    p_tz = "-" + p_ptz[1]
+                    p_tz_sign = "+"
+                    p_tz = p_ptz[1]
                 else:
                     p_sec = p_rest
 
@@ -827,6 +942,17 @@ class Time:
                     _tz_m = try_parse_int(pp_tz[1])
                 else:
                     _tz_m = 0
+                if p_tz_sign == "-":
+                    if eq_optional(_tz_h, 0) and eq_optional(_tz_m, 0):
+                        _tz_h = None
+                        _tz_m = None
+                    else:
+                        # Is the sign for tz_minutes inherited from tz_hour or is it independent?
+                        # TODO: Test actual nso behavour
+                        if _tz_h is not None:
+                            _tz_h = -_tz_h
+                        if _tz_m is not None:
+                            _tz_m = -_tz_m
 
         if isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
             _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
@@ -880,6 +1006,33 @@ class Duration:
         self.minute = minute
         self.second = second
         self.microsecond = microsecond
+
+    def __str__(self) -> str:
+        sl = ["P"]
+        if self.year != 0:
+            unsafe_list_append(sl, str(self.year))
+            unsafe_list_append(sl, "Y")
+        if self.month != 0:
+            unsafe_list_append(sl, str(self.month))
+            unsafe_list_append(sl, "M")
+        if self.day != 0:
+            unsafe_list_append(sl, str(self.day))
+            unsafe_list_append(sl, "D")
+        if self.hour != 0 or self.minute != 0 or self.second != 0 or self.microsecond != 0:
+            unsafe_list_append(sl, "T")
+            if self.hour != 0:
+                unsafe_list_append(sl, str(self.hour))
+                unsafe_list_append(sl, "H")
+            if self.minute != 0:
+                unsafe_list_append(sl, str(self.minute))
+                unsafe_list_append(sl, "M")
+            if self.second != 0 or self.microsecond != 0:
+                if self.microsecond == 0:
+                    unsafe_list_append(sl, str(self.second))
+                else:
+                    unsafe_list_append(sl, str(Decimal64(self.second * 10**6 + self.microsecond, 6)))
+                unsafe_list_append(sl, "S")
+        return "".join(sl)
 
     @staticmethod
     def try_parse(s: str) -> ?Duration:
@@ -967,6 +1120,13 @@ class Oid:
 
     def __init__(self, ids: list[int]):
         self._ids = ids
+
+    def __str__(self) -> str:
+        #return ".".join(str(_id) for _id in self._ids)
+        sl = []
+        for _id in self._ids:
+            unsafe_list_append(sl, str(_id))
+        return ".".join(sl)
 
     def ids(self) -> list[int]:
         return self._ids

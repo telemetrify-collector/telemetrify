@@ -156,8 +156,8 @@ def eobject_to_conf_type_and_value(v: ?EObject) -> (int, ?value):
                                     and isinstance(_second, EInt) \
                                     and isinstance(_microsecond, EInt):
 
-                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else None
-                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and (_tz_m.val != 0 or tz_h is not None) else None
+                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else 0 if isinstance(_tz_h, EAtom) and str(_tz_h) == 'Z' else None
+                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and tz_h is not None else None
 
                                 return (conf_type, DateTime(
                                     _year.val,
@@ -183,8 +183,8 @@ def eobject_to_conf_type_and_value(v: ?EObject) -> (int, ?value):
                                     and isinstance(_month, EInt) \
                                     and isinstance(_day, EInt):
 
-                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else None
-                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and (_tz_m.val != 0 or tz_h is not None) else None
+                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else 0 if isinstance(_tz_h, EAtom) and str(_tz_h) == 'Z' else None
+                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and tz_h is not None else None
 
                                 return (conf_type, Date(
                                     _year.val,
@@ -208,8 +208,8 @@ def eobject_to_conf_type_and_value(v: ?EObject) -> (int, ?value):
                                     and isinstance(_second, EInt) \
                                     and isinstance(_microsecond, EInt):
 
-                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else None
-                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and (_tz_m.val != 0 or tz_h is not None) else None
+                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else 0 if isinstance(_tz_h, EAtom) and str(_tz_h) == 'Z' else None
+                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and tz_h is not None else None
 
                                 return (conf_type, Time(
                                     _hour.val,
