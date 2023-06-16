@@ -2,6 +2,7 @@ version: "3.3"
 services:
     m3db:
         image: quay.io/m3db/m3dbnode:v1.1.0
+        user: ${DOCKER_USER}
         ports:
             - 7201:7201
             - 7203:7203
@@ -12,6 +13,7 @@ services:
 
     grafana:
         image: grafana/grafana
+        user: ${DOCKER_USER}
         depends_on:
             - m3db
         ports:

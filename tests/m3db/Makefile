@@ -1,6 +1,7 @@
 SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
+DOCKER_USER:=$(shell id -u):$(shell id -g)
 ifeq ($(DEV),true)
 	BUILD_PATH=$(PROJECT_DIR)/out/dev
 else
@@ -9,7 +10,7 @@ endif
 NCS_D?=ncs
 
 start:
-	docker compose up -d
+	DOCKER_USER=$(DOCKER_USER) docker compose up
 
 stop:
 	docker compose down

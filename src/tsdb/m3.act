@@ -41,7 +41,6 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
         http_client.post("/api/v1/database/create", json.encode(json_dict).encode(), _on_response)
 
     def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
-        #epoch_file = file.ReadFile(read_file_auth, "/sys/class/rtc/rtc0/since_epoch")
 
         mtags = {}
         for k, v in metric.tags.items():
@@ -58,5 +57,6 @@ actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: acti
             print(response.body.decode())
             await async on_response(self, response.status == 200)
 
+        print(json_dict)
         print(json_string)
         http_client.post("/api/v1/json/write", json_string.encode(), _on_response)
