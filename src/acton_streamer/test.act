@@ -6,16 +6,22 @@ import time
 import tsdb.m3
 import acton_streamer.nsoapi.cdb
 import acton_streamer.nsoapi.maapi
+import acton_streamer.nsoapi.schema
+import acton_streamer.nso.subscriber
 import acton_streamer.nso.writer
 import acton_streamer.tsdb.writer
 import acton_streamer.net.netconf
 from acton_streamer.common.mod import *
+from acton_streamer.common.utils import *
+from acton_streamer.nso.subscriber import *
 from acton_streamer.nso.writer import *
 from acton_streamer.nsoapi.conf import *
+from acton_streamer.nsoapi.conv import *
 from acton_streamer.nsoapi.cdb import *
 from acton_streamer.nsoapi.maapi import *
 from acton_streamer.nsoapi.proto import *
 from acton_streamer.nsoapi.schema import *
+from acton_streamer.main.config import *
 
 _OPT_RECORD_TO = '--record-to'
 
@@ -79,6 +85,12 @@ actor main(env):
     def run_test_tnode(env: Env, opts: Opts):
         test_tnode(env, opts)
 
+    def run_test_etv_tnode(env: Env, opts: Opts):
+        test_etv_tnode(env, opts)
+
+    def run_test_subscriber(env: Env, opts: Opts):
+        test_subscriber(env, opts)
+
     tests: dict[str, proc(Env, Opts) -> None] = {
         "maapi-schema": run_test_maapi_session_schema,
         "set-values-ikp": run_test_set_values_ikp,
@@ -89,6 +101,8 @@ actor main(env):
         "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
         "cdb-wait-start": run_test_cdb_wait_start,
         "tnode": run_test_tnode,
+        "etv-tnode": run_test_etv_tnode,
+        "subscriber": run_test_subscriber,
     }
 
     args = env.argv
@@ -618,7 +632,7 @@ actor test_cdb_wait_start(env: Env, opts: Opts):
     sess = acton_streamer.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer", _on_connect, _on_connect_error, opts.record_to)
 
 actor test_tnode(env: Env, opts: Opts):
-    root = TTree(OP_NONE, PTag(None, ""), {})
+    root = TTree(OP_NONE, PTag.root(), None, {})
     dev1 = root.cont(None, PTag("ncs", "devices")).cont(None, PTag("ncs", "device")).elem(None, ["router1"]).leaf(None, PTag("x", "test"), 42)
     if dev1.req_int() != 42:
         await async env.exit(1)
@@ -628,8 +642,8 @@ actor test_tnode(env: Env, opts: Opts):
     if _val is not None:
         await async env.exit(1)
 
-    merge_root = TTree(OP_MERGE, PTag(None, ""), {})
-    merge_root.cont(OP_MERGE, PTag("ncs", "devices")).cont(OP_MERGE, PTag("ncs", "device")).elem(OP_MERGE, ["router2"]).leaf(OP_MERGE, PTag("x", "test"), 43)    
+    merge_root = TTree(OP_MERGE, PTag.root(), None, {})
+    merge_root.cont(OP_MERGE, PTag("ncs", "devices")).cont(OP_MERGE, PTag("ncs", "device")).elem(OP_MERGE, ["router2"]).leaf(OP_MERGE, PTag("x", "test"), 43)
 
     root.merge(merge_root)
 
@@ -638,7 +652,7 @@ actor test_tnode(env: Env, opts: Opts):
     if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].req_int() != 43:
         await async env.exit(1)
 
-    delete_root = TTree(OP_NOCREATE, PTag(None, ""), {})
+    delete_root = TTree(OP_NOCREATE, PTag.root(), None, {})
     delete_root.cont(OP_NOCREATE, PTag("ncs", "devices")).cont(OP_NOCREATE, PTag("ncs", "device")).elem(OP_NOCREATE, ["router1"]).leaf(OP_DELETE, PTag("x", "test"), None)
 
     root.merge(delete_root)
@@ -651,3 +665,116 @@ actor test_tnode(env: Env, opts: Opts):
 
     print("Success!")
     await async env.exit(0)
+
+actor test_etv_tnode(env: Env, opts: Opts):
+    def _on_maapi_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_maapi_connect(c):
+        print("MAAPI connected!!!!")
+        c.load_schema(_on_load_schema)
+
+    def _on_load_schema(c, v):
+        if isinstance(v, Schema):
+            print("MAAPI loaded schema!!!!")
+            print(v)
+
+            root = TTree(OP_NONE, PTag.root(), None, {})
+            def do_merge(etvs):
+                merge_root = etagvals_to_ttree(etvs, Cursor(v))
+                if isinstance(merge_root, TTree):
+                    print("Got ttree:\n" + str(merge_root))
+                    root.merge(merge_root)
+                    print("New root:\n" + str(root))
+                elif isinstance(merge_root, Exception):
+                    print("Error: " + merge_root.error_message)
+                    await async env.exit(1)
+
+            do_merge(EList([
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1998270519)], False), EBinary.from_str("banan")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1479564322)], False), EBinary.from_str("user1")]),
+                ETuple([EList([EInt(469622343), EInt(1062808443)], False), EAtom('leaf')]),
+                ETuple([EList([EInt(469622343), EInt(929903810)], False), EBinary.from_str("$9$nYElLnof75j3Efgw4bxplDRTEJDxk1aCaS0cDjXZyCY=")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1479564322)], False), EBinary.from_str("user2")]),
+                ETuple([EList([EInt(469622343), EInt(1062808443)], False), EAtom('leaf')]),
+                ETuple([EList([EInt(469622343), EInt(929903810)], False), EBinary.from_str("$9$nYElLnof75j3Efgw4bxplDRTEJDxk1aCaS0cDjXZyCY=")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('stop')]),
+                ], True))
+
+            do_merge(EList([
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1998270519)], False), EBinary.from_str("banan")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('delete')]),
+                ETuple([EList([EInt(469622343), EInt(1479564322)], False), EBinary.from_str("user1")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('stop')]),
+                ], True))
+
+            await async env.exit(0)
+        else:
+            print("MAAPI load schema failed:", v)
+            await async env.exit(1)
+
+    print("Starting up...")
+    maapi_connection = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, opts.record_to)
+
+actor test_subscriber(env: Env, opts: Opts):
+    def _on_maapi_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_maapi_connect(c):
+        print("MAAPI connected!!!!")
+        c.load_schema(_on_load_schema)
+
+    def _on_load_schema(c, v):
+        if isinstance(v, Schema):
+            print("MAAPI loaded schema!!!!")
+            print(v)
+            shared_schema = acton_streamer.nsoapi.schema.SharedSchema(v)
+            cdb_connection = acton_streamer.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
+                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, opts.record_to)
+        else:
+            print("MAAPI load schema failed:", v)
+            await async env.exit(1)
+
+    def _on_cdb_connect_error(e):
+        print("CDB connect failed:", e)
+        await async env.exit(1)
+
+    def _on_cdb_sub_connect(sc, s):
+        print("CDB (sub) connected!!!!")
+        cdb_connection = acton_streamer.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, opts.record_to)
+
+    def _on_cdb_cmd_connect(sc, cc, s):
+        print("CDB (cmd) connected!!!!")
+        cache = acton_streamer.nso.subscriber.ConfigCache(sc, cc, s,
+            [DeviceAuthRefiner],
+            [([DeviceAuthRefiner.id()], _on_config_update)], _on_config_cache_error)
+        #await async env.exit(0)
+
+    def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]]):
+        for refiner_id, updates in refiner_updates.items():
+            print("refiner_id: " + str(refiner_id))
+            for k, v in updates:
+                print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+
+    def _on_config_cache_error(e):
+        print("ConfigCache failed:", optional_str(e.error_message, ""))
+        await async env.exit(1)
+
+    print("Starting up...")
+    maapi_connection = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, opts.record_to)

@@ -3,6 +3,21 @@
 def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
     return a is not None and b is not None and a == b or a is None and b is None
 
+def safe_hash(h: int) -> int: # TODO: Remove when https://github.com/actonlang/acton/issues/1348 is fixed
+    limit = 2**63-1
+    sign = 1
+    if h < 0:
+        limit = 2**63
+        sign = -1
+        h = -h
+
+    while h > limit:
+        f = h // limit
+        h %= limit
+        h += f
+
+    return sign * h
+
 _SCALE: int = 3
 
 class Queue[T](object):
@@ -82,6 +97,11 @@ class Queue[T](object):
 
 # class Deque[T](object):
 
+# _list_swap[T](l: list[T], a: int, b: int):
+#     tmp = l[a]
+#     l[a] = l[b]
+#     l[b] = tmp
+
 protocol TryGetMapping[A(Eq), B](Mapping[A, B]):
     try_get: (A) -> ?B
 
@@ -114,23 +134,62 @@ def try_pop[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
     else:
         return None
 
+def try_discard[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
+    # Without support for catching KeyError
+    # it looks like we need to do triple hash lookups for now
+    if m.__contains__(a):
+        b = m[a]
+        # del m[a]
+        m.__delitem__(a)
+        return b
+    else:
+        return None
+
+def mapping_str[A(Eq), B](m: Mapping[A, B]) -> str:
+    l: list[str] = []
+    #for k, v in m.items():
+    for p in m.items():
+        k, v = p
+        unsafe_list_append(l, str(k) + ": " + str(v))
+    return "{" + ", ".join(l) + "}"
+
 def list_pop[T](l: list[T]) -> T:
     res = l[-1]
     del l[-1]
     return res
 
+def list_try_pop[T](l: list[T]) -> ?T:
+    if len(l) > 0:
+        return list_pop(l)
+    return None
+
 def list_extend[T](target: list[T], source: Iterable[T]):
     for item in source:
         target.append(item)
 
-def list_str[T](a: list[T]) -> str:
-    l: list[str] = []
-    for x in a:
-        unsafe_list_append(l, str(x))
-    return "[" + ", ".join(l) + "]"
+def list_concat[T](a: list[T], b: list[T]) -> list[T]:
+    # Due to https://github.com/actonlang/acton/issues/1461
+    if not a:
+        return b
+    if not b:
+        return a
+    return a + b
 
-def optional_str[T](v: ?T, default: str) -> str:
-    return str(v) if v is not None else default
+def list_eq[T(Eq)](a: list[T], b: list[T]) -> bool:
+    a_len = len(a)
+    if a_len != len(b):
+        return False
+
+    for i in range(0, a_len, 1):
+        if a[i] != b[i]:
+            return False
+    return True
+
+def list_hash[T(Hashable)](a: list[T]) -> int:
+    h = 0
+    for x in a:
+        h += hash(x)
+    return safe_hash(h)
 
 pure def unsafe_list_append[T](target: list[T], item: T) -> None:
     """
@@ -139,6 +198,179 @@ pure def unsafe_list_append[T](target: list[T], item: T) -> None:
     """
     # target.append(item)
     NotImplemented
+
+def list_reversed[T](a: list[T]) -> list[T]:
+    r: list[T] = list(a)
+    r.reverse()
+    return r
+
+def list_str[T](a: list[T]) -> str:
+    l: list[str] = []
+    for x in a:
+        unsafe_list_append(l, str(x))
+    return "[" + ", ".join(l) + "]"
+
+def set_update[T(Hashable)](target: set[T], source: Iterable[T]):
+    for item in source:
+        target.add(item)
+
+def dict_list_append[K(Hashable), V](d: dict[K, list[V]], k: K, v: V):
+    l = try_get(d, k)
+    if l is not None:
+        l.append(v)
+    else:
+        d[k] = [v]
+
+def dict_set_add[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, v: V):
+    s = try_get(d, k)
+    if s is not None:
+        s.add(v)
+    else:
+        d[k] = set([v])
+
+def dict_set_update[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, source: Iterable[V]):
+    s = try_get(d, k)
+    if s is not None:
+        set_update(s, source)
+    else:
+        d[k] = set(iter(source))
+
+def dict_set_discard[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, v: V):
+    s = try_get(d, k)
+    if s is not None:
+        s.discard(v)
+        if len(s) == 0:
+            del d[k]
+
+def optional_str[T](v: ?T, default: str) -> str:
+    return str(v) if v is not None else default
+
+class MinHeap[T(Ord)](object):
+    @property
+    _items: list[T]
+
+    def __init__(self):
+        self._items = []
+
+    def insert(self, v: T):
+        items = self._items
+        curr = len(items)
+        items.append(v)
+        while curr > 0:
+            parent = curr // 2
+            parent_v = items[parent]
+            if v >= parent_v:
+                break
+            items[parent] = v
+            items[curr] = parent_v
+            curr = parent
+
+    def try_pop(self) -> ?T:
+        items = self._items
+        items_len = len(items)
+        if items_len == 0:
+            return None
+        retval = items[0]
+        v = list_pop(items)
+        if items_len >= 2:
+            items_len -= 1
+            curr = 0
+            left = 1
+            right = 2
+            has_left = left < items_len
+            has_right = right < items_len
+            items[curr] = v
+            while has_left and (v > items[left] or has_right and v > items[right]):
+                if items[left] < items[right] or not has_right:
+                    items[curr] = items[left]
+                    items[left] = v
+                    curr = left
+                else:
+                    items[curr] = items[right]
+                    items[right] = v
+                    curr = right
+                left = curr * 2
+                right = left + 1
+                has_left = left < items_len
+                has_right = right < items_len
+        return retval
+
+# Workaround for https://github.com/actonlang/acton/issues/1126
+protocol Ord2:
+    @staticmethod
+    eq: (Self, Self) -> bool
+    @staticmethod
+    ne: (Self, Self) -> bool
+    @staticmethod
+    lt: (Self, Self) -> bool
+    @staticmethod
+    le: (Self, Self) -> bool
+    @staticmethod
+    gt: (Self, Self) -> bool
+    @staticmethod
+    ge: (Self, Self) -> bool
+    def ne(a, b):
+        return not Ord2.eq(a, b)
+    def le(a, b):
+        return Ord2.lt(a, b) or Ord2.eq(a, b)
+    def gt(a, b):
+        return Ord2.lt(b, a)
+    def ge(a, b):
+        return Ord2.le(b, a)
+
+# Workaround for https://github.com/actonlang/acton/issues/1126
+class MinHeap_Ord2[T(Ord2)](object):
+    @property
+    _items: list[T]
+
+    def __init__(self):
+        self._items = []
+
+    def insert(self, v: T):
+        items = self._items
+        curr = len(items)
+        items.append(v)
+        while curr > 0:
+            parent = curr // 2
+            parent_v = items[parent]
+            #if v >= parent_v:
+            if Ord2.ge(v, parent_v):
+                break
+            items[parent] = v
+            items[curr] = parent_v
+            curr = parent
+
+    def try_pop(self) -> ?T:
+        items = self._items
+        items_len = len(items)
+        if items_len == 0:
+            return None
+        retval = items[0]
+        v = list_pop(items)
+        if items_len >= 2:
+            items_len -= 1
+            curr = 0
+            left = 1
+            right = 2
+            has_left = left < items_len
+            has_right = right < items_len
+            items[curr] = v
+            #while has_left and (v > items[left] or has_right and v > items[right]):
+            while has_left and (Ord2.gt(v, items[left]) or has_right and Ord2.gt(v, items[right])):
+                #if items[left] < items[right] or not has_right:
+                if Ord2.lt(items[left], items[right]) or not has_right:
+                    items[curr] = items[left]
+                    items[left] = v
+                    curr = left
+                else:
+                    items[curr] = items[right]
+                    items[right] = v
+                    curr = right
+                left = curr * 2
+                right = left + 1
+                has_left = left < items_len
+                has_right = right < items_len
+        return retval
 
 class Pair[A, B]:
     @property
@@ -333,21 +565,6 @@ def uint_to_bytes_le(v: int) -> bytes:
         bs.append(v % 0x100)
         v /= 0x100
     return bytes(bs)
-
-def safe_hash(h: int) -> int: # TODO: Remove when https://github.com/actonlang/acton/issues/1348 is fixed
-    limit = 2**63-1
-    sign = 1
-    if h < 0:
-        limit = 2**63
-        sign = -1
-        h = -h
-
-    while h > limit:
-        f = h // limit
-        h %= limit
-        h += f
-
-    return sign * h
 
 class Decimal64:
     @property

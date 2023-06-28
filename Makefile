@@ -6,6 +6,7 @@ else
 	OUTPUT=out/rel
 endif
 ARGS?=
+BIN?=acton_streamer.test
 
 all: build
 
@@ -20,13 +21,13 @@ clean:
 .PHONY: clean
 
 run-nogc:
-	GC_DONT_GC=1 $(OUTPUT)/bin/acton_streamer.test $(ARGS)
+	GC_DONT_GC=1 $(OUTPUT)/bin/$(BIN) $(ARGS)
 
 run:
-	$(OUTPUT)/bin/acton_streamer.test $(ARGS)
+	$(OUTPUT)/bin/$(BIN) $(ARGS)
 
 debug-nogc:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args $(OUTPUT)/bin/acton_streamer.test --rts-wthreads 1 $(ARGS)
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args $(OUTPUT)/bin/$(BIN) --rts-wthreads 1 $(ARGS)
 
 debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(OUTPUT)/bin/acton_streamer.test --rts-wthreads 1 $(ARGS)
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(OUTPUT)/bin/$(BIN) --rts-wthreads 1 $(ARGS)

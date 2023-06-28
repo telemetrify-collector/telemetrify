@@ -5,7 +5,7 @@ import xml
 import acton_streamer.common.mod as mod
 from acton_streamer.common.mod import ITag
 from acton_streamer.common.io import IncompleteReadError, Buffer
-from acton_streamer.common.utils import try_parse_int, try_pop, try_get
+from acton_streamer.common.utils import *
 
 """Netconf client"""
 
@@ -91,7 +91,8 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
         message_id_text = str(message_id)
         message_id += 1
 
-        rpc_attrs = [("message-id", str(message_id_text))] + add_rpc_attrs
+        #rpc_attrs = [("message-id", str(message_id_text))] + add_rpc_attrs
+        rpc_attrs = list_concat([("message-id", str(message_id_text))], add_rpc_attrs)
         root = xml.Node("rpc", [(None, NS_NC_1_1)], None, rpc_attrs, [content], None, None)
 
         buf: Buffer = Buffer()
