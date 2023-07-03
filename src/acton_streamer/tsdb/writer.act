@@ -1,0 +1,14 @@
+from acton_streamer.common.mod import *
+import acton_streamer.nsoapi.schema as schema
+
+def get_metrics_from_tree(node: Node, path: list) -> list:
+    if isinstance(node, XLeaf):
+        pass
+    else:
+        pass
+
+actor TSDBWriter(m3c: tsdb.m3.Client, _schema: schema.Schema):
+
+    def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
+
+        result_cb(None)
