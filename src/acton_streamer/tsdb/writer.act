@@ -2,14 +2,25 @@ from acton_streamer.common.mod import *
 import acton_streamer.nsoapi.schema as schema
 import tsdb.m3
 
-def get_metrics_from_tree(node: Node, path: list[tsdb.m3.Metric]) -> list[tsdb.m3.Metric]:
+def get_metrics_from_tree(node: Node, path: list[str]) -> list[tsdb.m3.Metric]:
     if isinstance(node, XLeaf):
-        return []
+        val = node.value()
+        if isinstance(val, float):
+            return [tsdb.m3.Metric("_".join(path), {}, val)]
+        elif isinstance(val, int):
+            return [tsdb.m3.Metric("_".join(path), {}, float(val))]
+        else:
+            return []
+    elif isinstance(node, XTree):
+        ret = []
+        for child in node.children():
+            ret += get_metrics_from_tree(child, path)
+        return ret
     else:
         return []
 
-#actor TSDBWriter(m3c: tsdb.m3.Client, _schema: schema.Schema):
-#
-#    def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
-#
-#        result_cb(None)
+actor TSDBWriter(m3c: tsdb.m3.Client, _schema: schema.Schema):
+
+    def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
+
+        result_cb(None)
