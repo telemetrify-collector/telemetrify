@@ -2,7 +2,7 @@ from acton_streamer.common.mod import *
 import acton_streamer.nsoapi.schema as schema
 import tsdb.m3
 
-def get_metrics_from_tree(node: Node, path: list[str]) -> list[tsdb.m3.Metric]:
+def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -> list[tsdb.m3.Metric]:
     if isinstance(node, XLeaf):
         val = node.value()
         if isinstance(val, float):
@@ -14,7 +14,7 @@ def get_metrics_from_tree(node: Node, path: list[str]) -> list[tsdb.m3.Metric]:
     elif isinstance(node, XTree):
         ret = []
         for child in node.children():
-            ret += get_metrics_from_tree(child, path)
+            ret += get_metrics_from_tree(child, path, tags)
         return ret
     else:
         return []
