@@ -43,7 +43,7 @@ actor Client(auth: process.ProcessAuth, address: str, port: int, username: str, 
         print("STDERR: ", data)
 
     def p_on_exit(p, exit_code, term_signal):
-        print("Exit!!!")
+        print("SSH process exited with code:", exit_code, " and termination signal:", term_signal)
 
     def p_on_error(p, error):
         print("Error from process:", error)
