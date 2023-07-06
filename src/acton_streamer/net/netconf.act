@@ -55,7 +55,8 @@ actor Client(auth: process.ProcessAuth, address: str, port: int, username: str, 
         cmd_env = {"SSHPASS": password}
         #cmd = ["/usr/bin/env", "sshpass", "-e", "/usr/bin/ssh", "-p", str(port), "-l", username]
         #cmd = ["/usr/bin/sshpass", "-e", "/usr/bin/ssh", "-p", str(port), "-l", username]
-        cmd = ["sshpass", "-e", "ssh", "-p", str(port), "-l", username]
+        # TODO: do something better than accepting all new host keys!
+        cmd = ["sshpass", "-e", "ssh", "-o", "StrictHostKeyChecking=accept-new", "-p", str(port), "-l", username]
     else:
         cmd = ["/usr/bin/ssh", "-p", str(port), "-l", username]
     cmd += [address, "-s", "netconf"]
