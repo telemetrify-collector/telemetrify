@@ -410,12 +410,17 @@ actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
         await async env.exit(1)
 
     def _on_connect(c):
-        print("NETCONF client connected!!!!")
+        print("NETCONF client connected, sending RPC!")
 
         # n = \
         #     xml.Node("get-bgp-summary-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
-        n = \
-            xml.Node("get-bridge-instance-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        # n = \
+        #     xml.Node("get-bridge-instance-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [],
+                     [
+                         xml.Node("detail", [], None, [], [], None, None),
+                         xml.Node("interface-name", [], None, [], [], "ge-0/0/0", None),
+                     ], None, None)
 
         # print("Calling rpc:\n", xml.encode(n))
 
