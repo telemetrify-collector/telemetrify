@@ -1,6 +1,8 @@
 import file
 import process
 import xml
+import net
+import tsdb.m3
 import acton_streamer.nsoapi.cdb
 import acton_streamer.nsoapi.maapi
 import acton_streamer.nso.writer
@@ -60,6 +62,9 @@ actor main(env):
     def run_test_writer(env: Env, opts: Opts):
         test_writer(env, opts)
 
+    def run_test_tsdb_writer(env: Env, opts: Opts):
+        test_tsdb_writer(env, opts)
+
     def run_test_netconf_client_nso(env: Env, opts: Opts):
         test_netconf_client_nso(env, opts)
 
@@ -74,6 +79,7 @@ actor main(env):
         "set-values-ikp": run_test_set_values_ikp,
         "set-values-hkp": run_test_set_values_hkp,
         "writer": run_test_writer,
+        "tsdb-writer": run_test_tsdb_writer,
         "netconf-client-nso": run_test_netconf_client_nso,
         "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
         "cdb-wait-start": run_test_cdb_wait_start,
@@ -365,6 +371,104 @@ actor test_writer(env: Env, opts: Opts):
 
     print("Starting up...")
     sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+actor test_tsdb_writer(env: Env, opts: Opts):
+
+    schema = Schema({}, {}, {}, {}, {}, {})
+
+    def _on_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_connect(c):
+        print("MAAPI connected!!!!")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!!")
+            c.load_schema(_on_load_schema)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_load_schema(c, v):
+        if isinstance(v, Schema):
+            print("MAAPI loaded schema!!!!")
+            print(v)
+
+            for _name, _hash in v._name_to_hash.items():
+                print(_name + " : " + str(_hash))
+
+            schema = v
+            tsdb_sess = tsdb.m3.Client(net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth))), "127.0.0.1", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
+
+        else:
+            print("MAAPI load schema failed:", v)
+            await async env.exit(1)
+
+    def _on_nc_error(c, e):
+        print("NETCONF client failed:", e)
+        await async env.exit(1)
+
+    def _on_tsdb_connect(c, schema):
+        print("TSDB connected!")
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c, schema)
+
+        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, writer), _on_nc_error, None)
+
+    def _on_tsdb_error(c, e):
+        print("TSDB client failed: ", e)
+        await async env.exit(1)
+
+    def _on_vmx_connect(c, writer):
+        print("NETCONF client connected!!!!")
+
+        # n = \
+        #     xml.Node("get-bgp-summary-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        n = \
+            xml.Node("get-bridge-instance-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+
+        # print("Calling rpc:\n", xml.encode(n))
+
+        c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, writer))
+
+    def _on_rpc_reply(c, n: xml.Node, writer):
+        print("Received reply:\n", xml.encode(n))
+        writer.write(n, _on_writer_done)
+
+    #def _on_start_trans(c, schema, node: xml.Node):
+
+    #   #writer = MaapiWriter(c, v)
+
+    #   tree = \
+    #       XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'python-vm'), None, [
+    #           XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'logging'), None, [
+    #               XLeaf(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'level'), None, 'level-debug')
+    #           ]),
+    #       ])
+
+
+    #   # TODO: Write
+    #   #_on_writer_done(c, None, thandle)
+
+    def _on_writer_done(c, e):
+        if e is None:
+            print("TSDB writer done!")
+            await async env.exit(0)
+        else:
+            print("TSDB writer failed:", e)
+            await async env.exit(1)
+
+    #def _on_end_user_session(c, e):
+    #    if e is None:
+    #        print("MAAPI ended user session")
+    #    else:
+    #        print("MAAPI end user session failed:", e)
+    #        await async env.exit(1)
+
+    print("Starting up...")
+    nso_sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    
 
 actor test_netconf_client_nso(env: Env, opts: Opts):
     def _on_error(c, e):

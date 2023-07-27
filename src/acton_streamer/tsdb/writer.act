@@ -1,3 +1,4 @@
+import xml
 from acton_streamer.common.mod import *
 import acton_streamer.nsoapi.schema as schema
 import tsdb.m3
@@ -21,6 +22,8 @@ def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -
 
 actor TSDBWriter(m3c: tsdb.m3.Client, _schema: schema.Schema):
 
-    def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
+    
 
-        result_cb(None)
+    def write(node: xml.Node, result_cb: action(TSDBWriter, ?Exception) -> None):
+
+        result_cb(self, None)
