@@ -30,11 +30,11 @@ services:
         image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 
         privileged: true
         command: [ "--trace" ]
-    nso:
-        image: gitlab.dev.terastrm.net:4567/abs/dt-mplsnet/nso:6.1.2
         ports:
             - 10022:22 
             - 10830:830
+    nso:
+        image: gitlab.dev.terastrm.net:4567/abs/dt-mplsnet/nso:6.1.2
 
 volumes:
     m3db_data:
