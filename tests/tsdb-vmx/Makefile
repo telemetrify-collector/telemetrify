@@ -56,13 +56,20 @@ import-dashboard:
 			-H 'Content-Type: application/json;charset=UTF-8' \
 			--data-binary "$$(sed "s/SOURCE_UID/$$SOURCE_UID/" dashboard-tsdb.json)"; echo
 
+add-vmx:
+	echo "configure\nedit devices device vmx\nset address $$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' vmx) port 830 authgroup lsa\nset device-type netconf ned-id lsa-netconf\nset state admin-state unlocked\nset out-of-sync-commit-behaviour accept\ncommit and-quit" --retry --time-limit 10
+	echo "request devices device $* ssh fetch-host-keys" --time-limit 60
+	echo "request devices device $* sync-from" --time-limit 60
+
+
+
 stop:
 	docker compose down
 
 test:
-	$(BUILD_PATH)/bin/tsdb.test
+	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/net $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer
 
 test-debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/prometheusapi.test --rts-wthreads 1 $(ARGS)
+	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer
 
 .PHONY: start stop test test-debug cli
