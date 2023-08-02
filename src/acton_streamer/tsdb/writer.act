@@ -20,10 +20,10 @@ def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -
     else:
         return []
 
-actor TSDBWriter(m3c: tsdb.m3.Client, _schema: schema.Schema):
+actor TSDBWriter(m3c: tsdb.m3.Client, _cursor: schema.Cursor):
 
     
 
-    def write(node: xml.Node, result_cb: action(TSDBWriter, ?Exception) -> None):
+    def write(node: XNode, result_cb: action(TSDBWriter, ?Exception) -> None):
 
         result_cb(self, None)

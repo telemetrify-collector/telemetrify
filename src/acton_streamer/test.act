@@ -413,7 +413,8 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
     def _on_tsdb_connect(c, schema):
         print("TSDB connected!")
-        writer = acton_streamer.tsdb.writer.TSDBWriter(c, schema)
+        cursor = acton_streamer.nsoapi.schema.Cursor(schema)
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c, cursor)
 
         vmx_sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, writer), _on_nc_error, None)
 
@@ -435,22 +436,8 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
     def _on_rpc_reply(c, n: xml.Node, writer):
         print("Received reply:\n", xml.encode(n))
-        writer.write(n, _on_writer_done)
-
-    #def _on_start_trans(c, schema, node: xml.Node):
-
-    #   #writer = MaapiWriter(c, v)
-
-    #   tree = \
-    #       XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'python-vm'), None, [
-    #           XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'logging'), None, [
-    #               XLeaf(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'level'), None, 'level-debug')
-    #           ]),
-    #       ])
-
-
-    #   # TODO: Write
-    #   #_on_writer_done(c, None, thandle)
+        xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
+        writer.write(xnode, _on_writer_done)
 
     def _on_writer_done(c, e):
         if e is None:
