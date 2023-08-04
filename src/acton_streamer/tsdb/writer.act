@@ -1,7 +1,11 @@
 import xml
 from acton_streamer.common.mod import *
+from acton_streamer.common.utils import *
+from acton_streamer.nsoapi.proto import *
 import acton_streamer.nsoapi.schema as schema
 import tsdb.m3
+
+_STATE_IDLE = 0
 
 def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -> list[tsdb.m3.Metric]:
     if isinstance(node, XLeaf):
@@ -23,7 +27,45 @@ def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -
 actor TSDBWriter(m3c: tsdb.m3.Client, _cursor: schema.Cursor):
 
     
+    var write_tasks = Queue()
 
-    def write(node: XNode, result_cb: action(TSDBWriter, ?Exception) -> None):
+    # Current write task
+    var prefix_epath: list[EObject] = []
+    var result_cb: ?(action(?Exception) -> None) = None
+    var state: int = _STATE_IDLE
+    var work_stack: list[(value, int)] = [] # list[(v: value, _parent_state: int)]
+    var cursor: schema.Cursor = _cursor
+    var epath: list[EObject] = [] # EKeypath
+    var eparams: list[EObject] = []
+    var pending_mount_id: ?HTag = None
 
-        result_cb(self, None)
+    #def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
+    def write(node: Node, result_cb: action(TSDBWriter, ?Exception) -> None):
+        #result_cb(Exception("Not Implemented"))
+        write_tasks.append((node, result_cb))
+        if state == _STATE_IDLE:
+            _poll()
+        #result_cb(self, None)
+
+    def _reset():
+        prefix_epath = []
+        result_cb = None
+        state = _STATE_IDLE
+        work_stack = []
+        #cursor = schema.Cursor(_schema)
+        epath = []
+        eparams = []
+        pending_mount_id = None
+
+    def _poll():
+        print("writer: begin poll")
+        while True:
+            if state == _STATE_IDLE:
+                print("writer:   STATE_IDLE")
+                if write_tasks:
+                    print("writer:     Setup write task")
+                    #_setup_next_task()
+                else:
+                    print("writer:     No tasks")
+                    break
+
