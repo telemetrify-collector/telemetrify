@@ -213,7 +213,7 @@ class UserSessionDescription:
 #       e.g. for testing or session recording/replay.
 #       Interfaces/protocols for actors?
 actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
-    listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
+    listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
     input_stream: BufferReader = BufferReader()
     var recv_bytes_total: int = 0
 

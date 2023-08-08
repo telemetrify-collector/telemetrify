@@ -26,7 +26,7 @@ CAP_NC_1_1 = "urn:ietf:params:netconf:base:1.1"
 NS_NC_1_1 = "urn:ietf:params:xml:ns:netconf:base:1.0"
 NS_YANG_ACTION = "urn:ietf:params:xml:ns:yang:1"
 
-actor Client(auth: process.ProcessAuth, address: str, port: int, username: str, password: ?str, key: ?str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, on_notif: ?action(Client, xml.Node) -> None):
+actor Client(auth: process.ProcessCap, address: str, port: int, username: str, password: ?str, key: ?str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, on_notif: ?action(Client, xml.Node) -> None):
     var framing = SEPARATOR_FRAMING
     var recv_buf = Buffer()
     var chunk_buf = Buffer()
