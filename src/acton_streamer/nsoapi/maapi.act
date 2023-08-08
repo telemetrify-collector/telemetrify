@@ -213,11 +213,7 @@ class UserSessionDescription:
 #       e.g. for testing or session recording/replay.
 #       Interfaces/protocols for actors?
 actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
-    IA_CLIENT_MAAPI = 7
-    CLIENT_PROTO_VSN = 78
-    CLIENT_CONF_VSN = 0x07080000
-
-    listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
+    listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
     input_stream: BufferReader = BufferReader()
     var recv_bytes_total: int = 0
 
@@ -280,9 +276,9 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
     def _connect_maapi():
         w = BufferWriter()
-        w.write_u8(IA_CLIENT_MAAPI) # TODO: Support access-secret-challenge
-        w.write_i16_be(CLIENT_PROTO_VSN)
-        w.write_i32_be(CLIENT_CONF_VSN)
+        w.write_u8(channel.IA_CLIENT_MAAPI) # TODO: Support access-secret-challenge
+        w.write_i16_be(channel.CLIENT_PROTO_VSN)
+        w.write_i32_be(channel.CLIENT_CONF_VSN)
         w.write_i16_be(0)
 
         _write(w.to_bytes())

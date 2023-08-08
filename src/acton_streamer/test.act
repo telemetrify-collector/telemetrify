@@ -40,7 +40,7 @@ class Opts(object):
                 if i >= opts_len:
                     return False
                 filepath: str = opts[i]
-                _record_to: ?file.WriteFile = file.WriteFile(file.WriteFileAuth(file.FileAuth(env.auth)), filepath)
+                _record_to: ?file.WriteFile = file.WriteFile(file.WriteFileCap(file.FileCap(env.cap)), filepath)
                 self.record_to = _record_to
             else:
                 return False
@@ -401,7 +401,7 @@ actor test_netconf_client_nso(env: Env, opts: Opts):
         print("Received notif:\n", xml.encode(n))
 
     print("Starting up...")
-    sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
+    sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.cap), "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
 
 
 actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
@@ -431,7 +431,7 @@ actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
         await async env.exit(0)
 
     print("Starting up...")
-    sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
+    sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.cap), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
 
 actor test_cdb_wait_start(env: Env, opts: Opts):
     def _on_connect_error(e):
