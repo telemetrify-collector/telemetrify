@@ -3,6 +3,12 @@ from acton_streamer.nsoapi.proto import *
 from acton_streamer.nsoapi.conf import *
 from acton_streamer.common.utils import *
 
+CLIENT_PROTO_VSN = 81
+CLIENT_CONF_VSN = 0x08010000
+
+IA_CLIENT_CDB = 5
+IA_CLIENT_MAAPI = 7
+
 def read_response(reader: BufferReader, op: ?int, read_op: bool) -> ?value: # (ConfResponse | IncompleteReadError)
     result = ConfResponse(op if op is not None else -1, None, False, 0, None)
     retval: ?value = result
