@@ -413,7 +413,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
     def _on_tsdb_connect(c, schema):
         print("TSDB connected!")
-        cursor = acton_streamer.nsoapi.schema.Cursor(schema)
+        cursor = Cursor(schema)
 	cursor.push(ITag(None, "devices"))
         cursor.push(ITag(None, "device"))
         cursor.push(ITag(None, "rpcs"))
@@ -421,7 +421,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         cursor.push(ITag(None, "output"))
         writer = acton_streamer.tsdb.writer.TSDBWriter(c, cursor)
 
-        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessAuth(env.auth), "vmx", 10830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, writer), _on_nc_error, None)
+        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 10830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, writer), _on_nc_error, None)
 
     def _on_tsdb_error(c, e):
         print("TSDB client failed: ", e)
