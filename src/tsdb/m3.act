@@ -21,7 +21,7 @@ class Metric(object):
     def __str__(self):
         return "<tsdb.Request " + str(self.name) + " " + str(self.value) + ">"
 
-actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
+actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
 
     def _on_connect(client: tsdb.http.Client):
         await async on_connect(self)

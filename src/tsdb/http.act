@@ -382,7 +382,7 @@ actor Server(conn: net.TCPListenConnection, on_accept: action(Server) -> None):
 
 
 # TODO: change port to u16, when u16 has a sub-type relationship to int
-actor Listener(auth: net.TCPListenAuth, address: str, port: int, on_listen_error: action(net.TCPListener, str) -> None, on_accept: action(Server) -> None):
+actor Listener(auth: net.TCPListenCap, address: str, port: int, on_listen_error: action(net.TCPListener, str) -> None, on_accept: action(Server) -> None):
     """Listen to HTTP socket"""
     var bufs = []
     def on_tcp_listener_error(listener, error):
@@ -397,7 +397,7 @@ actor Listener(auth: net.TCPListenAuth, address: str, port: int, on_listen_error
 
 
 # TODO: change port to u16, when u16 has a sub-type relationship to int
-actor Client(auth: net.TCPConnectAuth, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
+actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
     """HTTP Client
     """
     var _on_response: list[(bytes, action(Client, Response) -> None)] = []

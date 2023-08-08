@@ -401,7 +401,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
                 print(_name + " : " + str(_hash))
 
             schema = v
-            tsdb_sess = tsdb.m3.Client(net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth))), "127.0.0.1", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
+            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "127.0.0.1", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
 
         else:
             print("MAAPI load schema failed:", v)

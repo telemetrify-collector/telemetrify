@@ -30,7 +30,7 @@ class Opts(object):
                 if i >= opts_len:
                     return False
                 filepath: str = opts[i]
-                _record_to: ?file.WriteFile = file.WriteFile(file.WriteFileAuth(file.FileAuth(env.auth)), filepath)
+                _record_to: ?file.WriteFile = file.WriteFile(file.WriteFileCap(file.FileCap(env.auth)), filepath)
                 self.record_to = _record_to
             else:
                 return False
@@ -82,7 +82,7 @@ actor main(env):
     def on_error(conn, err):
         print("Error: " + err)
 
-    listen_auth = net.TCPConnectAuth(net.TCPAuth(net.NetAuth(env.auth)))
+    listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth)))
     m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
 
     #def on_init_response(conn: tsdb.m3.Client, success: bool):
