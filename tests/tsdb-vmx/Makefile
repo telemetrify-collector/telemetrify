@@ -10,10 +10,10 @@ endif
 NCS_D?=ncs
 
 start:
-	DOCKER_USER=$(DOCKER_USER) docker compose up -d
+	BUILD_PATH=$(BUILD_PATH) docker compose up -d
 	sleep 5
-	make init-m3db
-	make init-grafana
+	BUILD_PATH=$(BUILD_PATH) make init-m3db
+	BUILD_PATH=$(BUILD_PATH) make init-grafana
 
 init-m3db:
 	curl -X POST http://localhost:7201/api/v1/database/create -d '{ "type": "local", "namespaceName": "default", "retentionTime": "12h" }' | jq .
@@ -64,10 +64,10 @@ add-vmx:
 
 
 stop:
-	docker compose down -v
+	BUILD_PATH=$(BUILD_PATH) docker compose down -v
 
 test:
-	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/net $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer
+	BUILD_PATH=$(BUILD_PATH) docker compose exec nso /mnt/bin/acton_streamer.test tsdb-writer
 
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer

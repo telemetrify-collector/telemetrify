@@ -35,6 +35,8 @@ services:
             - 10830:830
     nso:
         image: gitlab.dev.terastrm.net:4567/abs/dt-mplsnet/nso:6.1.2
+        volumes:
+          - ${BUILD_PATH}:/mnt
         ports:
           - 4569:4569
 
