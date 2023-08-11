@@ -1,7 +1,7 @@
 SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
-DOCKER_USER:=$(shell id -u):$(shell id -g)
+#DOCKER_USER:=$(shell id -u):$(shell id -g)
 ifeq ($(DEV),true)
 	BUILD_PATH=$(PROJECT_DIR)/out/dev
 else
@@ -64,7 +64,7 @@ add-vmx:
 
 
 stop:
-	docker compose down
+	docker compose down -v
 
 test:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/net $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer
