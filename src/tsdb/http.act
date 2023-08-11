@@ -441,7 +441,8 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
                 break
 
     def on_tcp_error(conn: net.TCPIPConnection, error: str) -> None:
-        print("There was an error:", error, " from:", conn)
+        #print("There was an error:", error, " from:", conn)
+        on_error(self, error)
 
     var conn: net.TCPIPConnection = net.TCPIPConnection(auth, address, port, on_tcp_connect, on_tcp_receive, on_tcp_error)
 
