@@ -34,7 +34,8 @@ services:
             - 10022:22 
             - 10830:830
     nso:
-        image: gitlab.dev.terastrm.net:4567/abs/dt-mplsnet/nso:6.1.2
+        build:
+            dockerfile: ./nso.Dockerfile
         volumes:
           - ${BUILD_PATH}:/mnt
         ports:
