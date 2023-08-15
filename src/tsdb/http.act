@@ -406,15 +406,15 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
     var close_connection: bool = True
 
     def connect():
-        conn = net.TCPIPConnection(auth, address, port, on_tcp_connect, on_tcp_receive, on_tcp_error)
+        conn = net.TCPConnection(auth, address, port, on_tcp_connect, on_tcp_receive, on_tcp_error)
 
-    def on_tcp_connect(conn: net.TCPIPConnection) -> None:
+    def on_tcp_connect(conn: net.TCPConnection) -> None:
         # If there are outstanding requests, it probably means we were
         for r in _on_response:
             conn.write(r.0)
         await async on_connect(self)
 
-    def on_tcp_receive(conn: net.TCPIPConnection, data: bytes) -> None:
+    def on_tcp_receive(conn: net.TCPConnection, data: bytes) -> None:
         buf += data
         print("Received TCP data")
 
@@ -423,7 +423,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
             if r is not None:
                 if "connection" in r.headers and r.headers["connection"] == "close":
                     close_connection = True
-                    # TODO TCPIPConnection to implement close()
+                    # TODO TCPConnection to implement close()
                     #conn.close()
                     print("Closing TCP connection due to header: Connection: close")
                     connect()
@@ -440,11 +440,11 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
             else:
                 break
 
-    def on_tcp_error(conn: net.TCPIPConnection, error: str) -> None:
+    def on_tcp_error(conn: net.TCPConnection, error: str) -> None:
         #print("There was an error:", error, " from:", conn)
         on_error(self, error)
 
-    var conn: net.TCPIPConnection = net.TCPIPConnection(auth, address, port, on_tcp_connect, on_tcp_receive, on_tcp_error)
+    var conn: net.TCPConnection = net.TCPConnection(auth, address, port, on_tcp_connect, on_tcp_receive, on_tcp_error)
 
     def get(path: str, on_response: action(Client, Response) -> None):
         req = build_request(address, b"GET", path.encode(), b"1.1", {}, b"")
