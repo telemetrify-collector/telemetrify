@@ -95,7 +95,7 @@ def addr_to_eobject(addr: str) -> EObject:
 # #       e.g. for testing or session recording/replay.
 # #       Interfaces/protocols for actors?
 actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
-    listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
+    listen_cap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
     input_stream: BufferReader = BufferReader()
     var recv_bytes_total: int = 0
 
@@ -103,7 +103,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
     var user_recv_queue: Queue[proc() -> ?value] = Queue()
 
     # Workaround compiler ordering issue
-    var conn: ?net.TCPIPConnection = None
+    var conn: ?net.TCPConnection = None
 
     def _write(data: bytes):
         print("CdbConnection TCP send:", data)
@@ -246,7 +246,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
         after 1: _reconnect()
 
     def _new_connection():
-        return net.TCPIPConnection(listen_auth, "127.0.0.1", port, _on_tcp_connect, _on_tcp_receive, _on_tcp_error)
+        return net.TCPConnection(listen_cap, "127.0.0.1", port, _on_tcp_connect, _on_tcp_receive, _on_tcp_error)
 
     def _reconnect():
         conn = _new_connection()
