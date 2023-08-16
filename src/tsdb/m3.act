@@ -24,11 +24,14 @@ class Metric(object):
 actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
 
     def _on_connect(client: tsdb.http.Client):
+        print("TSDB HTTP client connected!")
         await async on_connect(self)
 
     def _on_error(client: tsdb.http.Client, error: str):
+        print("TSDB HTTP client connection failed!")
         await async on_error(self, error)
 
+    print("Launching TSDB HTTP client")
     http_client = tsdb.http.Client(auth, address, port, _on_connect, _on_error)
 
     def quick_init(on_response: action(Client, bool) -> None):
