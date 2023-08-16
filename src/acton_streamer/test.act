@@ -418,60 +418,90 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         print("NETCONF client failed:", e)
         await async env.exit(1)
 
+    def dumb_push(cursor, name):
+        """Stupid cursor.push() working around some problem
+        """
+        # The cursor.push can take an ITag and try to look it up into an HTag.
+        # This fails, seemingly because the schema we are working on
+        # (urn:junos-rpc) isn't in the NamespaceMaps, not sure why. We hack
+        # around it by just iterating over HTags instead, get the corresponding
+        # ITag, check the name and boom!
+        for k,v in cursor.node().children.items():
+            itag = cursor.lookup_itag(k)
+            if itag is not None:
+                if itag.name == name:
+                    cursor.push(k)
+                    return True
+        return False
+
+    def print_children(cursor):
+        for k,v in cursor.node().children.items():
+            itag = cursor.lookup_itag(k)
+            if itag is not None:
+                print("child name:", itag.name)
+
     def _on_tsdb_connect(c, schema):
         print("TSDB connected!")
         print("Current time:", time.now())
-        cursor = Cursor(schema)
-	cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
-        cursor.push(ITag(None, "device"))
-        cursor.push(ITag(None, "rpc"))
-        print("Cursor push rpc-get-interface-information:", cursor.push(ITag("http://xml.juniper.net/xnm/1.1/xnm", "rpc-get-interface-information")))
-        cursor.push(ITag(None, "output"))
-        print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
-        for tag in cursor.node().children.keys():
-            itag = cursor.lookup_itag(cursor.node().children[tag].tag)
-            print("Cursor child:", itag)
-            #if itag is ITag:
-            #    print("Cursor child:", itag)
-            #    if cursor.push(itag):
-            #        print("Cursor child pushed ITag:", cursor.lookup_itag(cursor.node().tag))
-            #        cursor.pop()
-            #    else:
-            #        print("Cursor child ITag push failed")
-            #if ptag.prefix is not None:
-            #     print("Child namespace:", ptag.prefix)
-            #else:
-            #     print("No child namespace")
-        writer = acton_streamer.tsdb.writer.TSDBWriter(c, cursor)
-        print(cursor.node().tag)
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
 
-        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, writer), _on_nc_error, None)
+        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, schema, writer), _on_nc_error, None)
 
     def _on_tsdb_error(c, e):
         print("TSDB client failed: ", e)
         await async env.exit(1)
 
-    def _on_vmx_connect(c, writer):
+    def _on_vmx_connect(c, schema, writer):
         print("NETCONF client connected!!!!")
 
-        # n = \
-        #     xml.Node("get-bgp-summary-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
         n = \
-            xml.Node("get-bridge-instance-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+            xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
 
-        # print("Calling rpc:\n", xml.encode(n))
+        # Reply looks roughly like:
+        # <rpc-reply xmlns:junos="http://xml.juniper.net/junos/23.1R0/junos">
+        #   <interface-information xmlns="http://xml.juniper.net/junos/23.1R0/junos-interface" junos:style="normal">
+        #     <physical-interface>
+        #       <name>ge-0/0/0</name>
+        #       <traffic-statistics junos:style="verbose">
+        #         <input-bytes>123</input-bytes>
+        #         <output-bytes>456</output-bytes>
+        #         <input-packets>789</input-packets>
+        #         <output-packets>1337</output-packets>
+        #       </traffic-statistics>
+        #     </physical-interface>
+        #   </interface-information>
+        # </rpc-reply>
 
-        c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, writer))
+        # Which RPC was called is not present in the RPC reply so we have to
+        # keep track of that information separately. Thus since we know we just
+        # polled rpc-get-interface-information we build a cursor that starts at
+        # its schema and pass along...
+        cursor = Cursor(schema)
+        cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
+        cursor.push(ITag(None, "device"))
+        cursor.push(ITag(None, "rpc"))
+        dumb_push(cursor, "rpc-get-interface-information")
+        cursor.push(ITag(None, "get-interface-information"))
+        # It appears the 'output' node under the rpc definition in the YANG
+        # model doesn't show up in the schema here, so under the rpc we find
+        # both the input and output nodes - does that mean there are possibly
+        # naming collisions between input and output? Anyway, no push into
+        # 'output' but rather 'interface-information' which is the only node
+        # under the rpc output section. It's the top node in the RPC reply, so
+        # we leave the cursor at get-interface-information.
+        print(cursor.push(ITag(None, "interface-information")))
+        print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
+        print_children(cursor)
 
-    def _on_rpc_reply(c, n: xml.Node, writer):
+        c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor, writer))
+
+    def _on_rpc_reply(c, n: xml.Node, s_cursor, writer):
         print("Received reply:\n", xml.encode(n))
         xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
        
         print("RPC XNode:", xnode)
 
-        await async env.exit(0)
-
-        writer.write(xnode, _on_writer_done)
+        writer.write(xnode, s_cursor, _on_writer_done)
 
     def _on_writer_done(c, e):
         if e is None:

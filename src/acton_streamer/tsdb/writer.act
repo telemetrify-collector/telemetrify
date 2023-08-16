@@ -24,9 +24,8 @@ def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -
     else:
         return []
 
-actor TSDBWriter(m3c: tsdb.m3.Client, _cursor: schema.Cursor):
+actor TSDBWriter(m3c: tsdb.m3.Client):
 
-    
     var write_tasks = Queue()
 
     # Current write task
@@ -34,13 +33,12 @@ actor TSDBWriter(m3c: tsdb.m3.Client, _cursor: schema.Cursor):
     var result_cb: ?(action(?Exception) -> None) = None
     var state: int = _STATE_IDLE
     var work_stack: list[(value, int)] = [] # list[(v: value, _parent_state: int)]
-    var cursor: schema.Cursor = _cursor
     var epath: list[EObject] = [] # EKeypath
     var eparams: list[EObject] = []
     var pending_mount_id: ?HTag = None
 
     #def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
-    def write(node: Node, result_cb: action(TSDBWriter, ?Exception) -> None):
+    def write(node: Node, cursor: schema.Cursor, result_cb: action(TSDBWriter, ?Exception) -> None):
         #result_cb(Exception("Not Implemented"))
         write_tasks.append((node, result_cb))
         if state == _STATE_IDLE:
