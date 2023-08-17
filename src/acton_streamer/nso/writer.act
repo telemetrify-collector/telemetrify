@@ -325,7 +325,9 @@ actor MaapiWriter(mc: MaapiConnection, _schema: schema.Schema):
             _call_set_values()
 
     #def _extend_work_stack[T](items: Iterable[T], created_parent: bool):
-    def _extend_work_stack[T](items: list[T], parent_state: int):
+    # TODO: debug actonc to figure out why generics do not work here
+    #def _extend_work_stack[T](items: list[T], parent_state: int):
+    def _extend_work_stack(items: list[Node], parent_state: int):
         for item in reversed(items):
             work_stack.append((item, parent_state))
 
