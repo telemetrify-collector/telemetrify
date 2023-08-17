@@ -7,7 +7,10 @@ import tsdb.m3
 
 _STATE_IDLE = 0
 
-def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -> list[tsdb.m3.Metric]:
+def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], tags: list[(str, str)]) -> list[tsdb.m3.Metric]:
+    s_node = cursor.node()
+
+    print("Metric conversion at tags:", node.tag(), s_node.tag)
     if isinstance(node, XLeaf):
         val = node.value()
         if isinstance(val, float):
@@ -19,7 +22,7 @@ def get_metrics_from_tree(node: Node, path: list[str], tags: list[(str, str)]) -
     elif isinstance(node, XTree):
         ret = []
         for child in node.children():
-            ret += get_metrics_from_tree(child, path, tags)
+            ret += get_metrics_from_tree(child, cursor, path, tags)
         return ret
     else:
         return []
@@ -39,10 +42,11 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
 
     #def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
     def write(node: Node, cursor: schema.Cursor, result_cb: action(TSDBWriter, ?Exception) -> None):
+        print("Metrics to write: ", get_metrics_from_tree(node, cursor, [], []))
         #result_cb(Exception("Not Implemented"))
-        write_tasks.append((node, result_cb))
-        if state == _STATE_IDLE:
-            _poll()
+        #write_tasks.append((node, result_cb))
+        #if state == _STATE_IDLE:
+        #    _poll()
         #result_cb(self, None)
 
     def _reset():

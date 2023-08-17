@@ -19,7 +19,7 @@ class Metric(object):
         self.value = value
 
     def __str__(self):
-        return "<tsdb.Request " + str(self.name) + " " + str(self.value) + ">"
+        return "<tsdb.Metric" + str(self.name) + " " + str(self.value) + " " + str(self.tags) + ">"
 
 actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
 
