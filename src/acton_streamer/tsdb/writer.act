@@ -7,10 +7,11 @@ import tsdb.m3
 
 _STATE_IDLE = 0
 
-def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], tags: list[(str, str)]) -> list[tsdb.m3.Metric]:
+def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], tags: list[list[(str, str)]]) -> list[tsdb.m3.Metric]:
     s_node = cursor.node()
 
-    print("Metric conversion at tags:", node.tag(), s_node.tag)
+    print("Metric conversion at tags:", node.tag(), cursor.lookup_itag(s_node.tag))
+    print("Metric conversion schema keys", cursor.lookup_itag(s_node.tag), "-", s_node.keys, cursor.lookup_itag(s_node.keys[0].tag))
     if isinstance(node, XLeaf):
         val = node.value()
         if isinstance(val, float):
@@ -21,8 +22,19 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
             return []
     elif isinstance(node, XTree):
         ret = []
+        key_names = []
+        for key in s_node.keys:
+            itag = cursor.lookup_itag(key.tag)
+            if isinstance(itag, ITag):
+                print("Metric conversion key itag:", itag)
+                key_names.append(itag.name)
+        print("Metric conversion key names", key_names)
         for child in node.children():
-            ret += get_metrics_from_tree(child, cursor, path, tags)
+            tag = child.tag()
+            if isinstance(tag, Tag):
+                #cursor.push(child.tag())
+                ret += get_metrics_from_tree(child, cursor, path, tags)
+                #cursor.pop()
         return ret
     else:
         return []
