@@ -490,7 +490,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         # under the rpc output section. It's the top node in the RPC reply, so
         # we leave the cursor at get-interface-information.
         print(cursor.push(ITag(None, "interface-information")))
-        print(cursor.push(ITag(None, "physical-interface")))
+        #print(cursor.push(ITag(None, "physical-interface")))
         print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
         print_children(cursor)
 

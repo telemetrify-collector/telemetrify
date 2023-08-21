@@ -7,11 +7,28 @@ import tsdb.m3
 
 _STATE_IDLE = 0
 
+def dumb_push(cursor, name):
+    """Stupid cursor.push() working around some problem
+    """
+    # The cursor.push can take an ITag and try to look it up into an HTag.
+    # This fails, seemingly because the schema we are working on
+    # (urn:junos-rpc) isn't in the NamespaceMaps, not sure why. We hack
+    # around it by just iterating over HTags instead, get the corresponding
+    # ITag, check the name and boom!
+    for k,v in cursor.node().children.items():
+        itag = cursor.lookup_itag(k)
+        if itag is not None:
+            if itag.name == name:
+                cursor.push(k)
+                return True
+    return False
+
 def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], tags: list[list[(str, str)]]) -> list[tsdb.m3.Metric]:
     s_node = cursor.node()
 
     print("Metric conversion at tags:", node.tag(), cursor.lookup_itag(s_node.tag))
-    print("Metric conversion schema keys", cursor.lookup_itag(s_node.tag), "-", s_node.keys, cursor.lookup_itag(s_node.keys[0].tag))
+    if len(s_node.keys) > 0:
+        print("Metric conversion schema keys", cursor.lookup_itag(s_node.tag), "-", s_node.keys, cursor.lookup_itag(s_node.keys[0].tag))
     if isinstance(node, XLeaf):
         val = node.value()
         if isinstance(val, float):
@@ -32,9 +49,11 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
         for child in node.children():
             tag = child.tag()
             if isinstance(tag, Tag):
-                #cursor.push(child.tag())
-                ret += get_metrics_from_tree(child, cursor, path, tags)
-                #cursor.pop()
+                itag = cursor.lookup_itag(tag)
+                if itag is not None:
+                    dumb_push(cursor, itag.name)
+                    ret += get_metrics_from_tree(child, cursor, path, tags)
+                    cursor.pop()
         return ret
     else:
         return []
