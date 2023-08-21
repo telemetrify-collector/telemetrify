@@ -46,14 +46,32 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
                 print("Metric conversion key itag:", itag)
                 key_names.append(itag.name)
         print("Metric conversion key names", key_names)
+        keyval_pairs = []
+        non_key_children = []
         for child in node.children():
             tag = child.tag()
             if isinstance(tag, Tag):
                 itag = cursor.lookup_itag(tag)
                 if itag is not None:
+                    if itag.name in key_names:
+                        val = child.value()
+                        if val is not None:
+                            keyval_pairs.append(("_".join(path) + "_" + itag.name, str(val)))
+                    else:
+                        non_key_children.append(child)
+
+        tags.append(keyval_pairs)
+        for child in non_key_children:
+            tag = child.tag()
+            if isinstance(tag, Tag):
+                itag = cursor.lookup_itag(tag)
+                if itag is not None:
+                    path.append(itag.name)
                     dumb_push(cursor, itag.name)
                     ret += get_metrics_from_tree(child, cursor, path, tags)
                     cursor.pop()
+        tags.pop(-1)
+            
         return ret
     else:
         return []
