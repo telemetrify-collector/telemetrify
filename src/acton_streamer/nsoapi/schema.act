@@ -380,7 +380,7 @@ class NamespaceDescription:
     @property
     ns_hash: int
     @property
-    revision: str
+    revision: ?str
     @property
     module: str
 
@@ -389,7 +389,7 @@ class NamespaceDescription:
             ns: str,
             prefix: str,
             ns_hash: int,
-            revision: str,
+            revision: ?str,
             module: str):
         self.cns = cns
         self.ns = ns
@@ -400,8 +400,8 @@ class NamespaceDescription:
 
     def __str__(self: NamespaceDescription) -> str:
         return "NamespaceDescription(" \
-            + self.cns + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
-            + self.revision + "," + self.module + ")"
+            + self.cns + "," + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
+            + optional_str(self.revision, "") + "," + self.module + ")"
 
     @staticmethod
     def from_ns_tuple(elems: list[EObject]) -> ?NamespaceDescription:
@@ -411,10 +411,10 @@ class NamespaceDescription:
             _ns_hash = elems[3]
             _revision = elems[4]
             _module = elems[5]
+            # Module name seems to be considered optional by java-api but lets require it (for 'proper' yang-modules) for now!
             if isinstance(_cns, EAtom) \
                     and isinstance(_prefix, EAtom) \
                     and isinstance(_ns_hash, EInt) \
-                    and isinstance(_revision, EBinary) \
                     and isinstance(_module, EBinary):
 
                 ns = _cns.val.split("#", 1)[-1]
@@ -424,7 +424,7 @@ class NamespaceDescription:
                     ns,
                     _prefix.val,
                     _ns_hash.val,
-                    str(_revision),
+                    str(_revision) if isinstance(_revision, EBinary) else None,
                     str(_module))
         return None
 
