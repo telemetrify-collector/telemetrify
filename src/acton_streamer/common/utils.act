@@ -118,6 +118,9 @@ def list_extend[T](target: list[T], source: Iterable[T]):
     for item in source:
         target.append(item)
 
+def optional_str[T](v: ?T, default: str) -> str:
+    return str(v) if v is not None else default
+
 pure def unsafe_list_append[T](target: list[T], item: T) -> None:
     """
     Used with care, e.g. when we want to append to a list owned within a pure function
