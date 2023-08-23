@@ -497,7 +497,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor, writer))
 
     def _on_rpc_reply(c, n: xml.Node, s_cursor, writer):
-        print("Received reply:\n", xml.encode(n))
+        #print("Received reply:\n", xml.encode(n))
         xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
        
         print("RPC XNode:", xnode)
