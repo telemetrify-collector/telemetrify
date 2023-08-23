@@ -30,14 +30,32 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
     if len(s_node.keys) > 0:
         print("Metric conversion schema keys", cursor.lookup_itag(s_node.tag), "-", s_node.keys, cursor.lookup_itag(s_node.keys[0].tag))
     if isinstance(node, XLeaf):
-        val = node.value()
-        if isinstance(val, float):
-            return [tsdb.m3.Metric("_".join(path), {}, val)]
-        elif isinstance(val, int):
-            return [tsdb.m3.Metric("_".join(path), {}, float(val))]
+        print("Metric conversion data node is XLeaf")
+        leafval = node.value()
+        floatval = None
+        _tag = node.tag()
+        if _tag is not None:
+            _itag = cursor.lookup_itag(_tag)
+            if _itag is not None:
+                print("Metric conversion data node XLeaf ITag name", _itag.name)
+                #print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval))
+                if leafval is not None:
+                    #print("Metric conversion data node XLeaf str value", str(leafval))
+                    print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval).strip("\n"))
+                    _type = s_node.value_type
+                    if _itag.name == "input-packets":
+                        print("Metric conversion data node XLeaf", _itag.name, "float value", float(str(leafval).strip("\n")))
+                        floatval = float(str(leafval).strip("\n"))
+            #if _type is not None:
+            #    print("Metric conversion data node XLeaf type str value", str(_type))
+            #    if isinstance(_type, schema.Decimal64Type):
+            #        print("Metric conversion data node XLeaf str value", str(leafval))
+        if floatval is not None:
+            return [tsdb.m3.Metric("_".join(path), {}, floatval)]
         else:
             return []
     elif isinstance(node, XTree):
+        print("Metric conversion data node is XTree")
         ret = []
         key_names = []
         for key in s_node.keys:
@@ -54,9 +72,9 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
                 itag = cursor.lookup_itag(tag)
                 if itag is not None:
                     if itag.name in key_names:
-                        val = child.value()
-                        if val is not None:
-                            keyval_pairs.append(("_".join(path) + "_" + itag.name, str(val)))
+                        childval = child.value()
+                        if childval is not None:
+                            keyval_pairs.append(("_".join(path) + "_" + itag.name, str(childval)))
                     else:
                         non_key_children.append(child)
 
@@ -66,14 +84,18 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
             if isinstance(tag, Tag):
                 itag = cursor.lookup_itag(tag)
                 if itag is not None:
-                    path.append(itag.name)
-                    dumb_push(cursor, itag.name)
-                    ret += get_metrics_from_tree(child, cursor, path, tags)
-                    cursor.pop()
+                    if dumb_push(cursor, itag.name):
+                        path.append(itag.name)
+                        ret += get_metrics_from_tree(child, cursor, path, tags)
+                        path.pop(-1)
+                        cursor.pop()
+                    else:
+                        print("Metric conversion tag not found in schema:", itag.name)
         tags.pop(-1)
             
         return ret
     else:
+        print("Metric conversion data node not XTree or XLeaf")
         return []
 
 actor TSDBWriter(m3c: tsdb.m3.Client):
@@ -96,7 +118,7 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
         #write_tasks.append((node, result_cb))
         #if state == _STATE_IDLE:
         #    _poll()
-        #result_cb(self, None)
+        result_cb(self, None)
 
     def _reset():
         prefix_epath = []
