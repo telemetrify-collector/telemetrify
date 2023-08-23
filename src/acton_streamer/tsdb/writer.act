@@ -23,6 +23,16 @@ def dumb_push(cursor, name):
                 return True
     return False
 
+def flatten_tags(tag_stack: list[list[(str, str)]]) -> dict[str, str]:
+    ret = {}
+
+    for tags in tag_stack:
+        for tag in tags:
+            pass
+            ret[tag.0] = tag.1
+
+    return ret
+
 def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], tags: list[list[(str, str)]]) -> list[tsdb.m3.Metric]:
     s_node = cursor.node()
 
@@ -51,6 +61,7 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
             #    if isinstance(_type, schema.Decimal64Type):
             #        print("Metric conversion data node XLeaf str value", str(leafval))
         if floatval is not None:
+            print("Metric conversion tags:", flatten_tags(tags))
             return [tsdb.m3.Metric("_".join(path), {}, floatval)]
         else:
             return []
@@ -74,7 +85,7 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
                     if itag.name in key_names:
                         childval = child.value()
                         if childval is not None:
-                            keyval_pairs.append(("_".join(path) + "_" + itag.name, str(childval)))
+                            keyval_pairs.append(("_".join(path).replace("-", "_", 100) + "_" + itag.name.replace("-", "_", 100), str(childval).strip("\n")))
                     else:
                         non_key_children.append(child)
 
