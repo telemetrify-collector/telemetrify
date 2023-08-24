@@ -1,5 +1,6 @@
 import file
 import net
+import time
 import tsdb.http
 import tsdb.m3
 
@@ -98,7 +99,7 @@ actor main(env):
         fake_ping = 15.0 + mod
 
         print("metric = tsdb.m3.Metric(\"fake_ping\", {\"id\": \"foo\"}, fake_ping)")
-        metric = tsdb.m3.Metric("fake_ping", {"id": "foo"}, fake_ping)
+        metric = tsdb.m3.Metric("fake_ping", {"id": "foo"}, fake_ping, time.time().second)
 
         print("m3.send_metric(", metric, ", ", on_response, ")")
         m3.send_metric(metric, on_response)

@@ -33,7 +33,7 @@ def flatten_tags(tag_stack: list[list[(str, str)]]) -> dict[str, str]:
 
     return ret
 
-def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], tags: list[list[(str, str)]]) -> list[tsdb.m3.Metric]:
+def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, path: list[str], tags: list[list[(str, str)]]) -> list[tsdb.m3.Metric]:
     s_node = cursor.node()
 
     print("Metric conversion at tags:", node.tag(), cursor.lookup_itag(s_node.tag))
@@ -44,6 +44,13 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
         leafval = node.value()
         floatval = None
         _tag = node.tag()
+        #_type = s_node.value_type
+
+        #if leafval is not None:
+        #    #print("Metric conversion data node XLeaf type str value", str(_type))
+        #    if isinstance(_type, schema.Decimal64Type):
+        #        print("Metric conversion data node XLeaf str value", str(leafval))
+
         if _tag is not None:
             _itag = cursor.lookup_itag(_tag)
             if _itag is not None:
@@ -52,17 +59,17 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
                 if leafval is not None:
                     #print("Metric conversion data node XLeaf str value", str(leafval))
                     print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval).strip("\n"))
-                    _type = s_node.value_type
+                    #_type = s_node.value_type
+                    #if _type is not None:
+                    #    print("Metric conversion data node XLeaf type str value", str(_type))
+                    #    if isinstance(_type, schema.Decimal64Type):
+                    #        print("Metric conversion data node XLeaf str value", str(leafval))
                     if _itag.name == "input-packets":
                         print("Metric conversion data node XLeaf", _itag.name, "float value", float(str(leafval).strip("\n")))
                         floatval = float(str(leafval).strip("\n"))
-            #if _type is not None:
-            #    print("Metric conversion data node XLeaf type str value", str(_type))
-            #    if isinstance(_type, schema.Decimal64Type):
-            #        print("Metric conversion data node XLeaf str value", str(leafval))
         if floatval is not None:
-            print("Metric conversion tags:", flatten_tags(tags))
-            return [tsdb.m3.Metric("_".join(path), {}, floatval)]
+            #print("Metric conversion tags:", flatten_tags(tags))
+            return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
         else:
             return []
     elif isinstance(node, XTree):
@@ -85,7 +92,7 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
                     if itag.name in key_names:
                         childval = child.value()
                         if childval is not None:
-                            keyval_pairs.append(("_".join(path).replace("-", "_", 100) + "_" + itag.name.replace("-", "_", 100), str(childval).strip("\n")))
+                            keyval_pairs.append(("_".join(path).replace("-", "_", None) + "_" + itag.name.replace("-", "_", None), str(childval).strip("\n")))
                     else:
                         non_key_children.append(child)
 
@@ -97,7 +104,7 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, path: list[str], ta
                 if itag is not None:
                     if dumb_push(cursor, itag.name):
                         path.append(itag.name)
-                        ret += get_metrics_from_tree(child, cursor, path, tags)
+                        ret += get_metrics_from_tree(child, cursor, timestamp, path, tags)
                         path.pop(-1)
                         cursor.pop()
                     else:
@@ -123,12 +130,19 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
     var pending_mount_id: ?HTag = None
 
     #def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
-    def write(node: Node, cursor: schema.Cursor, result_cb: action(TSDBWriter, ?Exception) -> None):
-        print("Metrics to write: ", get_metrics_from_tree(node, cursor, [], []))
-        #result_cb(Exception("Not Implemented"))
-        #write_tasks.append((node, result_cb))
-        #if state == _STATE_IDLE:
-        #    _poll()
+    def write(node: Node, cursor: schema.Cursor, timestamp: int, result_cb: action(TSDBWriter, ?Exception) -> None):
+        metrics = get_metrics_from_tree(node, cursor, timestamp, [], [])
+        print("Metrics to write: ", metrics)
+        #if len(metrics) > 0:
+        #    print("First metric to write: ", metrics[0])
+        #else:
+        #    print("No metrics to write")
+
+        print("About to iterate over metrics")
+        for metric in metrics:
+            print("Metric iteration")
+            print("Metric to write", metric)
+       
         result_cb(self, None)
 
     def _reset():
