@@ -507,8 +507,9 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         writer.write(xnode.children()[0], s_cursor, "interface_information", base_tags, time.time().second, _on_writer_done)
 
     def _on_writer_done(c, e):
+        print("TSDB writer done!")
         if e is None:
-            print("TSDB writer done!")
+            print("TSDB writer success!")
             await async env.exit(0)
         else:
             print("TSDB writer failed:", e)

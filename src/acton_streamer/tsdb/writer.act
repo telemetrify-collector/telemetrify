@@ -122,7 +122,6 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
 
     # Current write task
     var prefix_epath: list[EObject] = []
-    var result_cb: ?(action(?Exception) -> None) = None
     var state: int = _STATE_IDLE
     var work_stack: list[(value, int)] = [] # list[(v: value, _parent_state: int)]
     var epath: list[EObject] = [] # EKeypath
@@ -138,12 +137,32 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
         #else:
         #    print("No metrics to write")
 
+        def _on_response(c, success):
+            if success:
+                print("Metric send successful")
+            else:
+                print("Metric send failed")
+
+        def _on_last_response(c, success, cb: action(TSDBWriter, ?Exception) -> None):
+            if success:
+                print("Metric final send successful")
+            else:
+                print("Metric final send failed")
+
+            cb(self, None)
+
         print("About to iterate over metrics")
+        _remaining_metrics = len(metrics)
         for metric in metrics:
-            print("Metric iteration")
-            print("Metric to write", metric)
+            _remaining_metrics -= 1
+            #print("Metric iteration")
+            #print("Metric to write", metric)
+            if _remaining_metrics > 0:
+                m3c.send_metric(metric, _on_response)
+            else:
+                m3c.send_metric(metric, lambda c, s: _on_last_response(c, s, result_cb))
        
-        result_cb(self, None)
+        #result_cb(self, None)
 
     def _reset():
         prefix_epath = []
