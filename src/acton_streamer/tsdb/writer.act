@@ -54,24 +54,35 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
         if _tag is not None:
             _itag = cursor.lookup_itag(_tag)
             if _itag is not None:
-                print("Metric conversion data node XLeaf ITag name", _itag.name)
+                #print("Metric conversion data node XLeaf ITag name", _itag.name)
                 #print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval))
                 if leafval is not None:
                     #print("Metric conversion data node XLeaf str value", str(leafval))
                     print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval).strip("\n"))
-                    #_type = s_node.value_type
-                    #if _type is not None:
-                    #    print("Metric conversion data node XLeaf type str value", str(_type))
-                    #    if isinstance(_type, schema.Decimal64Type):
-                    #        print("Metric conversion data node XLeaf str value", str(leafval))
-                    if _itag.name == "input-packets":
-                        print("Metric conversion data node XLeaf", _itag.name, "float value", float(str(leafval).strip("\n")))
-                        floatval = float(str(leafval).strip("\n"))
-        if floatval is not None:
-            #print("Metric conversion tags:", flatten_tags(tags))
-            return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
-        else:
-            return []
+                    _type = s_node.value_type
+                    if _type is not None:
+                        print("Metric conversion", _itag.name, "schema type is", str(_type))
+                        if isinstance(leafval, str):
+                            nativeval = _type.netconf_to_value(leafval, cursor, node.namespaces())
+                            if nativeval is not None:
+                                 print("Metric conversion data node XLeaf type native value", str(nativeval))
+                                 if isinstance(nativeval, int):
+                                     return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), float(nativeval), timestamp)]
+                                 elif isinstance(nativeval, float):
+                                     return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), nativeval, timestamp)]
+                        #if isinstance(_type, schema.Decimal64Type):
+                        #    print("Metric conversion data node XLeaf str value", str(leafval))
+                    else:
+                        print("Metric conversion", _itag.name, "schema type is None")
+                    #if _itag.name == "input-packets":
+                    #    print("Metric conversion data node XLeaf", _itag.name, "float value", float(str(leafval).strip("\n")))
+                    #    floatval = float(str(leafval).strip("\n"))
+        #if floatval is not None:
+        #    #print("Metric conversion tags:", flatten_tags(tags))
+        #    return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
+        #else:
+        #    return []
+        return []
     elif isinstance(node, XTree):
         print("Metric conversion data node is XTree")
         ret = []
@@ -153,10 +164,15 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
 
         print("About to iterate over metrics")
         _remaining_metrics = len(metrics)
+
+        if _remaining_metrics == 0:
+           result_cb(self, None)
+
         for metric in metrics:
             _remaining_metrics -= 1
             #print("Metric iteration")
             #print("Metric to write", metric)
+            # XXX This is really a race condition, to fix later
             if _remaining_metrics > 0:
                 m3c.send_metric(metric, _on_response)
             else:
