@@ -1,4 +1,5 @@
 import xml
+import re
 from acton_streamer.common.mod import *
 from acton_streamer.common.utils import *
 from acton_streamer.nsoapi.proto import *
@@ -74,6 +75,13 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                         #    print("Metric conversion data node XLeaf str value", str(leafval))
                     else:
                         print("Metric conversion", _itag.name, "schema type is None")
+ 
+                        trimmed_strval = str(leafval).strip("\n")
+                        floatval = try_parse_float(trimmed_strval)
+                        if floatval is not None:
+                            return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
+                        else:
+                            print("Metric conversion", _itag.name, "value cannot convert to float.")
                     #if _itag.name == "input-packets":
                     #    print("Metric conversion data node XLeaf", _itag.name, "float value", float(str(leafval).strip("\n")))
                     #    floatval = float(str(leafval).strip("\n"))
