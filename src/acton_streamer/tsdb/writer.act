@@ -64,12 +64,14 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                     if _type is not None:
                         print("Metric conversion", _itag.name, "schema type is", str(_type))
                         if isinstance(leafval, str):
-                            nativeval = _type.netconf_to_value(leafval, cursor, node.namespaces())
+                            nativeval = _type.netconf_to_value(leafval.strip("\n"), cursor, node.namespaces())
                             if nativeval is not None:
                                  print("Metric conversion data node XLeaf type native value", str(nativeval))
                                  if isinstance(nativeval, int):
+                                     print("Metric conversion data node XLeaf type int")
                                      return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), float(nativeval), timestamp)]
                                  elif isinstance(nativeval, float):
+                                     print("Metric conversion data node XLeaf type float")
                                      return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), nativeval, timestamp)]
                         #if isinstance(_type, schema.Decimal64Type):
                         #    print("Metric conversion data node XLeaf str value", str(leafval))
