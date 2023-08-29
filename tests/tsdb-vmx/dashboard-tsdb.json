@@ -16,7 +16,7 @@
         },
         "refId": "A",
         "editorMode": "builder",
-        "expr": "interfaces_interface_statistics_in_octets",
+        "expr": "interface_information_physical_interface_traffic_statistics_output_packets",
         "legendFormat": "__auto",
         "range": true
       }
