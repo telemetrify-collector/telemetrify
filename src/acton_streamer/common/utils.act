@@ -118,6 +118,12 @@ def list_extend[T](target: list[T], source: Iterable[T]):
     for item in source:
         target.append(item)
 
+def list_str[T](a: list[T]) -> str:
+    l: list[str] = []
+    for x in a:
+        unsafe_list_append(l, str(x))
+    return "[" + ", ".join(l) + "]"
+
 def optional_str[T](v: ?T, default: str) -> str:
     return str(v) if v is not None else default
 
