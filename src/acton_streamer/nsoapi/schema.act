@@ -693,8 +693,16 @@ class Type(object):
         self.parent_type = parent_type
         self.conf_type = conf_type
 
-    # def __str__(self) -> str:
-    #     return "type " + str(self.type_id)
+    def __str__(self) -> str:
+        return "Type(" + self.__str_common() + ")"
+
+    def __str_common(self) -> str:
+        parent_type_id = "None"
+        _parent_type = self.parent_type
+        if _parent_type is not None:
+            parent_type_id = str(_parent_type.type_id)
+        return str(self.type_id) + ", " + parent_type_id \
+            + ", " + optional_str(self.conf_type, "None")
 
     @staticmethod
     def builtin_types() -> dict[TypeId, Type]:
@@ -904,7 +912,7 @@ class EnumType(Type):
         self.ordinal_to_name = _ordinal_to_name
 
     def __str__(self: EnumType) -> str:
-        return Type.__str__(self) + " enum " + str(self.name_to_ordinal)
+        return "EnumType(" + self.__str_common() + "," + str(self.name_to_ordinal) + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -965,6 +973,9 @@ class UnionType(Type):
         self.parent_type = parent_type
         self.types = types
 
+    def __str__(self: UnionType) -> str:
+        return "UnionType(" + self.__str_common() + "," + list_str(self.types) + ")"
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
         if isinstance(opaque, EList):
@@ -972,16 +983,16 @@ class UnionType(Type):
             for _elem in reversed(opaque.elems):
                 if isinstance(_elem, ETuple):
                     _elems = _elem.elems
-                    if len(_elems) == 3:
+                    if len(_elems) == 2:
                         _ns_hash = _elems[0]
                         _name = _elems[1]
                         if isinstance(_ns_hash, EInt) and isinstance(_name, EAtom):
-                            type_id = TypeId(_ns_hash.val, str(_name))
-                            t = try_get(types, type_id)
+                            utype_id = TypeId(_ns_hash.val, str(_name))
+                            t = try_get(types, utype_id)
                             if t is not None:
                                 utypes.append(t)
                             else:
-                                print("WARNING: Invalid schema union member type_id ref:", type_id)
+                                print("WARNING: Invalid schema union member type_id ref:", utype_id)
             return UnionType(type_id, parent_type, utypes)
         return None
 
@@ -1508,9 +1519,11 @@ actor SchemaBuilder():
                         print("WARNING: Invalid key node id for schema node_id:", node_id)
                 tag = _make_tag(raw_node.ns_hash, raw_node.tag_hash)
                 type_descr: ?Type = None
-                type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
-                if type_id:
+                if raw_node.type_name:
+                    type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
                     type_descr = try_get(types, type_id)
+                    if type_descr is None:
+                        print("WARNING: missing type descriptor for: " + str(type_id))
                 node = Node(
                     tag,
                     raw_node.min_occurs,
