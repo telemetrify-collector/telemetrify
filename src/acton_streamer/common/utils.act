@@ -147,7 +147,7 @@ class Pair[A, B]:
         self.b = b
 
 def try_parse_int(s: str) -> ?int:
-    s = s.strip(" \t")
+    s = s.strip(" \t\n")
 
     v = 0
     sign = 1
@@ -177,7 +177,7 @@ def try_parse_int(s: str) -> ?int:
     return sign * v
 
 def try_parse_float(s: str) -> ?float:
-    s = s.strip(" \t")
+    s = s.strip(" \t\n")
 
     p = s.split('e', -1)
     plen = len(p)
