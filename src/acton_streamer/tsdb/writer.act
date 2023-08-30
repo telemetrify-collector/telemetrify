@@ -45,20 +45,11 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
         leafval = node.value()
         floatval = None
         _tag = node.tag()
-        #_type = s_node.value_type
-
-        #if leafval is not None:
-        #    #print("Metric conversion data node XLeaf type str value", str(_type))
-        #    if isinstance(_type, schema.Decimal64Type):
-        #        print("Metric conversion data node XLeaf str value", str(leafval))
 
         if _tag is not None:
             _itag = cursor.lookup_itag(_tag)
             if _itag is not None:
-                #print("Metric conversion data node XLeaf ITag name", _itag.name)
-                #print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval))
                 if leafval is not None:
-                    #print("Metric conversion data node XLeaf str value", str(leafval))
                     print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval).strip("\n"))
                     _type = s_node.value_type
                     if _type is not None:
@@ -73,8 +64,6 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                                  elif isinstance(nativeval, float):
                                      print("Metric conversion data node XLeaf type float")
                                      return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), nativeval, timestamp)]
-                        #if isinstance(_type, schema.Decimal64Type):
-                        #    print("Metric conversion data node XLeaf str value", str(leafval))
                     else:
                         print("Metric conversion", _itag.name, "schema type is None")
  
@@ -84,14 +73,6 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                             return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
                         else:
                             print("Metric conversion", _itag.name, "value cannot convert to float.")
-                    #if _itag.name == "input-packets":
-                    #    print("Metric conversion data node XLeaf", _itag.name, "float value", float(str(leafval).strip("\n")))
-                    #    floatval = float(str(leafval).strip("\n"))
-        #if floatval is not None:
-        #    #print("Metric conversion tags:", flatten_tags(tags))
-        #    return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
-        #else:
-        #    return []
         return []
     elif isinstance(node, XTree):
         print("Metric conversion data node is XTree")
