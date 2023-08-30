@@ -1,0 +1,117 @@
+import file
+import net
+import time
+import tsdb.http
+import tsdb.m3
+
+_OPT_RECORD_TO = '--record-to'
+
+_OPTS_HELP: dict[str, str] = {
+    _OPT_RECORD_TO: _OPT_RECORD_TO + " <filename>",
+}
+
+class Opts(object):
+    @property
+    record_to: ?file.WriteFile
+
+    def __init__(self):
+        self.record_to = None
+
+    def parse(self, env: Env, cmd: str, opts: list[str]) -> bool:
+        opts_len = len(opts)
+        i = 0
+        # while i < opts_len:
+        # Workaround actonc: Name i is not in scope
+        while True:
+            if i >= opts_len:
+                break
+            opt = opts[i]
+            if opt == _OPT_RECORD_TO:
+                i += 1
+                if i >= opts_len:
+                    return False
+                filepath: str = opts[i]
+                _record_to: ?file.WriteFile = file.WriteFile(file.WriteFileCap(file.FileCap(env.auth)), filepath)
+                self.record_to = _record_to
+            else:
+                return False
+            i += 1
+        return True
+
+actor main(env):
+    tests: dict[str, proc(Env, Opts) -> None] = {
+    }
+
+    args = env.argv
+    path: str = args[0]
+
+    #def print_help_and_exit():
+    #    print("usage:", path.split("/", -1)[-1], "[ " + " | ".join(tests.keys()) + " ] [ " + " | ".join(_OPTS_HELP.values()) + " ]")
+    #    await async env.exit(1)
+
+    #if len(args) >= 2:
+    #    cmd: str = args[1]
+    #    if cmd in tests:
+    #        opts = Opts()
+    #        if not opts.parse(env, cmd, args[2:]):
+    #            print_help_and_exit()
+    #        t = tests[cmd]
+    #        t(env, opts)
+    #    else:
+    #        print_help_and_exit()
+    #else:
+    #    print_help_and_exit()
+
+    #var reconnects = 0
+    #var outstanding = 0
+    #var count = 0
+
+    def on_response(conn: tsdb.m3.Client, success: bool):
+        if success:
+            print("M3 metric delivered successfully")
+        else:
+            print("Error sending M3 metric")
+
+    #def request_some(conn, n):
+    #    for i in range(0, n, 1):
+    #        conn.get("/" + str(i), on_response)
+    #        outstanding += 1
+
+    def on_connect(conn):
+        print("Connected")
+
+    def on_error(conn, err):
+        print("Error: " + err)
+
+    listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth)))
+    m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
+
+    #def on_init_response(conn: tsdb.m3.Client, success: bool):
+    #    print("Init response received: ", str(success))
+
+    #m3.quick_init(on_init_response)
+
+    def metric_iters(i: int) -> bool:
+        if i == 0:
+            return True
+
+        mod = float(i % 10)
+        fake_ping = 15.0 + mod
+
+        print("metric = tsdb.m3.Metric(\"fake_ping\", {\"id\": \"foo\"}, fake_ping)")
+        metric = tsdb.m3.Metric("fake_ping", {"id": "foo"}, fake_ping, time.time().second)
+
+        print("m3.send_metric(", metric, ", ", on_response, ")")
+        m3.send_metric(metric, on_response)
+
+        after 1: metric_iters(i - 1)
+        return True
+
+    foo = metric_iters(20)
+    print(str(foo))
+
+    def exit():
+        await async env.exit(0)
+
+    after 20: exit()
+    

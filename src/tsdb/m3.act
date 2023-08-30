@@ -1,0 +1,69 @@
+import acton.rts
+import file
+import net
+import json
+import time
+import tsdb.http
+
+class Metric(object):
+    @property
+    name: str
+    @property
+    tags: dict[str, str]
+    @property
+    value: float
+    @property
+    timestamp: int
+
+    def __init__(self, name: str, tags: dict[str, str], value: float, timestamp: int):
+        self.name = name
+        self.tags = tags
+        self.value = value
+        self.timestamp = timestamp
+
+    def __str__(self):
+        # XXX including str(self.timestamp) in this repr triggers a segfault for reasons unknown
+        return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
+
+actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
+
+    def _on_connect(client: tsdb.http.Client):
+        print("TSDB HTTP client connected!")
+        await async on_connect(self)
+
+    def _on_error(client: tsdb.http.Client, error: str):
+        print("TSDB HTTP client connection failed!")
+        await async on_error(self, error)
+
+    print("Launching TSDB HTTP client")
+    http_client = tsdb.http.Client(auth, address, port, _on_connect, _on_error)
+
+    def quick_init(on_response: action(Client, bool) -> None):
+        def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
+            print("HTTP response status: " + str(response.status))
+            print(response.body.decode())
+            await async on_response(self, response.status == 200)
+
+        json_dict = { "type": "local", "namespaceName": "default", "retentionTime": "12h" }
+        http_client.post("/api/v1/database/create", json.encode(json_dict).encode(), _on_response)
+
+    def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
+
+        mtags = {}
+        for k, v in metric.tags.items():
+            mtags[k] = v
+
+        mtags["__name__"] = metric.name
+        json_dict = { "tags": mtags, "value": metric.value }
+
+        json_dict["timestamp"] = str(metric.timestamp)
+        json_string = json.encode(json_dict)
+
+        def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
+            print("HTTP response status: " + str(response.status))
+            print(response.body.decode())
+            await async on_response(self, response.status == 200)
+
+        print(json_dict)
+        print(json_string)
+        http_client.post("/api/v1/json/write", json_string.encode(), _on_response)
