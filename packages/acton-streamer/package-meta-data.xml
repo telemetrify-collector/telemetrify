@@ -1,0 +1,6 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>acton-streamer</name>
+  <package-version>1.0</package-version>
+  <description>Streaming telemetry</description>
+  <ncs-min-version>5.8</ncs-min-version>
+</ncs-package>

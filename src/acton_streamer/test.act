@@ -143,13 +143,13 @@ actor test_maapi_session_schema(env: Env, opts: Opts):
             print("MAAPI user session failed:", e)
             await async env.exit(1)
 
-    def _on_load_schema(c, v):
-        if isinstance(v, Schema):
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!! ")
-            print(v)
+            print(shared_schema)
             c.end_user_session(_on_end_user_session)
         else:
-            print("MAAPI load schema failed:", v)
+            print("MAAPI load schema failed:", optional_str(e, "None"))
             await async env.exit(1)
 
     def _on_end_user_session(c, e):
@@ -324,17 +324,18 @@ actor test_writer(env: Env, opts: Opts):
             print("MAAPI user session failed:", e)
             await async env.exit(1)
 
-    def _on_load_schema(c, v):
-        if isinstance(v, Schema):
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!!")
-            print(v)
 
-            for _name, _hash in v._name_to_hash.items():
+            schema = unsafe_get_shared_schema(shared_schema)
+
+            for _name, _hash in schema._name_to_hash.items():
                 print(_name + " : " + str(_hash))
 
-            c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), lambda c, t: _on_start_trans(c, v, t))
+            c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), lambda c, t: _on_start_trans(c, shared_schema, t))
         else:
-            print("MAAPI load schema failed:", v)
+            print("MAAPI load schema failed:", optional_str(e, "None"))
             await async env.exit(1)
 
     def _on_start_trans(c, schema, thandle):
@@ -418,24 +419,22 @@ actor test_tsdb_writer(env: Env, opts: Opts):
             print("MAAPI user session failed:", e)
             await async env.exit(1)
 
-    def _on_load_schema(c, v):
-        if isinstance(v, Schema):
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            schema: Schema = unsafe_get_shared_schema(shared_schema)
             log.info("Current time:" + str(time.now()), None)
             log.info("MAAPI loaded schema!!!!", None)
-            log.debug("", {"schema": v})
+            log.debug("", {"schema": schema})
 
-            for _name, _hash in v._name_to_hash.items():
+            for _name, _hash in schema._name_to_hash.items():
                 log.debug(_name + " : " + str(_hash), None)
 
-            schema = v
-
             log.info("Starting TSDB client", None)
-            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error, log_handler)
-            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
-
+            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, shared_schema), _on_tsdb_error, log_handler)
+            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, shared_schema), _on_tsdb_error)
         else:
-            if isinstance(v, value):
-                log.error("MAAPI load schema failed:", {"schema": v})
+            if e is not None:
+                log.error("MAAPI load schema failed:", {"schema": e})
             else:
                 log.error("MAAPI load schema failed", None)
             await async env.exit(1)
@@ -466,22 +465,24 @@ actor test_tsdb_writer(env: Env, opts: Opts):
             if itag is not None:
                 print("child name:", itag.name)
 
-    def _on_tsdb_connect(c, schema):
+    def _on_tsdb_connect(c, shared_schema):
         print("TSDB connected!")
         print("Current time:", time.now())
 
-        c.quick_init(lambda c, s: _on_tsdb_init(c, schema))
+        c.quick_init(lambda c, s: _on_tsdb_init(c, shared_schema))
 
-    def _on_tsdb_init(c, schema):
-        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
-        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, schema, writer), _on_nc_error, None)
+    def _on_tsdb_init(c, shared_schema):
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c, shared_schema)
+        vmx_sess = acton_streamer.net.netconf.Client(env.auth, "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, shared_schema, writer), _on_nc_error, None)
 
     def _on_tsdb_error(c, e):
         log.error("TSDB client failed: " + str(e), None)
         await async env.exit(1)
 
-    def _on_vmx_connect(c, schema, writer):
+    def _on_vmx_connect(c, shared_schema, writer):
         log.info("NETCONF client connected!!!!", None)
+
+        schema = unsafe_get_shared_schema(shared_schema)
 
         n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
         # A single interface is easier to debug...
@@ -521,17 +522,25 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
         #print_children(cursor)
 
-        c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor, writer))
+        # actonc: Cannot solve W_11598 : T_11596x ($Wrapped[T_11591x, action]), mut < T_11596x
+        #c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor.get_schema_path(), writer))
+        def __on_rpc_reply(c, n):
+            _on_rpc_reply(c, n, cursor.get_schema_path(), writer)
+        c.rpc(n, [], __on_rpc_reply)
 
-    def _on_rpc_reply(c, n: xml.Node, s_cursor, writer):
+    def _on_rpc_reply(c, n: ?xml.Node, schema_path, writer):
         #print("Received reply:\n", xml.encode(n))
-        xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
-       
-        log.debug("RPC XNode:", {"xnode": xnode})
+        pass
+        if n is not None:
+            xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
 
-        base_tags = []
-        base_tags.append(("host", "vmx"))
-        writer.write(xnode, s_cursor, base_tags, time.time().second, _on_writer_done)
+            log.debug("RPC XNode:", {"xnode": xnode})
+
+            base_tags = []
+            base_tags.append(("host", "vmx"))
+            writer.write(xnode, schema_path, base_tags, time.time().second, _on_writer_done)
+        else:
+            print("RPC cancelled!")
 
     def _on_writer_done(c, e):
         print("TSDB writer done!")
@@ -552,8 +561,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     print("Starting up...")
     nso_sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
 
-    #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, _schema), _on_tsdb_error)
-    
+#     #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, _schema), _on_tsdb_error)
 
 actor test_netconf_client_nso(env: Env, opts: Opts):
     def _on_error(c, e):
@@ -583,15 +591,17 @@ actor test_netconf_client_nso(env: Env, opts: Opts):
 
         c.rpc(n, [], _on_rpc_reply)
 
-    def _on_rpc_reply(c, n: xml.Node):
-        print("Received reply:\n", xml.encode(n))
+    def _on_rpc_reply(c, n: ?xml.Node):
+        if n is not None:
+            print("Received reply:\n", xml.encode(n))
+        else:
+            print("Cancelled!")
 
     def _on_notif(c, n: xml.Node):
         print("Received notif:\n", xml.encode(n))
 
     print("Starting up...")
-    sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.cap), "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
-
+    sess = acton_streamer.net.netconf.Client(env.cap, "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
 
 actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
     def _on_error(c, e):
@@ -615,12 +625,16 @@ actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
 
         c.rpc(n, [], _on_rpc_reply)
 
-    def _on_rpc_reply(c, n: xml.Node):
-        print("Received reply:\n", xml.encode(n))
-        await async env.exit(0)
+    def _on_rpc_reply(c, n: ?xml.Node):
+        if n is not None:
+            print("Received reply:\n", xml.encode(n))
+            await async env.exit(0)
+        else:
+            print("Cancelled!")
+            await async env.exit(1)
 
     print("Starting up...")
-    sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.cap), "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
+    sess = acton_streamer.net.netconf.Client(env.cap, "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
 
 actor test_cdb_wait_start(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -683,14 +697,14 @@ actor test_etv_tnode(env: Env, opts: Opts):
         print("MAAPI connected!!!!")
         c.load_schema(_on_load_schema)
 
-    def _on_load_schema(c, v):
-        if isinstance(v, Schema):
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!!")
-            print(v)
+            schema = unsafe_get_shared_schema(shared_schema)
 
             root = TTree(OP_NONE, PTag.root(), None, {})
             def do_merge(etvs):
-                merge_root = etagvals_to_ttree(etvs, Cursor(v))
+                merge_root = etagvals_to_ttree(etvs, Cursor(schema))
                 if isinstance(merge_root, TTree):
                     print("Got ttree:\n" + str(merge_root))
                     root.merge(merge_root)
@@ -734,7 +748,7 @@ actor test_etv_tnode(env: Env, opts: Opts):
 
             await async env.exit(0)
         else:
-            print("MAAPI load schema failed:", v)
+            print("MAAPI load schema failed:", optional_str(e, "None"))
             await async env.exit(1)
 
     print("Starting up...")
@@ -748,15 +762,13 @@ actor test_subscriber(env: Env, opts: Opts):
         print("MAAPI connected!!!!")
         c.load_schema(_on_load_schema)
 
-    def _on_load_schema(c, v):
-        if isinstance(v, Schema):
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!!")
-            print(v)
-            shared_schema = acton_streamer.nsoapi.schema.SharedSchema(v)
             cdb_connection = acton_streamer.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, opts.record_to)
         else:
-            print("MAAPI load schema failed:", v)
+            print("MAAPI load schema failed:", optional_str(e, "None"))
             await async env.exit(1)
 
     def _on_cdb_connect_error(e):
@@ -771,8 +783,8 @@ actor test_subscriber(env: Env, opts: Opts):
     def _on_cdb_cmd_connect(sc, cc, s):
         print("CDB (cmd) connected!!!!")
         cache = acton_streamer.nso.subscriber.ConfigCache(sc, cc, s,
-            [DeviceAuthRefiner],
-            [([DeviceAuthRefiner.id()], _on_config_update)], _on_config_cache_error)
+            [DeviceSettingsRefiner],
+            [([DeviceSettingsRefiner.id()], _on_config_update)], _on_config_cache_error)
         #await async env.exit(0)
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]]):

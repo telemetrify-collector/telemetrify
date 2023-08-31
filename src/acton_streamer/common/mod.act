@@ -319,6 +319,14 @@ class Keypath:
                 return k
         return None
 
+    def try_slice(self, start: int, stop: int) -> ?Keypath:
+        if stop <= len(self):
+            #return self[index, slen]
+            return Keypath(self.path[start:stop])
+
+    def get_slice(self, start: int, stop: int) -> Keypath:
+        return Keypath(self.path[start:stop])
+
 extension Keypath(Collection[Id]):
     def __iter__(self) -> Iterator[Id]:
         return iter(self.path)
@@ -335,12 +343,48 @@ extension Keypath(Indexed[int, Id]):
     def __getitem__(self, index: int) -> Id:
         return self.path[index]
 
-    def __setitem__(self, index: int, _val: value) -> None:
+    def __setitem__(self, index: int, _val: Id) -> None:
         # TODO: Future FrozenIndexed protocol?
         raise Exception("Not implemented")
 
     def __delitem__(self, index: int) -> None:
         # TODO: Future FrozenIndexed protocol?
+        raise Exception("Not implemented")
+
+# extension Keypath(Sliceable[Keypath]):
+#     def __getitem__(self, index: int) -> Id:
+#         return Keypath([self.path.__getitem__(index)])
+
+#     def __setitem__(self, index: int, _val: Keypath) -> None:
+#         # TODO: Future FrozenIndexed protocol?
+#         raise Exception("Not implemented")
+
+#     def __delitem__(self, index: int) -> None:
+#         # TODO: Future FrozenIndexed protocol?
+#         raise Exception("Not implemented")
+
+#     def __getslice__(self, s: slice) -> Keypath:
+#         return Keypath(self.path.__getslice__(s))
+
+#     def __setslice__(self, s: slice, iterable: Iterable[Keypath]) -> None:
+#         # TODO: Future FrozenSliceable protocol?
+#         raise Exception("Not implemented")
+
+#     def __delslice__(self, s: slice) -> None:
+#         # TODO: Future FrozenSliceable protocol?
+#         raise Exception("Not implemented")
+
+extension Keypath(Plus):
+    def __add__(self, other):
+        return Keypath(self.path + other.path)
+
+    def __iadd__(self, other):
+        # ERROR: Error when compiling acton_streamer.common.mod module: Type error
+        # Cannot infer mut < pure
+        # self.path += other.path
+        # self.path.extend(other.path)
+        # return self
+        # TODO: Future FrozenPlus protocol?
         raise Exception("Not implemented")
 
 class KeypathBuilder(object):
@@ -457,8 +501,8 @@ class TNode(Node):
         self._op = op
         self._tag = tag
 
-    def iter(self) -> Iterator[TNode]:
-        return [].__iter__()
+    def __bool__(self) -> bool:
+        return self.exists()
 
     #
     # Node
@@ -473,6 +517,15 @@ class TNode(Node):
     #
     # TNode
     #
+
+    def iter(self) -> Iterator[TNode]:
+        return [].__iter__()
+
+    def has_children(self) -> bool:
+        return False
+
+    def key(self) -> ?Key:
+        return None
 
     def ttag(self) -> Tag:
         return self._tag
@@ -582,6 +635,9 @@ class TNode(Node):
         return None
 
     def try_oid(self) -> ?Oid:
+        return None
+
+    def try_keypath(self) -> ?Keypath:
         return None
 
     #
@@ -721,6 +777,13 @@ class TNode(Node):
         else:
             raise Exception("Invalid leaf value") # TODO: show path?
 
+    def req_keypath(self) -> Keypath:
+        _val = self.try_keypath()
+        if _val is not None:
+            return _val
+        else:
+            raise Exception("Invalid leaf value") # TODO: show path?
+
     #
     # Value or default
     #
@@ -797,6 +860,10 @@ class TNode(Node):
         _val = self.try_oid()
         return _val if _val is not None else default
 
+    def def_keypath(self, default: Keypath) -> Keypath:
+        _val = self.try_keypath()
+        return _val if _val is not None else default
+
 extension TNode(Indexed[Id, TNode]):
     def __getitem__(self, _id: Id) -> TNode:
         return self.go(_id)
@@ -825,6 +892,9 @@ class TTree(TNode):
         self._key = key
         self._children = children
 
+    def __bool__(self):
+        return self.exists() and self.has_children()
+
     def __str__(self) -> str:
         _tag = self.tag()
         s_tag = ", " + str(_tag) if _tag is not None else ""
@@ -836,12 +906,15 @@ class TTree(TNode):
 
         return "TTree(" + op_str(self.op()) + s_tag + s_keys + s_children + ")"
 
-    def iter(self) -> Iterator[TNode]:
-        return self._children.values()
-
     #
     # TNode
     #
+
+    def iter(self) -> Iterator[TNode]:
+        return self._children.values()
+
+    def has_children(self) -> bool:
+        return bool(self._children)
 
     def key(self) -> ?Key:
         return self._key
@@ -893,7 +966,7 @@ class TTree(TNode):
                         try_pop(self._children, child_id)
                     else:
                         self._children[child_id] = self_child.merge(other_child)
-                else:
+                elif other_child._op in [OP_MERGE, OP_REPLACE]:
                     self._children[child_id] = other_child._copy_deep(OP_NONE if self._op == OP_NONE else None)
 
             return self
@@ -1087,6 +1160,10 @@ class TLeaf(TNode):
     def try_oid(self) -> ?Oid:
         _val = self._value
         return _val if _val is not None and isinstance(_val, Oid) else None
+
+    def try_keypath(self) -> ?Keypath:
+        _val = self._value
+        return _val if _val is not None and isinstance(_val, Keypath) else None
 
     #
     # Node

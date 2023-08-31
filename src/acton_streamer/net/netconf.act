@@ -26,7 +26,7 @@ CAP_NC_1_1 = "urn:ietf:params:netconf:base:1.1"
 NS_NC_1_1 = "urn:ietf:params:xml:ns:netconf:base:1.0"
 NS_YANG_ACTION = "urn:ietf:params:xml:ns:yang:1"
 
-actor Client(auth: process.ProcessCap, address: str, port: int, username: str, password: ?str, key: ?str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, on_notif: ?action(Client, xml.Node) -> None):
+actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?str, key: ?str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, on_notif: ?action(Client, xml.Node) -> None):
     var framing = SEPARATOR_FRAMING
     var recv_buf = Buffer()
     var chunk_buf = Buffer()
@@ -35,7 +35,7 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
     var capabilities: list[str] = []
 
     var message_id = 1
-    var rpc_cbs: dict[str, action(Client, xml.Node) -> None] = {}
+    var rpc_cbs: dict[str, action(Client, ?xml.Node) -> None] = {}
 
     var p: ?process.Process = None
 
@@ -62,6 +62,16 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
     cmd += [address, "-s", "netconf"]
     #print("Try process: " + str(cmd))
 
+    def close() -> None:
+        _p = p
+        if _p is not None:
+            _p.stop()
+            p = None
+        for rpc_cb in rpc_cbs.values():
+            rpc_cb(self, None)
+        #rpc_cbs.clear()
+        rpc_cbs = {}
+
     def _send_message(data: Buffer) -> None:
         if p is not None:
             if framing == SEPARATOR_FRAMING:
@@ -85,9 +95,9 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
                     # else:
                     #     raise InternalError()
         else:
-            raise Exception("Internal error")
+            _on_session_defunct_error("Connection closed")
 
-    def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(Client, xml.Node) -> None) -> None:
+    def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(Client, ?xml.Node) -> None) -> None:
         message_id_text = str(message_id)
         message_id += 1
 
@@ -101,7 +111,7 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
         rpc_cbs[message_id_text] = callback
         _send_message(buf)
 
-    def rpc_action(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(Client, xml.Node) -> None) -> None:
+    def rpc_action(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(Client, ?xml.Node) -> None) -> None:
         action_node = xml.Node("action", [(None, NS_YANG_ACTION)], None, [], [content], None, None)
         rpc(action_node, add_rpc_attrs, callback)
 
@@ -161,7 +171,7 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
                 break
 
         if _msg_id is not None:
-            _cb: ?action(Client, xml.Node) -> None = try_pop(rpc_cbs, _msg_id)
+            _cb: ?action(Client, ?xml.Node) -> None = try_pop(rpc_cbs, _msg_id)
             if _cb is not None:
                 _cb(self, root)
             else:
@@ -188,7 +198,7 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
                 try_read = _on_chunked_msg_data()
             else:
                 try_read = False
-                _on_session_defunct_error("Not Implemented")
+                _on_session_defunct_error("Framing type " + str(framing) + ": Not Implemented")
 
     def _on_legacy_msg_data() -> bool:
         i = recv_buf.find_bytes(LEGACY_SEPARATOR_BYTES)
@@ -244,9 +254,10 @@ actor Client(auth: process.ProcessCap, address: str, port: int, username: str, p
         return False
 
     def _on_session_defunct_error(msg: str):
-        pass # TODO
+        close()
+        on_error(self, msg)
 
-    p = process.Process(auth, cmd, None, cmd_env, p_on_stdout, p_on_stderr, p_on_exit, p_on_error)
+    p = process.Process(process.ProcessCap(auth), cmd, None, cmd_env, p_on_stdout, p_on_stderr, p_on_exit, p_on_error)
     send_hello()
 
 class NsMaps(object):

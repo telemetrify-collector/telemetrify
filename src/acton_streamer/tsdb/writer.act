@@ -66,7 +66,7 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                                      return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), nativeval, timestamp)]
                     else:
                         print("Metric conversion", _itag.name, "schema type is None")
- 
+
                         trimmed_strval = str(leafval).strip("\n")
                         floatval = try_parse_float(trimmed_strval)
                         if floatval is not None:
@@ -112,13 +112,13 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                     else:
                         print("Metric conversion tag not found in schema:", itag.name)
         tags.pop(-1)
-            
+
         return ret
     else:
         print("Metric conversion data node not XTree or XLeaf")
         return []
 
-actor TSDBWriter(m3c: tsdb.m3.Client):
+actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
 
     var write_tasks = Queue()
 
@@ -130,8 +130,16 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
     var eparams: list[EObject] = []
     var pending_mount_id: ?HTag = None
 
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
+
     #def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
-    def write(node: Node, cursor: schema.Cursor, base_tags: list[(str, str)], timestamp: int, result_cb: action(TSDBWriter, ?Exception) -> None):
+    def write(node: Node, schema_path: ?schema.SchemaPath, base_tags: list[(str, str)], timestamp: int, result_cb: action(TSDBWriter, ?Exception) -> None):
+        cursor: schema.Cursor = schema.Cursor(_schema)
+        if schema_path is not None:
+            if not cursor.push_schema_path(schema_path):
+                print("Invalid schema path:", schema_path)
+                return
+
         path = []
 
         # Are we dealing with an RPC payload?
@@ -178,7 +186,7 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
                 m3c.send_metric(metric, _on_response)
             else:
                 m3c.send_metric(metric, lambda c, s: _on_last_response(c, s, result_cb))
-       
+
         #result_cb(self, None)
 
     def _reset():

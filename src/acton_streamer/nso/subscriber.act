@@ -49,6 +49,95 @@ extension Refiner(Hashable):
     def __hash__(self) -> int:
         return safe_hash(self.id() + 1000002043 * self.priority)
 
+def _get_subtree_path_keys(node: TNode, path: Keypath) -> list[Keypath]:
+    keys: list[Keypath] = []
+    curr_keys: list[Id] = []
+    stack: list[(TNode, int, int)] = []
+
+    stack.append((node, 0, 0))
+
+    path_len = len(path)
+
+    while stack:
+        n, path_index, curr_keys_len = list_pop(stack)
+
+        while len(curr_keys) > curr_keys_len:
+            list_pop(curr_keys)
+
+        if path_index < path_len:
+            key = n.key()
+            if key is not None:
+                curr_keys.append(key)
+                curr_keys_len += 1
+
+            _id = path[path_index]
+            if isinstance(_id, Key):
+                if _id.is_wildcard():
+                    children = list(n.iter())
+                    if children:
+                        for c in list_reversed(children):
+                            stack.append((c, path_index + 1, curr_keys_len))
+                else:
+                    c = n[_id]
+                    if c:
+                        stack.append((c, path_index + 1, curr_keys_len))
+            elif isinstance(_id, Tag):
+                c = n[_id]
+                if c.exists():
+                    stack.append((c, path_index + 1, curr_keys_len))
+        else:
+            keys.append(Keypath(list(curr_keys)))
+
+    return keys
+
+class PassthroughRefiner(Refiner):
+    @property
+    subtrees: dict[Keypath, TNode]
+
+    def __init__(self, subscription_path: Keypath):
+        self.priority = 0
+        self.subscription_dependencies = [subscription_path]
+        self.refiner_dependencies = []
+        self.subtrees = {}
+
+    def update(self, root: TNode, input_subs: dict[Keypath, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        _subtrees: dict[Keypath, TNode] = {}
+
+        sub_path = self.subscription_dependencies[0]
+        keys = input_subs[sub_path]
+
+        ancestor_deleted_keys = []
+
+        for key in keys:
+            key_index = 0
+            key_len = len(key)
+
+            node = root
+            #for _id in sub_path:
+            for path_index in range(0, len(sub_path), 1):
+                _id: Id = sub_path[path_index]
+                if isinstance(_id, Key) and _id.is_wildcard():
+                    if key_index < key_len:
+                        node = node[key[key_index]]
+                        key_index += 1
+                    else:
+                        #for deleted_key_tail in _get_subtree_path_keys(node, sub_path[path_index:]):
+                        for deleted_key_tail in _get_subtree_path_keys(node, sub_path.get_slice(path_index, len(sub_path))):
+                            ancestor_deleted_keys.append(key + deleted_key_tail)
+                        break
+                else:
+                    node = node[_id]
+
+            if node.exists():
+                _subtrees[key] = node
+
+        self.subtrees = _subtrees
+
+        return keys + ancestor_deleted_keys if ancestor_deleted_keys else keys
+
+    def state(self, keys: Keypath) -> ?value:
+        return try_get(self.subtrees, keys)
+
 def _get_subpath_num_keys(sub_path: Keypath) -> int:
     c = 0
     for _id in sub_path:
@@ -56,7 +145,7 @@ def _get_subpath_num_keys(sub_path: Keypath) -> int:
             c += 1
     return c
 
-def _get_subpath_keys(node: TNode, max_keys: int) -> list[Keypath]:
+def _get_subtree_keys(node: TNode, max_keys: int) -> list[Keypath]:
     """
         Invariant:
             Tree (node) is of a single subscription path where max_keys is the number of keys in that subscription path.
@@ -68,23 +157,32 @@ def _get_subpath_keys(node: TNode, max_keys: int) -> list[Keypath]:
 
     keys: list[Keypath] = []
     curr_keys: list[Id] = []
-    stack: list[TTree] = []
+    stack: list[(TTree, int)] = []
 
     if isinstance(node, TTree):
-        stack.append(node)
+        stack.append((node, 0))
 
         while stack:
-            n = list_pop(stack)
+            n, curr_keys_len = list_pop(stack)
+
+            while len(curr_keys) > curr_keys_len:
+                list_pop(curr_keys)
+
             key = n.key()
             if key is not None:
                 curr_keys.append(key)
                 if len(curr_keys) >= max_keys:
                     keys.append(Keypath(list(curr_keys)))
-                    list_pop(curr_keys)
                     continue
-            for c in list_reversed(list(n.iter())):
-                if isinstance(c, TTree):
-                    stack.append(c)
+                curr_keys_len += 1
+
+            children = list(n.iter())
+            if children:
+                for c in list_reversed(children):
+                    if isinstance(c, TTree):
+                        stack.append((c, curr_keys_len))
+            else:
+                keys.append(Keypath(list(curr_keys)))
     return keys
 
 actor ConfigCache(cdb_sub_conn: CdbConnection,
@@ -158,7 +256,8 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
                 sub_entry = try_get(_sub_ids, sub_id)
                 if sub_entry is not None:
                     sub_path, max_keys, refiners = sub_entry
-                    keys = _get_subpath_keys(merge_root, max_keys)
+                    #print("For: ", sub_path, "max_keys:", max_keys)
+                    keys = _get_subtree_keys(merge_root, max_keys)
                     #print("Got keys: " + list_str(keys))
                     updated_sub_paths[sub_path] = keys
                     for refiner in refiners:
@@ -291,7 +390,7 @@ actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_paths: set[Ke
             if ekp is not None:
                 cdb_sub_conn.subscribe(CDB_SUB_TYPE_RUNNING, 0, 0, ekp, lambda c, v: _on_subscribe(c, v, path))
             else:
-                on_error(ValueError("Invalid subscription path"))
+                on_error(ValueError("Invalid subscription path: " + str(path)))
         else:
             cdb_sub_conn.subscribe_done(_on_subscribe_done, sub_event_cb)
 
@@ -300,7 +399,7 @@ actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_paths: set[Ke
             _subscription_points[kp] = v
             _do_subscribe()
         else:
-            on_error(ValueError("Invalid subscription path"))
+            on_error(ValueError("Invalid subscription path: " + str(kp)))
 
     def _on_subscribe_done(c, e):
         if e is not None:

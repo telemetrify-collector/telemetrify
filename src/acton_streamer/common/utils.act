@@ -145,6 +145,17 @@ def try_discard[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
     else:
         return None
 
+#def get_or_create[A(Eq), B](m: Mapping[A, B], a: A, b: () -> B) -> B:
+#def get_or_create[A(Eq), B, M(Mapping[A, B], Indexed[A])](m: M, a: A, b: () -> B) -> B:
+def get_or_create[A(Hashable), B](m: dict[A, B], a: A, b: () -> B) -> B:
+    g: ?B = try_get(m, a)
+    if g is not None:
+        return g
+    #m[a] = c = b()
+    c: B = b()
+    m[a] = c
+    return c
+
 def mapping_str[A(Eq), B](m: Mapping[A, B]) -> str:
     l: list[str] = []
     #for k, v in m.items():
@@ -214,6 +225,19 @@ def set_update[T(Hashable)](target: set[T], source: Iterable[T]):
     for item in source:
         target.add(item)
 
+def set_difference[T(Hashable)](self: set[T], other: set[T]):
+    result = set([])
+    for item in self:
+        if item not in other:
+            result.add(item)
+    return result
+
+def set_str[T(Hashable)](a: set[T]) -> str:
+    l: list[str] = []
+    for x in a:
+        unsafe_list_append(l, str(x))
+    return "{" + ", ".join(l) + "}"
+
 def dict_list_append[K(Hashable), V](d: dict[K, list[V]], k: K, v: V):
     l = try_get(d, k)
     if l is not None:
@@ -281,7 +305,7 @@ class MinHeap[T(Ord)](object):
             has_right = right < items_len
             items[curr] = v
             while has_left and (v > items[left] or has_right and v > items[right]):
-                if items[left] < items[right] or not has_right:
+                if not has_right or items[left] < items[right]:
                     items[curr] = items[left]
                     items[left] = v
                     curr = left
@@ -358,7 +382,7 @@ class MinHeap_Ord2[T(Ord2)](object):
             #while has_left and (v > items[left] or has_right and v > items[right]):
             while has_left and (Ord2.gt(v, items[left]) or has_right and Ord2.gt(v, items[right])):
                 #if items[left] < items[right] or not has_right:
-                if Ord2.lt(items[left], items[right]) or not has_right:
+                if not has_right or Ord2.lt(items[left], items[right]):
                     items[curr] = items[left]
                     items[left] = v
                     curr = left
@@ -372,16 +396,20 @@ class MinHeap_Ord2[T(Ord2)](object):
                 has_right = right < items_len
         return retval
 
-class Pair[A, B]:
-    @property
-    a: A
-    @property
-    b: B
+# class HashableTuple2[A(Hashable), B(Hashable)]:
+#     @property
+#     a: A
+#     @property
+#     b: B
 
-    #def __init__(self, a: A, b: B): # actonc: Acton/Solver.hs:(197,1)-(222,51): Non-exhaustive patterns in function rank
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
+#     #def __init__(self, a: A, b: B): # actonc: Acton/Solver.hs:(197,1)-(222,51): Non-exhaustive patterns in function rank
+#     def __init__(self, a, b):
+#         self.a = a
+#         self.b = b
+
+# extension HashableTuple2(Hashable):
+#     __eq__(self, other) -> bool:
+
 
 def try_parse_int(s: str) -> ?int:
     s = s.strip(" \t\n")
