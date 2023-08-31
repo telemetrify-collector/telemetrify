@@ -54,6 +54,14 @@ C_XMLMOVEFIRST = 51 # ordered-by-user move first
 C_XMLMOVEAFTER = 52 # ordered-by-user move after
 
 #
+# More special conf types not part of confd/nso
+#
+C_START = 128 # eterm: EAtom('start')
+C_STOP = 129 # eterm: EAtom('stop')
+C_DELETE = 130 # eterm: EAtom('delete')
+C_LEAF = 131 # eterm: EAtom('leaf')
+
+#
 # Special conf values
 #
 
@@ -61,11 +69,19 @@ _EV_NOEXISTS = 'not_found'
 _EV_DEFAULT = 'default'
 _EV_TRUE = 'true'
 _EV_FALSE = 'false'
+_EV_START = 'start'
+_EV_STOP = 'stop'
+_EV_LEAF = 'leaf'
+_EV_DELETE = 'delete'
 
 E_NOEXISTS = EAtom(_EV_NOEXISTS)
 E_DEFAULT = EAtom(_EV_DEFAULT)
 E_TRUE = EAtom(_EV_TRUE)
 E_FALSE = EAtom(_EV_FALSE)
+E_START = EAtom(_EV_START)
+E_STOP = EAtom(_EV_STOP)
+E_LEAF = EAtom(_EV_LEAF)
+E_DELETE = EAtom(_EV_DELETE)
 
 #
 
@@ -83,293 +99,49 @@ class ConfDefault:
     def to_eobject(self) -> EObject:
         return E_DEFAULT
 
+class ConfStart:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_START
+
+class ConfStop:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_STOP
+
+class ConfDelete:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_DELETE
+
+class ConfLeaf:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_LEAF
+
 V_NOEXISTS: ?value = None # TODO: object() # 'not_found'
 V_DEFAULT = ConfDefault() # TODO: object() # 'default'
-
-def eobject_to_value(v: ?EObject) -> ?value:
-    _conf_type, _value = eobject_to_conf_type_and_value(v)
-    # TODO: How do we want to use this?
-    # if _conf_type == C_LIST:
-    #     ...
-    return _value
-
-def eobject_to_conf_type_and_value(v: ?EObject) -> (int, ?value):
-    """Schema-less mapping of Conf objects acton-streamer values"""
-    if isinstance(v, ETuple):
-        _elems = v.elems
-        _elems_len = len(_elems)
-        if _elems_len == 4:
-            _n0 = _elems[0]
-            _n1 = _elems[1]
-            _n2 = _elems[2]
-            _n3 = _elems[3]
-            if isinstance(_n0, EInt) and isinstance(_n1, EInt) and isinstance(_n2, EInt) and isinstance(_n3, EInt):
-                return (C_IPV4, IPv4Address((_n0.val, _n1.val, _n2.val, _n3.val)))
-        elif _elems_len == 8:
-            _n0 = _elems[0]
-            _n1 = _elems[1]
-            _n2 = _elems[2]
-            _n3 = _elems[3]
-            _n4 = _elems[4]
-            _n5 = _elems[5]
-            _n6 = _elems[6]
-            _n7 = _elems[7]
-            if isinstance(_n0, EInt) and isinstance(_n1, EInt) and isinstance(_n2, EInt) and isinstance(_n3, EInt) \
-                and isinstance(_n4, EInt) and isinstance(_n5, EInt) and isinstance(_n6, EInt) and isinstance(_n7, EInt):
-                return (C_IPV6, IPv6Address((_n0.val, _n1.val, _n2.val, _n3.val, _n4.val, _n5.val, _n6.val, _n7.val)))
-        elif _elems_len == 2:
-            _conf_type = _elems[0]
-            if isinstance(_conf_type, EInt):
-                _val = _elems[1]
-                conf_type = _conf_type.val
-                if conf_type in [C_INT8, C_INT16, C_INT64, C_UINT8, C_UINT16, C_UINT32, C_UINT64] and _elems_len == 2:
-                    if isinstance(_val, EInt):
-                        return (conf_type, _val.val)
-                elif conf_type == C_QNAME:
-                    # TODO: ns or prefix? Java-api seems to think it's a prefix but erlang-api calls it "ns". Assume prefix for now.
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 2:
-                            _prefix = _velems[0]
-                            _name = _velems[1]
-                            if isinstance(_prefix, EAtom) and isinstance(_name, EAtom):
-                                prefix = str(_prefix)
-                                return (conf_type, PTag(prefix if prefix != 'undefined' else None, str(_name)))
-                elif conf_type == C_DATETIME:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 9:
-                            _year = _velems[0]
-                            _month = _velems[1]
-                            _day = _velems[2]
-                            _hour = _velems[3]
-                            _minute = _velems[4]
-                            _second = _velems[5]
-                            _microsecond = _velems[6]
-                            _tz_h = _velems[7]
-                            _tz_m = _velems[8]
-                            if isinstance(_year, EInt) \
-                                    and isinstance(_month, EInt) \
-                                    and isinstance(_day, EInt) \
-                                    and isinstance(_hour, EInt) \
-                                    and isinstance(_minute, EInt) \
-                                    and isinstance(_second, EInt) \
-                                    and isinstance(_microsecond, EInt):
-
-                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else None
-                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and (_tz_m.val != 0 or tz_h is not None) else None
-
-                                return (conf_type, DateTime(
-                                    _year.val,
-                                    _month.val,
-                                    _day.val,
-                                    _hour.val,
-                                    _minute.val,
-                                    _second.val,
-                                    _microsecond.val,
-                                    tz_h,
-                                    tz_m))
-
-                elif conf_type == C_DATE:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 5:
-                            _year = _velems[0]
-                            _month = _velems[1]
-                            _day = _velems[2]
-                            _tz_h = _velems[3]
-                            _tz_m = _velems[4]
-                            if isinstance(_year, EInt) \
-                                    and isinstance(_month, EInt) \
-                                    and isinstance(_day, EInt):
-
-                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else None
-                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and (_tz_m.val != 0 or tz_h is not None) else None
-
-                                return (conf_type, Date(
-                                    _year.val,
-                                    _month.val,
-                                    _day.val,
-                                    tz_h,
-                                    tz_m))
-
-                elif conf_type == C_TIME:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 6:
-                            _hour = _velems[0]
-                            _minute = _velems[1]
-                            _second = _velems[2]
-                            _microsecond = _velems[3]
-                            _tz_h = _velems[4]
-                            _tz_m = _velems[5]
-                            if isinstance(_hour, EInt) \
-                                    and isinstance(_minute, EInt) \
-                                    and isinstance(_second, EInt) \
-                                    and isinstance(_microsecond, EInt):
-
-                                tz_h: ?int = _tz_h.val if isinstance(_tz_h, EInt) else None
-                                tz_m: ?int = _tz_m.val if isinstance(_tz_m, EInt) and (_tz_m.val != 0 or tz_h is not None) else None
-
-                                return (conf_type, Time(
-                                    _hour.val,
-                                    _minute.val,
-                                    _second.val,
-                                    _microsecond.val,
-                                    tz_h,
-                                    tz_m))
-
-                elif conf_type == C_DURATION:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 7:
-                            _year = _velems[0]
-                            _month = _velems[1]
-                            _day = _velems[2]
-                            _hour = _velems[3]
-                            _minute = _velems[4]
-                            _second = _velems[5]
-                            _microsecond = _velems[6]
-                            if isinstance(_year, EInt) \
-                                    and isinstance(_month, EInt) \
-                                    and isinstance(_day, EInt) \
-                                    and isinstance(_hour, EInt) \
-                                    and isinstance(_minute, EInt) \
-                                    and isinstance(_second, EInt) \
-                                    and isinstance(_microsecond, EInt):
-
-                                return (conf_type, Duration(
-                                    _year.val,
-                                    _month.val,
-                                    _day.val,
-                                    _hour.val,
-                                    _minute.val,
-                                    _second.val,
-                                    _microsecond.val))
-
-                elif conf_type == C_ENUM_VALUE:
-                    if isinstance(_val, EInt):
-                        return (conf_type, _val.val)
-                    elif isinstance(_val, EAtom):
-                        return (conf_type, str(_val))
-                elif conf_type in [C_BIT32, C_BIT64]:
-                    if isinstance(_val, EInt):
-                        return (conf_type, _val.val)
-                elif conf_type == C_INSTANCE_IDENTIFIER:
-                    # TODO: Implement
-                    pass
-                elif conf_type == C_OID:
-                    if isinstance(_val, EBinary):
-                        oid: list[int] = []
-                        reader = BufferReader()
-                        reader.append_data(_val.data)
-                        while reader.has_unread_bytes():
-                            n = reader.read_u32_be()
-                            if isinstance(n, int):
-                                unsafe_list_append(oid, n)
-                            else:
-                                return (C_UNKNOWN, None)
-                        return (conf_type, oid)
-                elif conf_type == C_BINARY:
-                    if isinstance(_val, EBinary):
-                        return (conf_type, _val.data)
-                elif conf_type == C_IPV4PREFIX or conf_type == C_IPV4_AND_PLEN:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 5:
-                            _n0 = _velems[0]
-                            _n1 = _velems[1]
-                            _n2 = _velems[2]
-                            _n3 = _velems[3]
-                            _mask_len = _velems[4]
-                            if isinstance(_n0, EInt) and isinstance(_n1, EInt) and isinstance(_n2, EInt) and isinstance(_n3, EInt) \
-                                and isinstance(_mask_len, EInt):
-                                return (conf_type, IPv4Network(IPv4Address((_n0.val, _n1.val, _n2.val, _n3.val)), _mask_len.val))
-                elif conf_type == C_IPV6PREFIX or conf_type == C_IPV6_AND_PLEN:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 9:
-                            _n0 = _velems[0]
-                            _n1 = _velems[1]
-                            _n2 = _velems[2]
-                            _n3 = _velems[3]
-                            _n4 = _velems[4]
-                            _n5 = _velems[5]
-                            _n6 = _velems[6]
-                            _n7 = _velems[7]
-                            _mask_len = _velems[8]
-                            if isinstance(_n0, EInt) and isinstance(_n1, EInt) and isinstance(_n2, EInt) and isinstance(_n3, EInt) \
-                                and isinstance(_n4, EInt) and isinstance(_n5, EInt) and isinstance(_n6, EInt) and isinstance(_n7, EInt) \
-                                and isinstance(_mask_len, EInt):
-                                return (conf_type, IPv6Network(IPv6Address((_n0.val, _n1.val, _n2.val, _n3.val, _n4.val, _n5.val, _n6.val, _n7.val)), _mask_len.val))
-                elif conf_type == C_DECIMAL64:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 2:
-                            _significand = _velems[0]
-                            _exponent = _velems[1]
-                            if isinstance(_significand, EInt) and isinstance(_exponent, EInt):
-                                return (conf_type, Decimal64(_significand.val, _exponent.val))
-                elif conf_type == C_IDENTITYREF:
-                    if isinstance(_val, ETuple):
-                        _velems = _val.elems
-                        if len(_velems) == 2:
-                            _ns = _velems[0]
-                            _tag = _velems[1]
-                            if isinstance(_ns, EInt) and isinstance(_tag, EInt):
-                                return (conf_type, HTag(_ns.val, _tag.val))
-                            elif isinstance(_ns, EAtom) and isinstance(_tag, EAtom):
-                                return (conf_type, ITag(str(_ns), str(_tag)))
-                elif conf_type == C_DQUAD:
-                    if isinstance(_val, EBinary):
-                        return (conf_type, _val.data)
-                elif conf_type == C_HEXSTR:
-                    if isinstance(_val, EBinary):
-                        return (conf_type, _val.data)
-                elif conf_type == C_BITBIG:
-                    if isinstance(_val, EBinary):
-                        # Little-endian
-                        d = _val.data
-                        b: int = 0
-                        for i in range(len(d), -1, -1):
-                            b *= 0x100
-                            b += d[i]
-
-                        return (conf_type, b)
-    elif isinstance(v, EInt):
-        return (C_INT32, v.val)
-    elif isinstance(v, EBinary):
-        _s = str(v.data)
-        if len(_s) >= 1 and _s[-1] == '\x00':
-            return (C_STR, _s[0:-1:1])
-        return (C_BUF, _s)
-    elif isinstance(v, EAtom):
-        _s = v.val
-        if _s == _EV_NOEXISTS:
-            return (C_NOEXISTS, V_NOEXISTS)
-        elif _s == _EV_DEFAULT:
-            return (C_DEFAULT, V_DEFAULT)
-        elif _s == _EV_TRUE:
-            return (C_BOOL, True)
-        elif _s == _EV_FALSE:
-            return (C_BOOL, False)
-    elif isinstance(v, EList):
-        # TODO: How do we want to use this? Won't need C_LIST for leaf-lists with ConfXMLParams, but how about maapi.get_elem()?
-        # _l: list[(int, ?value)] = []
-        # for _e in v.elems:
-        #     unsafe_list_append(_l, eobject_to_conf_type_and_value(_e))
-        _l: list[?value] = []
-        for _e in v.elems:
-            unsafe_list_append(_l, eobject_to_value(_e))
-        return (C_LIST, v.elems)
-
-    return (C_UNKNOWN, None)
+V_START = ConfStart()
+V_STOP = ConfStop()
+V_DELETE = ConfDelete()
+V_LEAF = ConfLeaf()
 
 #
 
 class EKeypath:
     def __init__(self, elems: list[EObject]):
         self.elems = elems
+
+    def __str__(self) -> str:
+        return "EKeypath(" + list_str(self.elems) + ")"
 
     def to_eobject(self) -> EObject:
         return EList(self.elems, True)
@@ -381,19 +153,19 @@ class EKeypath:
 class ETagVal:
     @staticmethod
     def xml_begin(qtag: EObject):
-        return ETuple([qtag, EAtom('start')])
+        return ETuple([qtag, E_START])
 
     @staticmethod
     def xml_begin_index(qtag: EObject, index: int): # CDB only, not for MAAPI :/
-        return ETuple([qtag, ETuple([EAtom('start'), EInt(index)])])
+        return ETuple([qtag, ETuple([E_START, EInt(index)])])
 
     @staticmethod
     def xml_end(qtag: EObject):
-        return ETuple([qtag, EAtom('stop')])
+        return ETuple([qtag, E_STOP])
 
     @staticmethod
     def xml_empty_leaf(qtag: EObject):
-        return ETuple([qtag, EAtom('leaf')])
+        return ETuple([qtag, E_LEAF])
 
     @staticmethod
     def xml_non_empty_leaf(qtag: EObject, value: EObject):
@@ -401,11 +173,11 @@ class ETagVal:
 
     @staticmethod
     def xml_begin_del(qtag: EObject): # Delete list-entries only :/
-        return ETuple([qtag, EAtom('delete')])
+        return ETuple([qtag, E_DELETE])
 
     @staticmethod
     def xml_noexists(qtag: EObject):
-        return ETuple([qtag, EAtom('not_found')])
+        return ETuple([qtag, E_NOEXISTS])
 
 # class ConfObject:
 #     pass

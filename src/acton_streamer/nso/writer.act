@@ -93,7 +93,12 @@ actor MaapiWriter(mc: MaapiConnection, _schema: schema.Schema):
         use_ikp = write_task.2
         result_cb = write_task.3
         epath = prefix_epath
-        work_stack.append((node, _PARENT_STATE_NONE))
+        _tag: ?Tag = node.tag()
+        #if _tag is None or _tag.is_root():
+        if _tag is None or _tag is not None and _tag.is_root():
+            _extend_work_stack(node.children(), _PARENT_STATE_NONE)
+        else:
+            work_stack.append((node, _PARENT_STATE_NONE))
         state = _STATE_PREPARE_EPARAMS
 
     def _handle_state_prepare_eparams():
@@ -211,6 +216,9 @@ actor MaapiWriter(mc: MaapiConnection, _schema: schema.Schema):
                                 elif _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
                                     _e_val = _node_value_to_eobject(cursor, node)
                                     if _e_val is not None:
+                                        # TODO: Check that the 'list-like' pattern works in confxmlparams
+                                        #       otherwise we need to either do invidiual creates
+                                        #       OR use C_LIST which isn't very netconf-order friendly
                                         eparams.append(ETagVal.xml_non_empty_leaf(_e_htag, _e_val))
                                     else:
                                         # TODO: Report error details

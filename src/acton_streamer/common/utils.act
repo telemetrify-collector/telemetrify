@@ -1,3 +1,23 @@
+# Workaround actonc error:
+# ld.lld: error: undefined symbol: $EqOptG_new
+def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
+    return a is not None and b is not None and a == b or a is None and b is None
+
+def safe_hash(h: int) -> int: # TODO: Remove when https://github.com/actonlang/acton/issues/1348 is fixed
+    limit = 2**63-1
+    sign = 1
+    if h < 0:
+        limit = 2**63
+        sign = -1
+        h = -h
+
+    while h > limit:
+        f = h // limit
+        h %= limit
+        h += f
+
+    return sign * h
+
 _SCALE: int = 3
 
 class Queue[T](object):
@@ -77,6 +97,11 @@ class Queue[T](object):
 
 # class Deque[T](object):
 
+# _list_swap[T](l: list[T], a: int, b: int):
+#     tmp = l[a]
+#     l[a] = l[b]
+#     l[b] = tmp
+
 protocol TryGetMapping[A(Eq), B](Mapping[A, B]):
     try_get: (A) -> ?B
 
@@ -109,23 +134,62 @@ def try_pop[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
     else:
         return None
 
+def try_discard[A(Eq), B](m: Mapping[A, B], a: A) -> ?B:
+    # Without support for catching KeyError
+    # it looks like we need to do triple hash lookups for now
+    if m.__contains__(a):
+        b = m[a]
+        # del m[a]
+        m.__delitem__(a)
+        return b
+    else:
+        return None
+
+def mapping_str[A(Eq), B](m: Mapping[A, B]) -> str:
+    l: list[str] = []
+    #for k, v in m.items():
+    for p in m.items():
+        k, v = p
+        unsafe_list_append(l, str(k) + ": " + str(v))
+    return "{" + ", ".join(l) + "}"
+
 def list_pop[T](l: list[T]) -> T:
     res = l[-1]
     del l[-1]
     return res
 
+def list_try_pop[T](l: list[T]) -> ?T:
+    if len(l) > 0:
+        return list_pop(l)
+    return None
+
 def list_extend[T](target: list[T], source: Iterable[T]):
     for item in source:
         target.append(item)
 
-def list_str[T](a: list[T]) -> str:
-    l: list[str] = []
-    for x in a:
-        unsafe_list_append(l, str(x))
-    return "[" + ", ".join(l) + "]"
+def list_concat[T](a: list[T], b: list[T]) -> list[T]:
+    # Due to https://github.com/actonlang/acton/issues/1461
+    if not a:
+        return b
+    if not b:
+        return a
+    return a + b
 
-def optional_str[T](v: ?T, default: str) -> str:
-    return str(v) if v is not None else default
+def list_eq[T(Eq)](a: list[T], b: list[T]) -> bool:
+    a_len = len(a)
+    if a_len != len(b):
+        return False
+
+    for i in range(0, a_len, 1):
+        if a[i] != b[i]:
+            return False
+    return True
+
+def list_hash[T(Hashable)](a: list[T]) -> int:
+    h = 0
+    for x in a:
+        h += hash(x)
+    return safe_hash(h)
 
 pure def unsafe_list_append[T](target: list[T], item: T) -> None:
     """
@@ -134,6 +198,179 @@ pure def unsafe_list_append[T](target: list[T], item: T) -> None:
     """
     # target.append(item)
     NotImplemented
+
+def list_reversed[T](a: list[T]) -> list[T]:
+    r: list[T] = list(a)
+    r.reverse()
+    return r
+
+def list_str[T](a: list[T]) -> str:
+    l: list[str] = []
+    for x in a:
+        unsafe_list_append(l, str(x))
+    return "[" + ", ".join(l) + "]"
+
+def set_update[T(Hashable)](target: set[T], source: Iterable[T]):
+    for item in source:
+        target.add(item)
+
+def dict_list_append[K(Hashable), V](d: dict[K, list[V]], k: K, v: V):
+    l = try_get(d, k)
+    if l is not None:
+        l.append(v)
+    else:
+        d[k] = [v]
+
+def dict_set_add[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, v: V):
+    s = try_get(d, k)
+    if s is not None:
+        s.add(v)
+    else:
+        d[k] = set([v])
+
+def dict_set_update[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, source: Iterable[V]):
+    s = try_get(d, k)
+    if s is not None:
+        set_update(s, source)
+    else:
+        d[k] = set(iter(source))
+
+def dict_set_discard[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, v: V):
+    s = try_get(d, k)
+    if s is not None:
+        s.discard(v)
+        if len(s) == 0:
+            del d[k]
+
+def optional_str[T](v: ?T, default: str) -> str:
+    return str(v) if v is not None else default
+
+class MinHeap[T(Ord)](object):
+    @property
+    _items: list[T]
+
+    def __init__(self):
+        self._items = []
+
+    def insert(self, v: T):
+        items = self._items
+        curr = len(items)
+        items.append(v)
+        while curr > 0:
+            parent = curr // 2
+            parent_v = items[parent]
+            if v >= parent_v:
+                break
+            items[parent] = v
+            items[curr] = parent_v
+            curr = parent
+
+    def try_pop(self) -> ?T:
+        items = self._items
+        items_len = len(items)
+        if items_len == 0:
+            return None
+        retval = items[0]
+        v = list_pop(items)
+        if items_len >= 2:
+            items_len -= 1
+            curr = 0
+            left = 1
+            right = 2
+            has_left = left < items_len
+            has_right = right < items_len
+            items[curr] = v
+            while has_left and (v > items[left] or has_right and v > items[right]):
+                if items[left] < items[right] or not has_right:
+                    items[curr] = items[left]
+                    items[left] = v
+                    curr = left
+                else:
+                    items[curr] = items[right]
+                    items[right] = v
+                    curr = right
+                left = curr * 2
+                right = left + 1
+                has_left = left < items_len
+                has_right = right < items_len
+        return retval
+
+# Workaround for https://github.com/actonlang/acton/issues/1126
+protocol Ord2:
+    @staticmethod
+    eq: (Self, Self) -> bool
+    @staticmethod
+    ne: (Self, Self) -> bool
+    @staticmethod
+    lt: (Self, Self) -> bool
+    @staticmethod
+    le: (Self, Self) -> bool
+    @staticmethod
+    gt: (Self, Self) -> bool
+    @staticmethod
+    ge: (Self, Self) -> bool
+    def ne(a, b):
+        return not Ord2.eq(a, b)
+    def le(a, b):
+        return Ord2.lt(a, b) or Ord2.eq(a, b)
+    def gt(a, b):
+        return Ord2.lt(b, a)
+    def ge(a, b):
+        return Ord2.le(b, a)
+
+# Workaround for https://github.com/actonlang/acton/issues/1126
+class MinHeap_Ord2[T(Ord2)](object):
+    @property
+    _items: list[T]
+
+    def __init__(self):
+        self._items = []
+
+    def insert(self, v: T):
+        items = self._items
+        curr = len(items)
+        items.append(v)
+        while curr > 0:
+            parent = curr // 2
+            parent_v = items[parent]
+            #if v >= parent_v:
+            if Ord2.ge(v, parent_v):
+                break
+            items[parent] = v
+            items[curr] = parent_v
+            curr = parent
+
+    def try_pop(self) -> ?T:
+        items = self._items
+        items_len = len(items)
+        if items_len == 0:
+            return None
+        retval = items[0]
+        v = list_pop(items)
+        if items_len >= 2:
+            items_len -= 1
+            curr = 0
+            left = 1
+            right = 2
+            has_left = left < items_len
+            has_right = right < items_len
+            items[curr] = v
+            #while has_left and (v > items[left] or has_right and v > items[right]):
+            while has_left and (Ord2.gt(v, items[left]) or has_right and Ord2.gt(v, items[right])):
+                #if items[left] < items[right] or not has_right:
+                if Ord2.lt(items[left], items[right]) or not has_right:
+                    items[curr] = items[left]
+                    items[left] = v
+                    curr = left
+                else:
+                    items[curr] = items[right]
+                    items[right] = v
+                    curr = right
+                left = curr * 2
+                right = left + 1
+                has_left = left < items_len
+                has_right = right < items_len
+        return retval
 
 class Pair[A, B]:
     @property
@@ -309,6 +546,13 @@ def nibble_to_hex(v: int) -> str:
     else:
         raise ValueError("Value out of nibble range.")
 
+def to_n_dec_str(v: int, min_dec: int) -> str:
+    s = str(v)
+    sl = []
+    for i in range(0, min_dec - len(s), 1):
+        unsafe_list_append(sl, "0")
+    return "".join(sl) + s
+
 def uint_to_bytes_le(v: int) -> bytes:
     if v < 0:
         raise ValueError("Negative value")
@@ -331,6 +575,14 @@ class Decimal64:
     def __init__(self, significand: int, exponent: int):
         self.significand = significand
         self.exponent = exponent
+
+    def __str__(self) -> str:
+        #return str(self.significand) + "e" + str(self.exponent)
+        s = str(self.integral_part())
+        if self.exponent < 0:
+            f = self.fractional_part()
+            s += to_n_dec_str(f.significand, -f.exponent)
+        return s
 
     @staticmethod
     def try_parse(s: str) -> ?Decimal64:
@@ -392,6 +644,15 @@ class Decimal64:
         divider = 10**-self.exponent
         return Decimal64(self.significand % divider, self.exponent)
 
+extension Decimal64(Hashable):
+    def __eq__(self, other: Decimal64) -> bool:
+        # TODO: Might want to compare realigned values, otoh in
+        #       our use-case(s) the exponent is usually fixed by (YANG) model?
+        return self.significand == other.significand and self.exponent == other.exponent
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.significand))
+
 class IPv4Address:
     @property
     data: (int, int, int, int)
@@ -399,10 +660,30 @@ class IPv4Address:
     def __init__(self, data: (int, int, int, int)):
         self.data = data
 
+    def __str__(self) -> str:
+        d = self.data
+        return str(d.0) + "." + str(d.1) + "." + str(d.2) + "." + str(d.3)
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Address:
         #return IPv4Address((1,2,3,4))
         NotImplemented
+
+extension IPv4Address(Hashable):
+    def __eq__(self, other: IPv4Address) -> bool:
+        # return self.data == other.data
+        s = self.data
+        o = other.data
+        return \
+            s.0 == o.0 and \
+            s.1 == o.1 and \
+            s.2 == o.2 and \
+            s.3 == o.3
+
+    def __hash__(self) -> int:
+        #return hash(self.data)
+        d = self.data
+        return safe_hash(2*hash(d.3) + 3*hash(d.2) + 5*hash(d.1) + 7*hash(d.0))
 
 class IPv6Address:
     @property
@@ -411,10 +692,36 @@ class IPv6Address:
     def __init__(self, data: (int, int, int, int, int, int, int, int)):
         self.data = data
 
+    def __str__(self) -> str:
+        # TODO: conventional format
+        d = self.data
+        return hex(d.0) + ":" + hex(d.1) + ":" + hex(d.2) + ":" + hex(d.3) \
+            + ":" + hex(d.4) + ":" + hex(d.5) + ":" + hex(d.6) + ":" + hex(d.7)
+
     @staticmethod
     def try_parse(s: str) -> ?IPv6Address:
         #return IPv6Address((1,2,3,4,5,6,7,8))
         NotImplemented
+
+extension IPv6Address(Hashable):
+    def __eq__(self, other: IPv6Address) -> bool:
+        # return self.data == other.data
+        s = self.data
+        o = other.data
+        return \
+            s.0 == o.0 and \
+            s.1 == o.1 and \
+            s.2 == o.2 and \
+            s.3 == o.3 and \
+            s.4 == o.4 and \
+            s.5 == o.5 and \
+            s.6 == o.6 and \
+            s.7 == o.7
+
+    def __hash__(self) -> int:
+        #return hash(self.data)
+        d = self.data
+        return safe_hash(2*hash(d.7) + 3*hash(d.6) + 5*hash(d.5) + 7*hash(d.4) + hash(d.3) + 11*hash(d.2) + 13*hash(d.1) + 17*hash(d.0))
 
 class IPv4Network:
     @property
@@ -425,6 +732,9 @@ class IPv4Network:
     def __init__(self, address: IPv4Address, mask_len: int):
         self.address = address
         self.mask_len = mask_len
+
+    def __str__(self) -> str:
+        return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
 
     @staticmethod
     def try_parse(s: str) -> ?IPv4Network:
@@ -440,6 +750,13 @@ class IPv4Network:
     # def is_strict(self):
     #     # TODO: if all host bits are zero
 
+extension IPv4Network(Hashable):
+    def __eq__(self, other: IPv4Network) -> bool:
+        return self.address == other.address and self.mask_len == other.mask_len
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
+
 class IPv6Network:
     @property
     address: IPv6Address
@@ -449,6 +766,9 @@ class IPv6Network:
     def __init__(self, address: IPv6Address, mask_len: int):
         self.address = address
         self.mask_len = mask_len
+
+    def __str__(self) -> str:
+        return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Network:
@@ -463,6 +783,13 @@ class IPv6Network:
 
     # def is_strict(self):
     #     # TODO: if all host bits are zero
+
+extension IPv6Network(Hashable):
+    def __eq__(self, other: IPv6Network) -> bool:
+        return self.address == other.address and self.mask_len == other.mask_len
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
 
 class DateTime:
     @property
@@ -495,6 +822,26 @@ class DateTime:
         self.timezone_hour = timezone_hour
         self.timezone_minute = timezone_minute
 
+    def __str__(self) -> str:
+        tz = ""
+        tz_h = self.timezone_hour
+        tz_m = self.timezone_minute
+        if tz_h is not None and tz_m is not None:
+            if tz_h == 0 and tz_m == 0:
+                tz = "Z"
+            else:
+                # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+                # e.g. "-0:30" as the sign is carried by the 'hour' integer
+                # TODO: Test actual nso behavour
+                if tz_h == 0 and tz_m < 0:
+                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                else:
+                    tz = str(tz_h) + ":" + str(tz_m)
+
+        return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + "T" \
+            + to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) \
+            + tz
+
     @staticmethod
     def try_parse(s: str) -> ?DateTime:
         s = s.strip(" ")
@@ -520,6 +867,7 @@ class DateTime:
         p_rest: str = p_time[2]
         p_sec = ""
         p_tz = ""
+        p_tz_sign = "+"
         _tz_h = None
         _tz_m = None
 
@@ -537,7 +885,8 @@ class DateTime:
                 p_ptz = p_rest.split("-", -1)
                 if len(p_ptz) >= 2:
                     p_sec = p_ptz[0]
-                    p_tz = "-" + p_ptz[1]
+                    p_tz_sign = "-"
+                    p_tz = p_ptz[1]
                 else:
                     p_sec = p_rest
 
@@ -551,6 +900,17 @@ class DateTime:
                     _tz_m = try_parse_int(pp_tz[1])
                 else:
                     _tz_m = 0
+                if p_tz_sign == "-":
+                    if eq_optional(_tz_h, 0) and eq_optional(_tz_m, 0):
+                        _tz_h = None
+                        _tz_m = None
+                    else:
+                        # Is the sign for tz_minutes inherited from tz_hour or is it independent?
+                        # TODO: Test actual nso behavour
+                        if _tz_h is not None:
+                            _tz_h = -_tz_h
+                        if _tz_m is not None:
+                            _tz_m = -_tz_m
 
         if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int) \
                 and isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
@@ -567,6 +927,33 @@ class DateTime:
     # @staticmethod
     # def try_parse_iso(s: str):
     #     return DateTime.try_parse(s, "%Y-%m-%dT%H:%M:%S.%f%z")
+
+extension DateTime(Hashable):
+    def __eq__(self, other: DateTime) -> bool:
+        return \
+            self.year == other.year and \
+            self.month == other.month and \
+            self.day == other.day and \
+            self.hour == other.hour and \
+            self.minute == other.minute and \
+            self.second == other.second and \
+            self.microsecond == other.microsecond and \
+            eq_optional(self.timezone_hour, other.timezone_hour) and \
+            eq_optional(self.timezone_minute, other.timezone_minute)
+
+    def __hash__(self) -> int:
+        _tz_h = self.timezone_hour
+        _tz_m = self.timezone_minute
+        return safe_hash(
+            23 * hash(self.year) +
+            19 * hash(self.month) +
+            17 * hash(self.day) +
+            13 * hash(self.hour) +
+            11 * hash(self.minute) +
+            7 * hash(self.second) +
+            5 * hash(self.microsecond) +
+            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
+            (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
 class Date:
     @property
@@ -587,6 +974,24 @@ class Date:
         self.timezone_hour = timezone_hour
         self.timezone_minute = timezone_minute
 
+    def __str__(self) -> str:
+        tz = ""
+        tz_h = self.timezone_hour
+        tz_m = self.timezone_minute
+        if tz_h is not None and tz_m is not None:
+            if tz_h == 0 and tz_m == 0:
+                tz = "Z"
+            else:
+                # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+                # e.g. "-0:30" as the sign is carried by the 'hour' integer
+                # TODO: Test actual nso behavour
+                if tz_h == 0 and tz_m < 0:
+                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                else:
+                    tz = str(tz_h) + ":" + str(tz_m)
+
+        return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + tz
+
     @staticmethod
     def try_parse(s: str) -> ?Date:
         s = s.strip(" ")
@@ -601,6 +1006,7 @@ class Date:
         p_rest: str = p_date[2]
         p_day = ""
         p_tz = ""
+        p_tz_sign = "+"
         _tz_h = None
         _tz_m = None
 
@@ -618,7 +1024,8 @@ class Date:
                 p_ptz = p_rest.split("-", -1)
                 if len(p_ptz) >= 2:
                     p_day = p_ptz[0]
-                    p_tz = "-" + p_ptz[1]
+                    p_tz_sign = "-"
+                    p_tz = p_ptz[1]
                 else:
                     p_day = p_rest
 
@@ -632,11 +1039,41 @@ class Date:
                     _tz_m = try_parse_int(pp_tz[1])
                 else:
                     _tz_m = 0
+                if p_tz_sign == "-":
+                    if eq_optional(_tz_h, 0) and eq_optional(_tz_m, 0):
+                        _tz_h = None
+                        _tz_m = None
+                    else:
+                        # Is the sign for tz_minutes inherited from tz_hour or is it independent?
+                        # TODO: Test actual nso behavour
+                        if _tz_h is not None:
+                            _tz_h = -_tz_h
+                        if _tz_m is not None:
+                            _tz_m = -_tz_m
 
         if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int):
             return Date(_year, _month, _day, _tz_h, _tz_m)
 
         return None
+
+extension Date(Hashable):
+    def __eq__(self, other: Date) -> bool:
+        return \
+            self.year == other.year and \
+            self.month == other.month and \
+            self.day == other.day and \
+            eq_optional(self.timezone_hour, other.timezone_hour) and \
+            eq_optional(self.timezone_minute, other.timezone_minute)
+
+    def __hash__(self) -> int:
+        _tz_h = self.timezone_hour
+        _tz_m = self.timezone_minute
+        return safe_hash(
+            11 * hash(self.year) +
+            7 * hash(self.month) +
+            5 * hash(self.day) +
+            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
+            (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
 class Time:
     @property
@@ -660,6 +1097,24 @@ class Time:
         self.timezone_hour = timezone_hour
         self.timezone_minute = timezone_minute
 
+    def __str__(self) -> str:
+        tz = ""
+        tz_h = self.timezone_hour
+        tz_m = self.timezone_minute
+        if tz_h is not None and tz_m is not None:
+            if tz_h == 0 and tz_m == 0:
+                tz = "Z"
+            else:
+                # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+                # e.g. "-0:30" as the sign is carried by the 'hour' integer
+                # TODO: Test actual nso behavour
+                if tz_h == 0 and tz_m < 0:
+                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                else:
+                    tz = str(tz_h) + ":" + str(tz_m)
+
+        return to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) + tz
+
     @staticmethod
     def try_parse(s: str) -> ?Time:
         s = s.strip(" ")
@@ -671,6 +1126,7 @@ class Time:
         p_rest: str = p_time[2]
         p_sec = ""
         p_tz = ""
+        p_tz_sign = "+"
         _tz_h = None
         _tz_m = None
 
@@ -688,7 +1144,8 @@ class Time:
                 p_ptz = p_rest.split("-", -1)
                 if len(p_ptz) >= 2:
                     p_sec = p_ptz[0]
-                    p_tz = "-" + p_ptz[1]
+                    p_tz_sign = "+"
+                    p_tz = p_ptz[1]
                 else:
                     p_sec = p_rest
 
@@ -702,6 +1159,17 @@ class Time:
                     _tz_m = try_parse_int(pp_tz[1])
                 else:
                     _tz_m = 0
+                if p_tz_sign == "-":
+                    if eq_optional(_tz_h, 0) and eq_optional(_tz_m, 0):
+                        _tz_h = None
+                        _tz_m = None
+                    else:
+                        # Is the sign for tz_minutes inherited from tz_hour or is it independent?
+                        # TODO: Test actual nso behavour
+                        if _tz_h is not None:
+                            _tz_h = -_tz_h
+                        if _tz_m is not None:
+                            _tz_m = -_tz_m
 
         if isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
             _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
@@ -709,6 +1177,27 @@ class Time:
                 return Time(_hour, _minute, _seconds.integral_part(), _microseconds.significand, _tz_h, _tz_m)
 
         return None
+
+extension Time(Hashable):
+    def __eq__(self, other: Time) -> bool:
+        return \
+            self.hour == other.hour and \
+            self.minute == other.minute and \
+            self.second == other.second and \
+            self.microsecond == other.microsecond and \
+            eq_optional(self.timezone_hour, other.timezone_hour) and \
+            eq_optional(self.timezone_minute, other.timezone_minute)
+
+    def __hash__(self) -> int:
+        _tz_h = self.timezone_hour
+        _tz_m = self.timezone_minute
+        return safe_hash(
+            13 * hash(self.hour) +
+            11 * hash(self.minute) +
+            7 * hash(self.second) +
+            5 * hash(self.microsecond) +
+            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
+            (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
 class Duration:
     @property
@@ -734,6 +1223,33 @@ class Duration:
         self.minute = minute
         self.second = second
         self.microsecond = microsecond
+
+    def __str__(self) -> str:
+        sl = ["P"]
+        if self.year != 0:
+            unsafe_list_append(sl, str(self.year))
+            unsafe_list_append(sl, "Y")
+        if self.month != 0:
+            unsafe_list_append(sl, str(self.month))
+            unsafe_list_append(sl, "M")
+        if self.day != 0:
+            unsafe_list_append(sl, str(self.day))
+            unsafe_list_append(sl, "D")
+        if self.hour != 0 or self.minute != 0 or self.second != 0 or self.microsecond != 0:
+            unsafe_list_append(sl, "T")
+            if self.hour != 0:
+                unsafe_list_append(sl, str(self.hour))
+                unsafe_list_append(sl, "H")
+            if self.minute != 0:
+                unsafe_list_append(sl, str(self.minute))
+                unsafe_list_append(sl, "M")
+            if self.second != 0 or self.microsecond != 0:
+                if self.microsecond == 0:
+                    unsafe_list_append(sl, str(self.second))
+                else:
+                    unsafe_list_append(sl, str(Decimal64(self.second * 10**6 + self.microsecond, 6)))
+                unsafe_list_append(sl, "S")
+        return "".join(sl)
 
     @staticmethod
     def try_parse(s: str) -> ?Duration:
@@ -795,7 +1311,56 @@ class Duration:
 
         return None
 
-# Workaround actonc error:
-# ld.lld: error: undefined symbol: $EqOptG_new
-def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
-    return a is not None and b is not None and a == b or a is None and b is None
+extension Duration(Hashable):
+    def __eq__(self, other: Duration) -> bool:
+        return \
+            self.year == other.year and \
+            self.month == other.month and \
+            self.day == other.hour and \
+            self.hour == other.hour and \
+            self.minute == other.minute and \
+            self.second == other.second and \
+            self.microsecond == other.microsecond
+
+    def __hash__(self) -> int:
+        return safe_hash(
+            23 * hash(self.year) +
+            19 * hash(self.month) +
+            17 * hash(self.day) +
+            13 * hash(self.hour) +
+            11 * hash(self.minute) +
+            7 * hash(self.second) +
+            5 * hash(self.microsecond))
+
+class Oid:
+    _ids: list[int]
+
+    def __init__(self, ids: list[int]):
+        self._ids = ids
+
+    def __str__(self) -> str:
+        #return ".".join(str(_id) for _id in self._ids)
+        sl = []
+        for _id in self._ids:
+            unsafe_list_append(sl, str(_id))
+        return ".".join(sl)
+
+    def ids(self) -> list[int]:
+        return self._ids
+
+extension Oid(Hashable):
+    def __eq__(self, other: Oid) -> bool:
+        # return self._ids == other._ids
+        self_len = len(self._ids)
+        if self_len != len(other._ids):
+            return False
+        for i in range(0, self_len, 1):
+            if not self._ids[i] == other._ids[i]:
+                return False
+        return True
+
+    def __hash__(self) -> int:
+        _hash: int = 0
+        for _id in self._ids:
+            _hash = _hash * 7 + hash(_id)
+        return safe_hash(_hash)
