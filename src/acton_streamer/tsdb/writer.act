@@ -135,9 +135,7 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
         path = []
 
         # Are we dealing with an RPC payload?
-        # TODO: adjust from -2 to -1 once we fix off-by-one error in schema
-        # cursor expectation in get_metrics_from_tree()
-        rpc_parent = cursor.path()[-2]
+        rpc_parent = cursor.path()[-1]
         if rpc_parent.is_action():
             path.append("rpc")
             itag = cursor.lookup_itag(rpc_parent.tag)
