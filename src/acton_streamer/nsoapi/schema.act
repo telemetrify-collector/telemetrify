@@ -167,6 +167,9 @@ class Cursor:
             return True
         return False
 
+    def path(self: Cursor):
+        return self._path
+
     def pop_verify(self: Cursor, tag: Tag) -> bool:
         if len(self._path) >= 2:
             actual_tag = self.node().tag
@@ -682,6 +685,9 @@ class Node:
                 CS_NODE_IS_ACTION |
                 CS_NODE_IS_NOTIF |
                 CS_NODE_IS_LEAF_LIST) == 0
+
+    def is_action(self: Node) -> bool:
+        return self.flags & CS_NODE_IS_ACTION != 0
 
     def is_empty_leaf(self: Node) -> bool:
         return self.is_leaf() and self.conf_type == C_XMLTAG

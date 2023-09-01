@@ -528,19 +528,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
         base_tags = []
         base_tags.append(("host", "vmx"))
-        # NOTE: we have a convention where we translate the YANG schema for RPCs
-        # so that the RPC is modeled as config false data under /rpc/<rpc-name>,
-        # so the RPC get-interface-information becomes
-        # /rpc/get-interface-information and its children are the same as under
-        # the output node of the RPC
-        # TODO: rename .write() method to .write_rpc() since the TsdbWriter
-        # needs to know it is an RPC and not general config false data.
-        # TODO: remove prefix, .write_rpc() knows it is an RPC and should expect
-        # the schema cursor to point to /rpc/get-interface-information (or some
-        # other RPC). Thus, the prefix can be computed by getting the parent and
-        # grand-parent of the cursor. This will always hold true given this
-        # convention of modeling RPCs.
-        writer.write(xnode.children()[0], s_cursor, "rpc_get_interface_information_interface_information", base_tags, time.time().second, _on_writer_done)
+        writer.write(xnode.children()[0], s_cursor, base_tags, time.time().second, _on_writer_done)
 
     def _on_writer_done(c, e):
         print("TSDB writer done!")
