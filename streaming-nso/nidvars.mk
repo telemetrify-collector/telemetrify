@@ -4,8 +4,6 @@
 # operator only sets these variables if not already set, thus you can easily
 # override them by explicitly setting them in your environment and they will be
 # overridden by variables in CI.
-# TODO: uncomment and fill in values for your environment
-# Default variables:
-#export NSO_IMAGE_PATH ?= registry.example.com:5000/my-group/nso-docker/
-#export PKG_PATH ?= registry.example.com:5000/my-group/
-#export NSO_VERSION ?= 5.4
+export NSO_IMAGE_PATH ?= gitlab.dev.terastrm.net:4567/abs/nso-docker/
+export PKG_PATH ?= gitlab.dev.terastrm.net:4567/abs/
+export NSO_VERSION ?= 6.1.2
