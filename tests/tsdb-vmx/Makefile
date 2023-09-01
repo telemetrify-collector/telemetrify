@@ -10,6 +10,7 @@ endif
 NCS_D?=ncs
 
 start:
+	BUILD_PATH=$(BUILD_PATH) docker compose build
 	BUILD_PATH=$(BUILD_PATH) docker compose up -d
 	sleep 5
 	BUILD_PATH=$(BUILD_PATH) make init-m3db
