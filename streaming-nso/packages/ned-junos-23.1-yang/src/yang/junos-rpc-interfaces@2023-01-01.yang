@@ -64735,4 +64735,16 @@
        }
      }
    }
+   // RPCs translated into config false state tree for TSDB mapping
+   // This should not go here really. We should produce a separate .yang file
+   // with this tree (and without the RPCs) but it's easier just to keep it here
+   // for now.
+   container rpc {
+     config false;
+     container get-interface-information {
+       container interface-information {
+         uses interface-information-block;
+       }
+     }
+   }
  }
