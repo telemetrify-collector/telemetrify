@@ -1,0 +1,280 @@
+* NSO in Docker: NED standard form skeleton
+  This is the README file for the NSO in Docker (NID) standard form NED skeleton. If you see this file (=README.nid-ned.org=) in a repository, it means the repository follows the standard form.
+
+  The NED standard form provides a standardized environment, called a =testenv=, for how to do development and testing. It ships with a CI configuration file for GitLab that enables the test environment to automatically run in CI. All repositories using these skeletons provide a consistent user interface.
+
+* Usage of a repo that follows the NED standard form
+  Run ~make all~ to build and test the NED. You will need to set the =NSO_VERSION= environment variable and likely =NSO_IMAGE_PATH=, for example:
+
+  #+BEGIN_SRC shell
+    export NSO_VERSION=5.3
+    export NSO_IMAGE_PATH=registry.gitlab.com/my-group/nso-docker/
+    make all
+  #+END_SRC
+
+  The =all= make target will first build images using the =build= target and then run the test suite using the =test= target.
+
+** NSO_VERSION
+   As the version of NSO is a parameter throughout the entire NSO in Docker ecosystem, you have to supply the NSO version through the environment variable =NSO_VERSION=.
+
+** NSO_IMAGE_PATH
+   The =NSO_IMAGE_PATH= specifies the location of the NSO images that are used for building. If you have built NSO in Docker images locally, i.e. you have the images =cisco-nso-base= and =cisco-nso-dev= available locally, you do not need to set =NSO_IMAGE_PATH=. If you want to use images built elsewhere, perhaps from a CI system, you need to specify the path to the Docker registry hosting the images, like =registry.gitlab.com/my-group/nso-docker/=.
+
+** IMAGE_PATH
+   =IMAGE_PATH= specifies the base path for the resulting output images.
+
+   In CI, =IMAGE_PATH= is automatically set, if not already defined (through a CI variable), to the project namespace path. For example, for the project =gitlab.com/example/foobar=, the =IMAGE_PATH= would be =registry.gitlab.com/example/=.
+
+   For a local build, =IMAGE_PATH= does not have a default value but can be manually set.
+
+** Building and testing
+   As part of the =build= make target, three docker images are produced:
+   - =netsim=: a Docker image that runs the NED as a netsim device
+   - =testnso=: an NSO image that has the NED loaded
+     - it runs NSO on start and is thus ready to use the NED to talk to, for example, the =netsim= device
+   - =ned=: a Docker image that only contains the compiled NED
+     - this container can't be run, it's only a vessel to carry the compiled output to another Docker image build
+
+   To produce these images, a multi-stage Dockerfile is used where the first stage compiles packages and later stages produce the mentioned images.
+
+   After build, the test suite will start up a test environment (=testenv=) that consists of:
+   - =netsim= container running the =netsim= image
+   - =nso= container running the =testnso= image
+
+   Then the tests, defined in the =testenv-test= target of the repository specific =Makefile=, are run. The skeleton contains an example for how to run basic tests on the NED that verifies (together with the build):
+   - YANG models compiles (happens as part of =build=)
+   - compiled NED loads in NSO (or the =testnso= container would fail to start)
+   - netsim starts up
+   - NSO can write configuration to the =netsim= and read it back
+     - this test is accomplished by loading an XML configuration file that needs to be customised for the particular NED
+       - do note however that it is the ONLY step that needs customization to achieve (CI) testing of a NED
+       - modify the file at =test/device-config-hostname.xml=
+
+** Building multiple versions of a NED
+   A very common task in the lifecycle of a NED is upgrading the device model. A new version of a device model with backwards incompatible changes usually defines a new ned-id. This allows users to load both old and version of the package in their NSO instance and migrate the devices at their leisure. To build multiple versions of the package in the same NED repository just place the directories in the =packages= directory. For example, the =packages= directory contains =ned-foo-1.0= and =ned-foo-2.0= directories. The build script will automatically create additional docker images with the tags:
+   - "repo/package" contains all versions (all directories)
+   - "repo/package-ned-foo-1.0" contains just the package with the name =ned-foo-1.0=
+   - "repo/package-ned-foo-2.0" contains just the package with the name =ned-foo-2.0=
+   - "repo/testnso" contains all versions
+   - "repo/netsim" contains just the latest version
+   - "repo/netsim-ned-foo-1.0" contains just the package with the name =ned-foo-1.0=
+   - "repo/netsim-ned-foo-2.0" contains just the package with the name =ned-foo-2.0=
+
+** The test environment - testenv
+   A =testenv= is a standardized test environment that contains recipes for
+   creating and tearing down all the containers, as well as configuration for
+   the test. Every project implementing the NID structure contains at least one
+   =testenv=.
+   There are a number of make targets related to the control of =testenv=:
+   - =start=: Start the test environment
+     - the standard topology, which consists of one test NSO instance (of the =testnso= image) and one netsim (of the =netsim= image) is defined in the standard form NED skeleton
+     - a Docker network specific to this testenv is used
+       - this makes it possible to have network localized names, like a netsim can be called and accessed via the name =dev1= and Docker handles name resolution to the actual IP address
+         - running multiple =testenv= in parallel won't collide as we have a network (namespace) per =testenv=
+       - the netsim container is called =dev1=
+       - IPv4 and IPv6 is enabled per default
+         - IPv6 uses ULA addressing (essentially a random IPv6 prefix)
+           - only local connectivity (no default route)
+         - manually specify the IPv6 prefix by setting =IPV6_NET=, for example ~IPV6_NET=2001:db8:1234:4567:~
+           - if you use a public prefix, there will be a default route for public connectivity
+         - disable IPv6 by setting ~IPV6=false~
+     - it is possible to start up more containers, like netsims or virtual routers, which should be achieved by adding them to the =start= target
+       - ensure that you have ~$(DOCKER_ARGS)~ in the argument list to =docker=
+         - it starts the container in the correct Docker network and sets the correct label, which is a prerequisite for the =stop= target to work
+   - =rebuild=: recompile packages and run ~request packages reload~ in all NSO containers
+     - only packages in =packages/= will be rebuilt
+     - included packages that are specified through manifests in the =includes/= directory, are not rebuilt
+       - as they might not ship with their source code, it might not even be possible
+   - =clean-rebuild=: for the running NSO container, clean out and rebuild all packages in =packages/= and =test-packages/= from scratch
+   - =stop=: Stop the test environment
+     - it removes all containers labeled with ~$(CNT_PREFIX)~
+       - make sure any extra containers you start have this label by adding ~$(DOCKER_ARGS)~ to the argument list
+       - any anonymous volumes associated with the containers will be removed as well
+     - removes the Docker network
+   - =shell=: Get an interactive =bash= shell in the =testnso= container
+   - =dev-shell=: Get an interactive =bash= shell in a container using the -dev image. The container is attached to the network namespace and volumes of the =testnso= container.
+   - =cli=: Get an interactive NSO CLI (=ncs_cli=) in the =testnso= container
+   - =pycli=: Get an interactive NSO Python shell (IPython) attached to the NSO container. See https://github.com/NSO-developer/ncs_pycli
+   - =runcmdC= / =runcmdJ=: Run a command with =ncs_cli=, provide the command through the environment variable =CMD=
+     - the command is expected in the C-style CLI syntax for =runcmdC= or J-style CLI with =runcmdJ=
+     - the runcmd targets can be called to run a command, from an interactive shell like ~make runcmdJ CMD="show ncs-state version"~
+     - it can also be called from other make targets, for example to run commands from tests
+       - ~$(MAKE) runcmdJ CMD="show ncs-state version"~
+
+   The environments are placed in the =testenvs= directory as subdirectories.
+   Typically the default =testenv= is a quick / simple test environment that is
+   fast to start and complete a basic test. The default =testenv= is defined
+   with the ~$(DEFAULT_TESTENV)~ variable. You can execute the default =testenv=
+   targets from the project directory by using the ~testenv-%~ prefix. If a
+   project contains multiple environments you can choose the =testenv= to start
+   in two ways:
+   1. Change directory to the desired =testenv= and run make targets from there.
+   2. Execute the =testenv= targets from the main project directory but passing
+      the path to the Makefile, like ~make -C testenvs/quick start~.
+
+   To access NSO via one of its northbound interfaces, like NETCONF or RESTCONF,
+   use the credentials =admin= / =NsoDocker1337=.
+
+** Docker tags and prefixes
+   Built images are tagged with the NSO version and "PNS" ("Pipeline NameSpace", when in a CI context, or "Pseudo NameSpace", when running locally, outside of CI), like ~$(NSO_VERSION)-$(PNS)~. For local builds, PNS is set to your username (modulo some mangling as some characters are forbidden in Docker image tags), e.g. =5.3-kll= (for username =kll=). In CI, PNS is set to the CI pipeline ID, like =5.3-12345=. The PNS part means we don't immediately overwrite the previously built images with the version tag like =5.3=, which might be included by other repositories. We don't want a development version to overwrite the released one.
+
+   Use the =tag-release= target to set the release tags on the image, e.g. go from =5.3-kll= to =5.3=. The CI configuration automatically does this for CI jobs run on the default branch (like =main= or =master=). You might have to do it locally in case you wish to retag images so they can be tested with other repositories.
+
+   In the =testenv=, the started containers have a name prefix to avoid collisions with other repositories that make use of the NID skeletons. The prefix is available in the Makefiles under the ~$(CNT_PREFIX)~ variable and is set to ~testenv-$(PROJECT_NAME)-$(NSO_VERSION)-$(PNS)~. It is also possible to override by manually setting the environment variable =CNT_PREFIX=.
+
+** Repository related make targets
+   - =build=: Builds the images
+   - =push=: Pushes the =ned= image
+   - =tag-release=: Adds a tag with release version, like =5.3=
+   - =push-release=: Pushes the release version to the Docker registry
+     - this is based on the =CI_REGISTRY_IMAGE= variable set by GitLab CI
+
+* Applying the skeleton / Creating a new repo based on the skeleton
+  The NED standard form comes as a skeleton that can be applied to a repository by copying over a number of files to your repository. If you are starting from scratch, simple copy the skeleton directory (and init git), like:
+
+  #+BEGIN_SRC shell
+    cp -av ../nso-docker/skeletons/ned my-ned
+    cd my-ned
+    git init
+    git add .
+    git commit -a -m "Starting from NID skeleton for NEDs"
+  #+END_SRC
+
+  Place your NED package in the =packages/= folder, despite the plural 's' on =packages=, you should only use a single NED per repository (other skeletons in the NID ecosystem supports multiple packages). This will automatically include them in the build.
+
+  If you are building a new NED, you can start a =dev-shell= to run =ncs-make-package=. For this we need access to the =cisco-nso-dev= image, set =NSO_VERSION= and =NSO_IMAGE_PATH= accordingly (see top of this file for more information on that).
+
+  #+BEGIN_SRC shell
+    export NSO_VERSION=5.3
+    export NSO_IMAGE_PATH=my-registry.example.com/nso-docker/
+    make dev-shell
+  #+END_SRC
+
+  Once in the =dev-shell= we can use =ncs-make-package= to make a new package. Our package folder is mounted in =/src=. Let's say we want to make a NETCONF NED out of some YANG models in =device-yang-models/=:
+
+  #+BEGIN_SRC shell
+    cd /src/packages
+    ncs-make-package --netconf-ned /src/device-yang-models myned
+    chown -Rv 1000:1000 myned
+  #+END_SRC
+
+  Note how when you are working in a Docker container you are root and as such, files you create are owned by root. Change ownership to your own id/gid from within the container. Also note how the container is not aware of your username nor group, so you need to use numeric identifiers.
+
+  Now we can build our package and start up a =testenv=:
+
+  #+BEGIN_SRC shell
+    make build
+    make testenv-start
+  #+END_SRC
+
+  Modify the =Makefile= to apply the tests you want. For the NED skeleton, an example is included that tests the NED & netsim in combination, see the =Makefile= for more information.
+
+* Including external packages
+  You can include externally built packages by placing a manifest file in the =includes/= folder. It is in fact encouraged to build most packages, such as NEDs and other packages on their own separate git repositories where they can be developed and tested in isolation and later include them.
+
+  There should be one manifest file in the =includes/= directory per package you want to include. The content of the file should be the URL to the Docker image, including the full registry path. For example, to include =bgworker=, a Python library for writing background workers in NSO, the manifest file could look like this:
+
+  #+BEGIN_SRC text
+    ${PKG_PATH}bgworker/package:${NSO_VERSION}
+  #+END_SRC
+
+  When run in CI, =PKG_PATH= is set to the Docker registry up and including the namespace of the current project. If our project is hosted at http://gitlab.com/example/my-project and the corresponding Docker registry path is =registry.gitlab.com/example/my-project/=, then =PKG_PATH= will be set to =registry.gitlab.com/example/=. =NSO_VERSION= naturally contains the value of the NSO version we are currently working with. Evaluating our manifest file, if we are running a CI build for NSO 5.3, we see that it will result in the inclusion of =registry.gitlab.com/example/bgworker/package:5.3=.
+
+  It is recommended that =PKG_PATH= is always used and that you use continuous mirroring to mirror packages to your own Gitlab instance into the same namespace so that this relative inclusion works.
+
+  Included packages are included in the =testnso= container image but not in the final output in the =package= image.
+
+  NEDs do not typically depend on other packages and so includes might not be useful for the NED package itself, however, the test-packages could very well depend on an external package for which the include manifest functionality can be used.
+
+** Reducing rebuilds when updating NSO patch version
+    When you use the =NSO_VERSION= variable in the includes manifests it means that dependencies have to be rebuilt for every NSO version change. This includes maintenance releases, like going from version 5.8 to 5.8.3 where rebuilding is not strictly necessary, as the *.fxs files are compatible inside a major.minor version train. To take advantage of compatibility guarantee and forego the step of rebuilding everything for maintenance and patch version changes you can use the =NSO_VERSION_MM= variable instead. The skeletons automatically tag the images built with the tip-of-train (highest maintenance / patch release) version with the =MM_$(NSO_VERSION_MM)= tag, which contains just the major, minor and extra tags from the full version. For example, =NSO_VERSION= set to 5.8.3 becomes =NSO_VERSION_MM= 5.8 and 5.8.3_nightly becomes 5.8_nightly. An example of an include file manifest using =NSO_VERSION_MM= looks like this:
+
+    #+BEGIN_SRC text
+        ${PKG_PATH}bgworker/package:MM_${NSO_VERSION_MM}
+    #+END_SRC
+
+    Note the =MM= prefix in the docker image tag. This is added intentionally to differentiate the synthetic =NSO_VERSION_MM= tag from an actual =NSO_VERSION= that does not contain a patch release number.
+
+* Include extra files
+  It is possible to include more files in the Docker image by merely placing them in the directory =extra-files/=. The entire content of =extra-files/= is copied to the root of the resulting =testnso= image, for example, create =extra-files/tmp/foobar= to have it placed at =/tmp/foobar= in the =testnso= image.
+
+* Skeleton content
+  The NED skeleton contains the following files
+  - =README.nid-ned.org=: This README file
+  - =.gitlab-ci.yml=: a GitLab CI configuration file that runs the standard testenv targets
+  - =nidcommon.mk=: Makefile with definitions common across the NID skeletons
+  - =nidned.mk=: Makefile with common targets for the NED skeleton
+  - =Makefile=: repository specific Makefile, while it comes with the skeleton, this is meant to be customized for each project
+  - =run-netsim.sh=: A Docker entrypoint script for running a netsim container
+  - =testenvs/=: Directory containing the testenvs, with subdirectories for each testenv. While a "quick" testenv comes with the skeleton, this is meant to be customized for each project
+  - =packages/=: Standard location for placing the NSO package for the NED itself. Supports multiple packages - for example multiple versions of the same NED like =packages/ned-foo-1.0= and =packages/ned-foo-2.0=.
+  - =test-packages/=: Standard location for placing NSO packages for testing. These are included in the =testnso= container that can be used to test the NED but aren't included in the final output.
+  - =includes/=: Standard location for placing manifests for including externally built packages
+  - =extra-files/=: Standard location for placing extra files to be included in the =testnso=. Files are relative to the image file system root, i.e. create =extra-files/tmp/foobar= to have it placed at =/tmp/foobar= in the Docker image.
+
+** Skeleton source location and updating the skeleton
+   The authoritative origin for the standard form NED skeleton is the =nso-docker= repository at [[https://gitlab.com/nso-developer/nso-docker/]], specifically in the directory =skeletons/ned=. To upgrade to a later version of the skeleton, pull the files from that location and avoid touching the =Makefile= as it typically contains custom modifications. Be sure to include files starting with a dot (=.=).
+
+* Python dependencies & virtualenv
+  If you are using Python for your NSO package and depend on external Python packages, you should declare them in =src/requirements.txt=. The NSO in Docker build system will automatically build a Python virtualenv based on the =requirements.txt= file. The virtualenv is placed in =pyvenv/=.
+
+  At run time, NSO in Docker will automatically detect a Python virtualenv and if found, activate that virtualenv before starting the Python VM. The path to the virtualenv is hardcoded relative to the NSO package =${PKG_PATH}/pyvenv=.
+
+  Note that the each NSO package runs in its own Python VM and will not have access to the Python environment of another NSO package, for example:
+  - NSO package =A= depends on external Python package =foo=
+    - =foo= is installed in the pyvenv in package =A=
+  - NSO package =B= imports Python modules from package =A=
+  - NSO package =B= will not have access to the Python package =foo= in the pyvenv in package =A=
+  - =foo= will need to be installed in pyvenv of =A= as well, by specifying it in the =requirements.txt= file
+
+  =src/requirements-dev.txt= can be populated with build time dependencies. The NSO in Docker build system will automatically build a Python virtualenv in =pyvenv-dev/= based on the content of =src/requirements-dev.txt=. This is only activated in the build process and =pyvenv-dev/= is not included in the final artifact, reducing its size. It is highly recommended to let the build time dependencies be a superset of run time dependencies by including =requirements.txt= from =requirements-dev.txt=:
+  #+BEGIN_SRC text
+    -r requirements.txt
+  #+END_SRC
+
+* NSO Python Shell
+  If you want to execute short snippets of Python code using various NSO Python APIs, you can use the ~make pycli~ recipe within the context of a testenv. This will start an IPython interpreter in a separate container connected to the same network stack as the NSO container and then load the =ncs_pycli= package to start a MAAPI session and set up the basic MAAGIC objects - =root= and =trans=. For more usage examples see https://github.com/NSO-developer/ncs_pycli.
+
+* Python Remote Debugging
+  If your packages contain Python code, you can connect a remote debugger to individual Python VMs. The base NSO in Docker images include [[https://github.com/microsoft/debugpy]] which implements the Debug Adapter Protocol. Any compatible DAP client may attach the process on the exposed port (tcp/5678). In VSCode the =Python= extension available at [[https://marketplace.visualstudio.com/items?itemName=ms-python.python]] provides the functionality. The NSO containers started by the skeleton Makefiles will automatically expose the port on a high-numbered port assigned by the docker engine.
+
+  If you want to debug a Python package set the =DEBUGPY= environment variable to the NSO package name when starting the testenv. For example, if your package is called =testpy-package=, you start the environment with ~DEBUGPY=testpy-package make start~. If the =DEBUGPY= variable is set to an empty value or the package is not found at startup, debugging is disabled altogether. To start debugging use one of the provided DAP-client targets:
+  - =debug-vscode=: will create/update debug configuration in =.vscode/launch.json= as described at [[https://code.visualstudio.com/docs/python/debugging#_remote-script-debugging-with-ssh]]
+
+  Warning: at the moment debugging a Python package that uses the Python =multiprocessing= library, like the =bgworker= package, is not supported. Attempting to start the PythonVM in remote debug mode will prevent any background process from running until the remote debugger is attached.
+
+  NSO expects a service callback to complete in under 2 minutes (default setting). When stepping through the code with a debugger, execution is paused and if not stepped through fast enough, NSO will time out waiting for the callback. You can extend this timeout in the =java-vm= settings with the following configuration (the Java setting applies to Python callbacks as well):
+  #+BEGIN_SRC xml
+  <java-vm xmlns="http://tail-f.com/ns/ncs">
+    <service-transaction-timeout>600</service-transaction-timeout>
+  </java-vm>
+  #+END_SRC
+
+  Note: the value of the =DEBUGPY= variable specifies the Python VM name. Usually this is the name of the NSO package as defined in =package-meta-data.xml=. It may differ from the package directory name. If the name of the Python VM was overriden in =package-meta-data.xml= you must use the actual name.
+
+* Continuous mirroring
+  In the NSO in Docker (NID) ecosystem, you are encouraged to mirror repositories that you use. If you found this repository outside of your own git hosting system, you should mirror it to your own git host for it to be built there by your own CI system.
+
+  While you can rely on binaries built upstream, including them in your NSO system means a build time risk as broken Internet connectivity or similar could mean you cannot download the packages you depend on. If you need to quickly rebuild your system to integrate a small hot fix, such a risk could mean you cannot deploy a new version. Mirroring the git source repositories of your dependencies not only mean you get to build them locally but also allows you to make minor (or major) modifications to the source. It could be to update the =.gitlab-ci.yml= file to add a build for a different NSO version or a minor patch to a NED. Mirroring was kept in mind while designing NID ecosystem.
+
+  We think it is important to keep a copy of your dependencies locally (in your own Gitlab instance) such that you can build it yourself if necessary. We also think it is important to keep dependencies up to date - in fact, we would like to encourage to "live-at-head", i.e. follow and include the latest version of a dependency. This is why continuous mirroring of an upstream repository makes sense. However, you should not blindly accept new versions into your main NSO system build as it can break your downstream builds. A gating function is needed and we propose a explicit version pinning workflow to provide for that gating function.
+
+  While NSO in Docker isn't specifically built for Gitlab (the intention is to make it more general than that), it is currently well suited to be hosted in Gitlab since the accompanying CI configuration file is for Gitlab CI. Gitlab features a mirroring functionality that can either push or pull in changes from a remote repository. You can use GitLab mirroring to continuously mirror this repository, however, it comes with a major constraint; only fast-forward merging is possible. This essentially prevents you from making even the most minute changes to the repository as continued mirroring will break. While you are encouraged to upstream any patches or changes you might have for this repository and others in the NID world, there are times when you want to make changes, for example if you need to apply a particular CI runner tag or limit the versions of NSO that you build for. To cater to such scenarios, an alternative mirror mechanism is provided: The CI configuration of this repository and the repo skeletons, are capable of mirroring itself from an upstream through a special CI job.
+
+  Enable mirroring from an upstream by scheduling a CI job and setting the =CI_MODE= variable to =mirror=. You create a CI schedule by going to =CI / CD= -> =Schedules= in Gitlab. In addition, you need to set a number of other variables for the mirroring functionality to work:
+  - =CI_MODE=: =CI_MODE= must be set to =mirror= which will skip running any of the normal build and test jobs and instead only run the mirror job
+  - =GITLAB_HOSTKEY=: the public hostkey(s) of the GitLab server
+    - run ~ssh-keyscan URL-OF-YOUR-GITLAB-SERVER~ to get suitable output to include in the variable value
+  - =GIT_SSH_PRIV_KEY=: a private SSH key to use for cloning of its own repository and pushing the updates
+    - create a deploy key that has write privileges
+      - generate a key locally ~ssh-keygen -t ed25519 -f my-nso-docker-mirror~
+      - in GitLab for your repository, go to =Settings= -> =CI / CD= -> =Deploy keys=
+      - create a new key, paste in the public part from what you generated
+        - Check =Write access allowed=
+    - enter the private key in the =GIT_SSH_PRIV_KEY= variable
+  - =MIRROR_REMOTE=: the URL of the upstream repository that you wish to mirror
+    - for example, to mirror the authoritative repo for =nso-docker=, you would use =https://gitlab.com/nso-developer/nso-docker.git=
+  - =MIRROR_PULL_MODE=: can be set to =rebase= to do ~git pull --rebase~ instead of a normal ~git pull~
+  Set ~CI_MODE=mirror~ in the CI schedule (since this should only apply for that job and not the normal CI jobs). Use the repo wide CI variable section to set at least =GITLAB_HOSTKEY= and =GIT_SSH_PRIV_KEY=, possibly =MIRROR_REMOTE= too (or set from CI schedule). These are multi-line values and it appears some GitLab versions cannot correctly set multi-line values in the CI schedule, instead using repo wide CI variables effectively works around this issue.
+
+  The mirroring functionality is quite simple. It will run ~git clone~ to get a copy of its own repository (which is why it needs SSH host keys and deploy keys), then add the upstream repository as a HTTP mirror (presuming it is a public repository and does not require any credentials). It will then pull in changes, allowing merge conflicts, and finally push the result to its own repository, thus functionally achieving a mirror. It uses the user name and email of the user who initiated the CI build as the git commit author (for merge commits).
