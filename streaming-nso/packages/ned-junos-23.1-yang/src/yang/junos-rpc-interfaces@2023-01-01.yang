@@ -319,6 +319,7 @@
    }
    grouping interface-information-block {
      list physical-interface {
+       key "name";
        leaf cascade-port-satellite-device-slot-identifier {
          type int32;
          description "Slot id of a Satellite Device on a Cascade Port";
