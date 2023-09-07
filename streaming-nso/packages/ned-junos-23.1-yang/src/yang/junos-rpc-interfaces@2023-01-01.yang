@@ -3923,55 +3923,55 @@
        }
        container traffic-statistics {
          leaf input-bps {
-           type int32;
+           type uint64;
          }
          leaf input-pps {
-           type int32;
+           type uint64;
          }
          leaf output-bps {
-           type int32;
+           type uint64;
          }
          leaf output-pps {
-           type int32;
+           type uint64;
          }
          leaf input-packets {
-           type int32;
+           type uint64;
          }
          leaf output-packets {
-           type int32;
+           type uint64;
          }
          leaf input-bytes {
-           type int32;
+           type uint64;
          }
          leaf output-bytes {
-           type int32;
+           type uint64;
          }
          container ipv6-transit-statistics {
            leaf input-bytes {
-             type int32;
+             type uint64;
            }
            leaf output-bytes {
-             type int32;
+             type uint64;
            }
            leaf input-packets {
-             type int32;
+             type uint64;
            }
            leaf output-packets {
-             type int32;
+             type uint64;
            }
          }
          container ipv6-total-statistics {
            leaf input-bytes {
-             type int32;
+             type uint64;
            }
            leaf output-bytes {
-             type int32;
+             type uint64;
            }
            leaf input-packets {
-             type int32;
+             type uint64;
            }
            leaf output-packets {
-             type int32;
+             type uint64;
            }
          }
        }
@@ -3981,138 +3981,138 @@
          }
          container ipv4-multicast-statistics {
            leaf input-bytes {
-             type int32;
+             type uint64;
            }
            leaf input-bps {
-             type int32;
+             type uint64;
            }
            leaf output-bytes {
-             type int32;
+             type uint64;
            }
            leaf output-bps {
-             type int32;
+             type uint64;
            }
            leaf input-packets {
-             type int32;
+             type uint64;
            }
            leaf input-pps {
-             type int32;
+             type uint64;
            }
            leaf output-packets {
-             type int32;
+             type uint64;
            }
            leaf output-pps {
-             type int32;
+             type uint64;
            }
          }
          container ipv6-multicast-statistics {
            leaf input-bytes {
-             type int32;
+             type uint64;
            }
            leaf input-bps {
-             type int32;
+             type uint64;
            }
            leaf output-bytes {
-             type int32;
+             type uint64;
            }
            leaf output-bps {
-             type int32;
+             type uint64;
            }
            leaf input-packets {
-             type int32;
+             type uint64;
            }
            leaf input-pps {
-             type int32;
+             type uint64;
            }
            leaf output-packets {
-             type int32;
+             type uint64;
            }
            leaf output-pps {
-             type int32;
+             type uint64;
            }
          }
        }
        container ingress-traffic-statistics {
          leaf input-bps {
-           type int32;
+           type uint64;
          }
          leaf input-pps {
-           type int32;
+           type uint64;
          }
          leaf input-drop-bps {
-           type int32;
+           type uint64;
            description "Drop rate at ingress in bits per second ";
          }
          leaf input-drop-pps {
-           type int32;
+           type uint64;
            description "Drop rate at ingress in packets per second ";
          }
          leaf input-bytes {
-           type int32;
+           type uint64;
          }
          leaf input-packets {
-           type int32;
+           type uint64;
          }
          leaf input-drop-bytes {
-           type int32;
+           type uint64;
            description "Drop statistics at ingress in bytes";
          }
          leaf input-drop-packets {
-           type int32;
+           type uint64;
            description "Drop statistics at ingress in packets";
          }
        }
        container multilink-interface-errors {
          leaf oversized-frames {
-           type int32;
+           type uint64;
            description "Number of oversized frames detected";
          }
          leaf input-error-frames {
-           type int32;
+           type uint64;
            description "Number of frames for which an error occurred on input";
          }
          leaf input-disabled-bundle {
-           type int32;
+           type uint64;
            description "Count of packets received on a disabled link or bundle";
          }
          leaf output-disabled-bundle {
-           type int32;
+           type uint64;
            description "Count of packets transmitted on a disabled link or bundle";
          }
          leaf queuing-drops {
-           type int32;
+           type uint64;
            description "Count of packets dropped by the output queue of the I/O Manager ASIC";
          }
          leaf packet-buffer-overflow {
-           type int32;
+           type uint64;
            description "Number of times the packet data buffer overflowed";
          }
          leaf fragment-buffer-overflow {
-           type int32;
+           type uint64;
            description "Number of times the fragment data buffer overflowed";
          }
          leaf fragment-timeout {
-           type int32;
+           type uint64;
            description "Fragments timed out during assembly";
          }
          leaf sequence-number-missing {
-           type int32;
+           type uint64;
            description "Gap detected in sequence numbers";
          }
          leaf out-of-order-sequence-number {
-           type int32;
+           type uint64;
            description "Fragments with an out-of-order sequence number";
          }
          leaf out-of-range-sequence-number {
-           type int32;
+           type uint64;
            description "Fragments with an out-of-range sequence number";
          }
          leaf data-memory-error {
-           type int32;
+           type uint64;
            description "Errors detected in data memory";
          }
          leaf control-memory-error {
-           type int32;
+           type uint64;
            description "Errors detected in control memory";
          }
        }
@@ -4178,147 +4178,147 @@
            description "LMI type (ANSI or Q.933A) of this multilink Frame Relay UNI NNI bundle instance";
          }
          leaf t391 {
-           type int32;
+           type uint64;
            description "Multilink Frame Relay UNI NNI link integrity verify polling timer";
          }
          leaf t392 {
-           type int32;
+           type uint64;
            description "Multilink Frame Relay UNI NNI polling verification timer";
          }
          leaf n391 {
-           type int32;
+           type uint64;
            description "Multilink Frame Relay UNI NNI full status polling counter";
          }
          leaf n392 {
-           type int32;
+           type uint64;
            description "Multilink Frame Relay UNI NNI LMI error threshold";
          }
          leaf n393 {
-           type int32;
+           type uint64;
            description "Multilink Frame Relay UNI NNI LMI monitored event count";
          }
        }
        container multilink-bundle-errors {
          leaf packet-drops {
-           type int32;
+           type uint64;
            description "Number of packets dropped";
          }
          leaf packet-drop-bytes {
-           type int32;
+           type uint64;
            description "Number of bytes in dropped packets";
          }
          leaf fragment-drops {
-           type int32;
+           type uint64;
            description "Number of fragments dropped";
          }
          leaf fragment-drop-bytes {
-           type int32;
+           type uint64;
            description "Number of bytes in dropped fragments";
          }
          leaf mrru-exceeded {
-           type int32;
+           type uint64;
            description "Number of assembled packets that exceeded MRRU";
          }
          leaf processing-errors {
-           type int32;
+           type uint64;
            description "Number of errors encountered in assembling packets";
          }
        }
        container input-error-list {
          leaf input-errors {
-           type int32;
+           type uint64;
          }
          leaf input-drops {
-           type int32;
+           type uint64;
          }
          leaf invalid-vcs {
-           type int32;
+           type uint64;
          }
          leaf framing-errors {
-           type int32;
+           type uint64;
          }
          leaf input-runts {
-           type int32;
+           type uint64;
          }
          leaf input-giants {
-           type int32;
+           type uint64;
          }
          leaf input-bucket-drops {
-           type int32;
+           type uint64;
          }
          leaf input-discards {
-           type int32;
+           type uint64;
          }
          leaf input-l3-incompletes {
-           type int32;
+           type uint64;
          }
          leaf input-l2-channel-errors {
-           type int32;
+           type uint64;
          }
          leaf input-l2-mismatch-timeouts {
-           type int32;
+           type uint64;
          }
          leaf input-fifo-errors {
-           type int32;
+           type uint64;
          }
          leaf input-dma-errors {
-           type int32;
+           type uint64;
          }
          leaf hs-link-crc-errors {
-           type int32;
+           type uint64;
          }
          leaf hs-link-fifo-overflows {
-           type int32;
+           type uint64;
          }
          leaf sram-errors {
-           type int32;
+           type uint64;
          }
          leaf input-resource-errors {
-           type int32;
+           type uint64;
          }
        }
        container output-error-list {
          leaf carrier-transitions {
-           type int32;
+           type uint64;
          }
          leaf output-errors {
-           type int32;
+           type uint64;
          }
          leaf output-drops {
-           type int32;
+           type uint64;
          }
          leaf output-collisions {
-           type int32;
+           type uint64;
          }
          leaf output-hs-link-fifo-overflows {
-           type int32;
+           type uint64;
          }
          leaf aged-packets {
-           type int32;
+           type uint64;
          }
          leaf output-fifo-errors {
-           type int32;
+           type uint64;
          }
          leaf output-dma-errors {
-           type int32;
+           type uint64;
          }
          leaf hs-link-fifo-underflows {
-           type int32;
+           type uint64;
          }
          leaf hs-link-crc-errors {
-           type int32;
+           type uint64;
          }
          leaf mtu-errors {
-           type int32;
+           type uint64;
          }
          leaf output-resource-errors {
-           type int32;
+           type uint64;
          }
          leaf output-bucket-drops {
-           type int32;
+           type uint64;
          }
          leaf ecn-marked-packets {
-           type int32;
+           type uint64;
          }
        }
        container ber-threshold {
@@ -5783,22 +5783,22 @@
              type string;
            }
            leaf media-alarm-count {
-             type int32;
+             type int64;
            }
          }
        }
        container otn-fec-statistics {
          leaf fec-corrected-errors {
-           type int32;
+           type uint64;
          }
          leaf fec-valid-time {
-           type int32;
+           type uint64;
          }
          leaf fec-corrected-error-ratio {
-           type int32;
+           type int64;
          }
          leaf fec-uncorrected-words {
-           type int32;
+           type uint64;
          }
        }
        container otn-fec-alarms {
@@ -5807,10 +5807,10 @@
              type string;
            }
            leaf media-alarm-seconds {
-             type int32;
+             type uint64;
            }
            leaf media-alarm-count {
-             type int32;
+             type uint64;
            }
            leaf media-alarm-state {
              type string;
@@ -5977,19 +5977,19 @@
        }
        container ethernet-fec-statistics {
          leaf fec_ccw_count {
-           type int32;
+           type uint64;
            description "FEC Corrected Error Count";
          }
          leaf fec_nccw_count {
-           type int32;
+           type uint64;
            description "FEC Uncorrected Error Count";
          }
          leaf fec_ccw_error_rate {
-           type int32;
+           type uint64;
            description "FEC Corrected Error Rate (errors/sec)";
          }
          leaf fec_nccw_error_rate {
-           type int32;
+           type uint64;
            description "FEC Uncorrected Error Rate (errors/sec)";
          }
        }
@@ -6013,91 +6013,91 @@
        }
        container ethernet-mac-statistics {
          leaf input-bytes {
-           type int32;
+           type uint64;
          }
          leaf input-packets {
-           type int32;
+           type uint64;
          }
          leaf output-bytes {
-           type int32;
+           type uint64;
          }
          leaf output-packets {
-           type int32;
+           type uint64;
          }
          leaf input-unicasts {
-           type int32;
+           type uint64;
          }
          leaf output-unicasts {
-           type int32;
+           type uint64;
          }
          leaf input-broadcasts {
-           type int32;
+           type uint64;
          }
          leaf output-broadcasts {
-           type int32;
+           type uint64;
          }
          leaf input-multicasts {
-           type int32;
+           type uint64;
          }
          leaf output-multicasts {
-           type int32;
+           type uint64;
          }
          leaf input-crc-errors {
-           type int32;
+           type uint64;
          }
          leaf output-crc-errors {
-           type int32;
+           type uint64;
          }
          leaf input-fifo-errors {
-           type int32;
+           type uint64;
          }
          leaf output-fifo-errors {
-           type int32;
+           type uint64;
          }
          leaf input-dma-errors {
-           type int32;
+           type uint64;
          }
          leaf output-dma-errors {
-           type int32;
+           type uint64;
          }
          leaf input-mac-control-frames {
-           type int32;
+           type uint64;
          }
          leaf output-mac-control-frames {
-           type int32;
+           type uint64;
          }
          leaf input-mac-pause-frames {
-           type int32;
+           type uint64;
          }
          leaf output-mac-pause-frames {
-           type int32;
+           type uint64;
          }
          leaf input-oversized-frames {
-           type int32;
+           type uint64;
          }
          leaf input-jabber-frames {
-           type int32;
+           type uint64;
          }
          leaf input-fragment-frames {
-           type int32;
+           type uint64;
          }
          leaf input-vlan-tagged-frames {
-           type int32;
+           type uint64;
          }
          leaf input-code-violations {
-           type int32;
+           type uint64;
          }
          leaf input-total-errors {
-           type int32;
+           type uint64;
          }
          leaf output-total-errors {
-           type int32;
+           type uint64;
          }
          leaf input-policer-frame-drops {
-           type int32;
+           type uint64;
          }
          leaf input-policer-byte-drops {
-           type int32;
+           type uint64;
          }
        }
        container sriov-vf-statistics {
@@ -6111,19 +6111,19 @@
            type string;
          }
          leaf input-bytes {
-           type int32;
+           type uint64;
          }
          leaf input-packets {
-           type int32;
+           type uint64;
          }
          leaf output-bytes {
-           type int32;
+           type uint64;
          }
          leaf output-packets {
-           type int32;
+           type uint64;
          }
          leaf mc-packets {
-           type int32;
+           type uint64;
          }
        }
        container ethernet-prbs-mode {
@@ -6140,27 +6140,27 @@
        }
        container ethernet-prbs-statistics {
          leaf prbs_lane {
-           type int32;
+           type uint64;
            description "PRBS Lane";
          }
          leaf prbs_error_count {
-           type int32;
+           type uint64;
            description "PRBS Error Count";
          }
          leaf prbs_loop_count {
-           type int32;
+           type uint64;
            description "PRBS Loop Count";
          }
          leaf prbs_ber_sec {
-           type int32;
+           type uint64;
            description "PRBS BER seconds";
          }
          leaf prbs_bits {
-           type int32;
+           type uint64;
            description "PRBS Bits";
          }
          leaf prbs_run_sec {
-           type int32;
+           type uint64;
            description "PRBS Run seconds";
          }
          leaf prbs_state {
@@ -6543,31 +6543,31 @@
        }
        container ethernet-filter-statistics {
          leaf input-reject-count {
-           type int32;
+           type uint64;
          }
          leaf output-packet-pad-count {
-           type int32;
+           type uint64;
          }
          leaf output-packet-error-count {
-           type int32;
+           type uint64;
          }
          leaf input-packets {
-           type int32;
+           type uint64;
          }
          leaf input-reject-destination-address-count {
-           type int32;
+           type uint64;
          }
          leaf input-reject-source-address-count {
-           type int32;
+           type uint64;
          }
          leaf output-packets {
-           type int32;
+           type uint64;
          }
          leaf cam-destination-filter-count {
-           type int32;
+           type uint64;
          }
          leaf cam-source-filter-count {
-           type int32;
+           type uint64;
          }
        }
        container ethernet-autonegotiation {
@@ -6620,23 +6620,23 @@
        }
        container mac-database {
          leaf number-of-mac-record {
-           type int32;
+           type uint64;
          }
          list mac-record {
            leaf mac-address {
              type jt:mac-addr;
            }
            leaf receive-frames {
-             type int32;
+             type uint64;
            }
            leaf receive-bytes {
-             type int32;
+             type uint64;
            }
            leaf transmit-frames {
-             type int32;
+             type uint64;
            }
            leaf transmit-bytes {
-             type int32;
+             type uint64;
            }
          }
        }
