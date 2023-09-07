@@ -10,6 +10,7 @@ endif
 NCS_D?=ncs
 
 start:
+	BUILD_PATH=$(BUILD_PATH) docker compose build
 	BUILD_PATH=$(BUILD_PATH) docker compose up -d
 	sleep 5
 	BUILD_PATH=$(BUILD_PATH) make init-m3db
@@ -67,9 +68,20 @@ stop:
 	BUILD_PATH=$(BUILD_PATH) docker compose down -v
 
 test:
-	BUILD_PATH=$(BUILD_PATH) docker compose exec nso /mnt/bin/acton_streamer.test tsdb-writer
+	BUILD_PATH=$(BUILD_PATH) docker compose exec nso /mnt/bin/acton_streamer.test tsdb-writer --rts-wthreads=1
 
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer
 
 .PHONY: start stop test test-debug cli
+
+
+rebuild-app:
+	$(MAKE) -C ../..
+
+rebuild-nso:
+	$(MAKE) -C ../../streaming-nso build tag-release
+	BUILD_PATH=$(BUILD_PATH) docker compose up -d nso
+	sleep 5
+
+rebuild: rebuild-app rebuild-nso

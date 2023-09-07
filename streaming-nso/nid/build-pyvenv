@@ -1,0 +1,22 @@
+#!/bin/bash
+# Create python virtualenvs for NSO package based on a requirements(-dev).txt
+# file(s)
+#
+# It is possible to either define a single virtualenv, which is used both at run
+# time and build time, or to define a virtualenv for run time and another
+# "development" virtualenv that is used at build time.
+# The presence of src/requirements.txt will automatically build a virtualenv in
+# pyvenv/ which is activated at run time and if it is the only virtualenv
+# present (pyvenv-dev/ does not exist), it will also be activated at build time.
+# However, if src/requirements-dev.txt is present, it will be used to build a
+# virtualenv in pyvenv-dev/ that is used at build time. It is *strongly*
+# recommended to let requirements-dev.txt be a superset of requirements.txt by
+# including requirements.txt from requirements-dev.txt. To include, put this in
+# requirements-dev.txt:
+#   -r requirements.txt
+
+source /src/nid/create-or-update-venv.inc
+
+PKG_DIR=$1
+create_or_update_venv "${PKG_DIR}" "src/requirements-dev.txt" pyvenv-dev
+create_or_update_venv "${PKG_DIR}" "src/requirements.txt" pyvenv

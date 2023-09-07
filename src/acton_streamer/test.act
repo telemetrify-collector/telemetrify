@@ -472,8 +472,13 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     def _on_vmx_connect(c, schema, writer):
         print("NETCONF client connected!!!!")
 
-        n = \
-            xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        # A single interface is easier to debug...
+        #n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [],
+        #             [
+        #                 xml.Node("detail", [], None, [], [], None, None),
+        #                 xml.Node("interface-name", [], None, [], [], "ge-0/0/0", None),
+        #             ], None, None)
 
         # Reply looks roughly like:
         # <rpc-reply xmlns:junos="http://xml.juniper.net/junos/23.1R0/junos">
@@ -498,19 +503,12 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
         cursor.push(ITag(None, "device"))
         cursor.push(ITag(None, "rpc"))
+        # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
         dumb_push(cursor, "rpc-get-interface-information")
         cursor.push(ITag(None, "get-interface-information"))
-        # It appears the 'output' node under the rpc definition in the YANG
-        # model doesn't show up in the schema here, so under the rpc we find
-        # both the input and output nodes - does that mean there are possibly
-        # naming collisions between input and output? Anyway, no push into
-        # 'output' but rather 'interface-information' which is the only node
-        # under the rpc output section. It's the top node in the RPC reply, so
-        # we leave the cursor at get-interface-information.
-        print(cursor.push(ITag(None, "interface-information")))
-        #print(cursor.push(ITag(None, "physical-interface")))
-        print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
-        print_children(cursor)
+
+        #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
+        #print_children(cursor)
 
         c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor, writer))
 
@@ -522,7 +520,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
         base_tags = []
         base_tags.append(("host", "vmx"))
-        writer.write(xnode.children()[0], s_cursor, "interface_information", base_tags, time.time().second, _on_writer_done)
+        writer.write(xnode, s_cursor, base_tags, time.time().second, _on_writer_done)
 
     def _on_writer_done(c, e):
         print("TSDB writer done!")

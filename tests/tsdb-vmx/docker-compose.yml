@@ -34,8 +34,9 @@ services:
             - 10022:22 
             - 10830:830
     nso:
-        build:
-            dockerfile: ./nso.Dockerfile
+        image: streaming-nso/nso:6.1.2
+#        build:
+#            dockerfile: ./nso.Dockerfile
         volumes:
           - ${BUILD_PATH:-../../out/rel}:/mnt
         ports:

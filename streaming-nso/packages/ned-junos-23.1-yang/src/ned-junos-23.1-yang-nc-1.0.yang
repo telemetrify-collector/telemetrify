@@ -1,0 +1,13 @@
+module ned-junos-23.1-yang-nc-1.0 {
+  yang-version 1.1;
+  namespace "http://tail-f.com/ns/ned-id/ned-junos-23.1-yang-nc-1.0";
+  prefix ned-junos-23.1-yang-nc-1.0;
+
+  import ned-junos-23.1-yang-nc {
+    prefix family;
+  }
+
+  identity ned-junos-23.1-yang-nc-1.0 {
+    base family:ned-junos-23.1-yang-nc;
+  }
+}

@@ -131,8 +131,18 @@ actor TSDBWriter(m3c: tsdb.m3.Client):
     var pending_mount_id: ?HTag = None
 
     #def write(node: Node, thandle: int, use_ikp: bool, result_cb: action(?Exception) -> None):
-    def write(node: Node, cursor: schema.Cursor, prefix: str, base_tags: list[(str, str)], timestamp: int, result_cb: action(TSDBWriter, ?Exception) -> None):
-        metrics = get_metrics_from_tree(node, cursor, timestamp, [prefix], [base_tags])
+    def write(node: Node, cursor: schema.Cursor, base_tags: list[(str, str)], timestamp: int, result_cb: action(TSDBWriter, ?Exception) -> None):
+        path = []
+
+        # Are we dealing with an RPC payload?
+        rpc_parent = cursor.path()[-1]
+        if rpc_parent.is_action():
+            path.append("rpc")
+            itag = cursor.lookup_itag(rpc_parent.tag)
+            if itag is not None:
+                path.append(itag.name)
+
+        metrics = get_metrics_from_tree(node, cursor, timestamp, path, [base_tags])
         print("Metrics to write: ", metrics)
         #if len(metrics) > 0:
         #    print("First metric to write: ", metrics[0])
