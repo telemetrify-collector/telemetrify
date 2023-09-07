@@ -38,7 +38,7 @@ services:
 #        build:
 #            dockerfile: ./nso.Dockerfile
         volumes:
-          - ${BUILD_PATH:-../../out/rel}:/mnt
+          - ../../:/mnt
         ports:
           - 4569:4569
 
