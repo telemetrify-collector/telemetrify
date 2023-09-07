@@ -13,6 +13,7 @@ start:
 	docker compose build
 	docker compose up -d
 	sleep 5
+	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
 	make init-m3db
 	make init-grafana
 
@@ -68,7 +69,7 @@ stop:
 	docker compose down -v
 
 test:
-	docker compose exec nso $(BIN_PATH)/acton_streamer.test tsdb-writer --rts-wthreads=1
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
