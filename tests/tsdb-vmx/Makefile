@@ -3,18 +3,19 @@ SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
 #DOCKER_USER:=$(shell id -u):$(shell id -g)
 ifeq ($(DEV),true)
-	BUILD_PATH=$(PROJECT_DIR)/out/dev
+	BIN_PATH=/mnt/out/dev/bin
 else
-	BUILD_PATH=$(PROJECT_DIR)/out/rel
+	BIN_PATH=/mnt/out/rel/bin
 endif
 NCS_D?=ncs
 
-start:
-	BUILD_PATH=$(BUILD_PATH) docker compose build
-	BUILD_PATH=$(BUILD_PATH) docker compose up -d
+start: build-nso
+	docker compose build
+	docker compose up -d
 	sleep 5
-	BUILD_PATH=$(BUILD_PATH) make init-m3db
-	BUILD_PATH=$(BUILD_PATH) make init-grafana
+	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
+	make init-m3db
+	make init-grafana
 
 init-m3db:
 	curl -X POST http://localhost:7201/api/v1/database/create -d '{ "type": "local", "namespaceName": "default", "retentionTime": "12h" }' | jq .
@@ -65,23 +66,24 @@ add-vmx:
 
 
 stop:
-	BUILD_PATH=$(BUILD_PATH) docker compose down -v
+	docker compose down -v
 
 test:
-	BUILD_PATH=$(BUILD_PATH) docker compose exec nso /mnt/bin/acton_streamer.test tsdb-writer --rts-wthreads=1
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 
 test-debug:
-	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/acton_streamer.test tsdb-writer
+	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
 
 .PHONY: start stop test test-debug cli
 
+build-nso:
+	$(MAKE) -C ../../streaming-nso build tag-release
 
 rebuild-app:
 	$(MAKE) -C ../..
 
-rebuild-nso:
-	$(MAKE) -C ../../streaming-nso build tag-release
-	BUILD_PATH=$(BUILD_PATH) docker compose up -d nso
+rebuild-nso: build-nso
+	docker compose up -d nso
 	sleep 5
 
 rebuild: rebuild-app rebuild-nso
