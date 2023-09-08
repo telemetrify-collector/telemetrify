@@ -9,7 +9,7 @@ else
 endif
 NCS_D?=ncs
 
-start:
+start: build-nso
 	docker compose build
 	docker compose up -d
 	sleep 5
@@ -76,12 +76,13 @@ test-debug:
 
 .PHONY: start stop test test-debug cli
 
+build-nso:
+	$(MAKE) -C ../../streaming-nso build tag-release
 
 rebuild-app:
 	$(MAKE) -C ../..
 
-rebuild-nso:
-	$(MAKE) -C ../../streaming-nso build tag-release
+rebuild-nso: build-nso
 	docker compose up -d nso
 	sleep 5
 
