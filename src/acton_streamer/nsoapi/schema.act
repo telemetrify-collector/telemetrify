@@ -2675,7 +2675,7 @@ class Any:
         elif isinstance(v, EInt):
             return (C_INT32, v.val)
         elif isinstance(v, EBinary):
-            _s = str(v.data)
+            _s = str(v)
             if len(_s) >= 1 and _s[-1] == '\x00':
                 return (C_STR, _s[0:-1:1])
             return (C_BUF, _s)
