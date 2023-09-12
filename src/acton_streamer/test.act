@@ -461,8 +461,11 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     def _on_tsdb_connect(c, schema):
         print("TSDB connected!")
         print("Current time:", time.now())
-        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
 
+        c.quick_init(lambda c, s: _on_tsdb_init(c, schema))
+
+    def _on_tsdb_init(c, schema):
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
         vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, schema, writer), _on_nc_error, None)
 
     def _on_tsdb_error(c, e):

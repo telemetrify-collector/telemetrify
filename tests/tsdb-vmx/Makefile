@@ -14,7 +14,7 @@ start: build-nso
 	docker compose up -d
 	sleep 5
 	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
-	make init-m3db
+	#make init-m3db
 	make init-grafana
 
 init-m3db:
