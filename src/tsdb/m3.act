@@ -3,6 +3,7 @@ import file
 import net
 import json
 import time
+import logging
 import tsdb.http
 
 class Metric(object):
@@ -25,7 +26,10 @@ class Metric(object):
         # XXX including str(self.timestamp) in this repr triggers a segfault for reasons unknown
         return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
 
+#actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
 actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
+
+    #_log = logging.Logger(log_handler)
 
     def _on_connect(client: tsdb.http.Client):
         print("TSDB HTTP client connected!")

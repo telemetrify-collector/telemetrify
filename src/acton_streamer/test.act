@@ -3,6 +3,7 @@ import process
 import xml
 import net
 import time
+import logging
 import tsdb.m3
 import acton_streamer.nsoapi.cdb
 import acton_streamer.nsoapi.maapi
@@ -395,20 +396,23 @@ actor test_writer(env: Env, opts: Opts):
 
 actor test_tsdb_writer(env: Env, opts: Opts):
 
-    _schema = Schema({}, {}, {}, {}, {}, {})
+    log_handler = logging.Handler(None)
+    log_handler.add_sink(logging.StdoutSink())
+
+    log = logging.Logger(log_handler)
 
     def _on_connect_error(e):
-        print("MAAPI connect failed:", e)
+        log.error("MAAPI connect failed:" + str(e), None)
 
     def _on_connect(c):
-        print("Current time:", time.now())
-        print("MAAPI connected!!!!")
+        log.info("Current time:" + str(time.now()), None)
+        log.info("MAAPI connected!!!!", None)
         c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
 
     def _on_user_session(c, e):
         if e is None:
-            print("Current time:", time.now())
-            print("MAAPI user session started!!!!")
+            log.info("Current time:" + str(time.now()), None)
+            log.info("MAAPI user session started!!!!", None)
             c.load_schema(_on_load_schema)
         else:
             print("MAAPI user session failed:", e)
@@ -416,24 +420,28 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
     def _on_load_schema(c, v):
         if isinstance(v, Schema):
-            print("Current time:", time.now())
-            print("MAAPI loaded schema!!!!")
-            print(v)
+            log.info("Current time:" + str(time.now()), None)
+            log.info("MAAPI loaded schema!!!!", None)
+            log.debug("", {"schema": v})
 
             for _name, _hash in v._name_to_hash.items():
-                print(_name + " : " + str(_hash))
+                log.debug(_name + " : " + str(_hash), None)
 
             schema = v
 
-            print("Starting TSDB client")
+            log.info("Starting TSDB client", None)
+            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error, log_handler)
             tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
 
         else:
-            print("MAAPI load schema failed:", v)
+            if isinstance(v, value):
+                log.error("MAAPI load schema failed:", {"schema": v})
+            else:
+                log.error("MAAPI load schema failed", None)
             await async env.exit(1)
 
     def _on_nc_error(c, e):
-        print("NETCONF client failed:", e)
+        log.error("NETCONF client failed:" + str(e), None)
         await async env.exit(1)
 
     def dumb_push(cursor, name):
@@ -469,11 +477,11 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, schema, writer), _on_nc_error, None)
 
     def _on_tsdb_error(c, e):
-        print("TSDB client failed: ", e)
+        log.error("TSDB client failed: " + str(e), None)
         await async env.exit(1)
 
     def _on_vmx_connect(c, schema, writer):
-        print("NETCONF client connected!!!!")
+        log.info("NETCONF client connected!!!!", None)
 
         n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
         # A single interface is easier to debug...
@@ -519,7 +527,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         #print("Received reply:\n", xml.encode(n))
         xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
        
-        print("RPC XNode:", xnode)
+        log.debug("RPC XNode:", {"xnode": xnode})
 
         base_tags = []
         base_tags.append(("host", "vmx"))
