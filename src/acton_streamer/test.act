@@ -430,8 +430,8 @@ actor test_tsdb_writer(env: Env, opts: Opts):
             schema = v
 
             log.info("Starting TSDB client", None)
-            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error, log_handler)
-            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
+            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error, log_handler)
+            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
 
         else:
             if isinstance(v, value):

@@ -84,7 +84,7 @@ actor main(env):
         print("Error: " + err)
 
     listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth)))
-    m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error)
+    m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error, None)
 
     #def on_init_response(conn: tsdb.m3.Client, success: bool):
     #    print("Init response received: ", str(success))
