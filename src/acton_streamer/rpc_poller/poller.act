@@ -1,0 +1,46 @@
+import xml
+import time
+import logging
+import acton_streamer.net.netconf as netconf
+import acton_streamer.tsdb.writer
+import acton_streamer.nsoapi.schema as schema
+from acton_streamer.common.mod import *
+
+actor RPCPoller(ncclient: netconf.Client, tsdb_writer: acton_streamer.tsdb.writer.TSDBWriter, rpc_node: xml.Node, rpc_schema: schema.Schema, interval: int, log_handler: logging.Handler):
+
+    logh = logging.Handler("RPCPoller")
+    logh.set_handler(log_handler)
+    log = logging.Logger(logh)
+
+    rpc_name = rpc_node.tag
+
+    def _on_rpc_reply(c, n: xml.Node, s_cursor, writer):
+        #print("Received reply:\n", xml.encode(n))
+        xnode = netconf.netconf_to_xnode(n, [], 0)
+
+        log.debug("RPC XNode:", {"xnode": xnode})
+
+        s_cursor = schema.Cursor(rpc_schema)
+        s_cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
+        s_cursor.push(ITag(None, "device"))
+        s_cursor.push(ITag(None, "rpc"))
+        # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
+        s_cursor.push(ITag(None, "rpc-" + rpc_name))
+        s_cursor.push(ITag(None, rpc_name))
+
+        base_tags = []
+        base_tags.append(("host", "vmx"))
+        tsdb_writer.write(xnode, s_cursor, base_tags, time.time().second, _on_writer_done)
+
+    def _on_writer_done(c, e):
+        log.info("TSDB writer done!", None)
+        if e is None:
+            log.info("TSDB writer success!", None)
+        else:
+            log.info("TSDB writer failed:" + str(e), None)
+
+    #def _poll_iter():
+    #     ncclient.rpc(rpc_node, [], lambda c, n: _on_rpc_reply(c, n, cursor, writer))
+
+    #while True:
+    #    after interval: _poll_iter()
