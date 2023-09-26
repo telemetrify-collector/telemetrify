@@ -14,25 +14,24 @@ actor RPCPoller(ncclient: netconf.Client, tsdb_writer: acton_streamer.tsdb.write
 
     rpc_name = rpc_node.tag
 
-    def _on_rpc_reply(c, n: xml.Node, s_cursor, writer):
-        #print("Received reply:\n", xml.encode(n))
-        xnode = netconf.netconf_to_xnode(n, [], 0)
+    def _on_rpc_reply(c, n: xml.Node):
+        xnode: XNode = netconf.netconf_to_xnode(n, [], 0)
 
         log.debug("RPC XNode:", {"xnode": xnode})
 
-        s_cursor = schema.Cursor(rpc_schema)
+        s_cursor: schema.Cursor = schema.Cursor(rpc_schema)
         s_cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
         s_cursor.push(ITag(None, "device"))
         s_cursor.push(ITag(None, "rpc"))
-        # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
         s_cursor.push(ITag(None, "rpc-" + rpc_name))
         s_cursor.push(ITag(None, rpc_name))
 
-        base_tags = []
+        base_tags: list[(str, str)] = []
         base_tags.append(("host", "vmx"))
-        tsdb_writer.write(xnode, s_cursor, base_tags, time.time().second, _on_writer_done)
+        #Type error disappears when the following line is commented out
+        tsdb_writer.write(xnode, s_cursor, base_tags, 0, _on_writer_done)
 
-    def _on_writer_done(c, e):
+    def _on_writer_done(c: acton_streamer.tsdb.writer.TSDBWriter, e: ?Exception):
         log.info("TSDB writer done!", None)
         if e is None:
             log.info("TSDB writer success!", None)
