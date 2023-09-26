@@ -71,6 +71,9 @@ stop:
 test:
 	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 
+test-poll:
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-poll --rts-wthreads=1"
+
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
 

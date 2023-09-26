@@ -74,6 +74,9 @@ actor main(env):
     def run_test_tsdb_writer(env: Env, opts: Opts):
         test_tsdb_writer(env, opts)
 
+    def run_test_tsdb_poll(env: Env, opts: Opts):
+        test_tsdb_poll(env, opts)
+
     def run_test_netconf_client_nso(env: Env, opts: Opts):
         test_netconf_client_nso(env, opts)
 
@@ -98,6 +101,7 @@ actor main(env):
         "set-values-hkp": run_test_set_values_hkp,
         "writer": run_test_writer,
         "tsdb-writer": run_test_tsdb_writer,
+        "tsdb-poll": run_test_tsdb_poll,
         "netconf-client-nso": run_test_netconf_client_nso,
         "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
         "cdb-wait-start": run_test_cdb_wait_start,
@@ -396,8 +400,10 @@ actor test_writer(env: Env, opts: Opts):
 
 actor test_tsdb_writer(env: Env, opts: Opts):
 
+    print("test_tsdb_writer")
     log_handler = logging.Handler(None)
     log_handler.add_sink(logging.StdoutSink())
+    log_handler.set_output_level(logging.INFO)
 
     log = logging.Logger(log_handler)
 
@@ -553,7 +559,176 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     nso_sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
 
     #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, _schema), _on_tsdb_error)
+
+actor test_tsdb_poll(env: Env, opts: Opts):
+
+    log_handler = logging.Handler(None)
+    log_handler.add_sink(logging.StdoutSink())
+    log_handler.set_output_level(logging.INFO)
+
+    log = logging.Logger(log_handler)
+    log.info("test_tsdb_poll", None)
+
+    def _on_connect_error(e):
+        log.error("MAAPI connect failed:" + str(e), None)
+
+    def _on_connect(c):
+        log.info("Current time:" + str(time.now()), None)
+        log.info("MAAPI connected!!!!", None)
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            log.info("Current time:" + str(time.now()), None)
+            log.info("MAAPI user session started!!!!", None)
+            c.load_schema(_on_load_schema)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_load_schema(c, v):
+        if isinstance(v, Schema):
+            log.info("Current time:" + str(time.now()), None)
+            log.info("MAAPI loaded schema!!!!", None)
+            log.debug("", {"schema": v})
+
+            for _name, _hash in v._name_to_hash.items():
+                log.debug(_name + " : " + str(_hash), None)
+
+            schema = v
+
+            log.info("Starting TSDB client", None)
+            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error, log_handler)
+            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, schema), _on_tsdb_error)
+
+        else:
+            if isinstance(v, value):
+                log.error("MAAPI load schema failed:", {"schema": v})
+            else:
+                log.error("MAAPI load schema failed", None)
+            await async env.exit(1)
+
+    def _on_nc_error(c, e):
+        log.error("NETCONF client failed:" + str(e), None)
+        await async env.exit(1)
+
+    def dumb_push(cursor, name):
+        """Stupid cursor.push() working around some problem
+        """
+        # The cursor.push can take an ITag and try to look it up into an HTag.
+        # This fails, seemingly because the schema we are working on
+        # (urn:junos-rpc) isn't in the NamespaceMaps, not sure why. We hack
+        # around it by just iterating over HTags instead, get the corresponding
+        # ITag, check the name and boom!
+        for k,v in cursor.node().children.items():
+            itag = cursor.lookup_itag(k)
+            if itag is not None:
+                if itag.name == name:
+                    cursor.push(k)
+                    return True
+        return False
+
+    def print_children(cursor):
+        for k,v in cursor.node().children.items():
+            itag = cursor.lookup_itag(k)
+            if itag is not None:
+                print("child name:", itag.name)
+
+    def _on_tsdb_connect(c, schema):
+        print("TSDB connected!")
+        print("Current time:", time.now())
+
+        c.quick_init(lambda c, s: _on_tsdb_init(c, schema))
+
+    def _on_tsdb_init(c, schema):
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
+        vmx_sess = acton_streamer.net.netconf.Client(process.ProcessCap(env.auth), "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, schema, writer), _on_nc_error, None)
+
+    def _on_tsdb_error(c, e):
+        log.error("TSDB client failed: " + str(e), None)
+        await async env.exit(1)
+
+    def _on_vmx_connect(c, schema, writer):
+        log.info("NETCONF client connected!!!!", None)
+
+        n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        # A single interface is easier to debug...
+        #n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [],
+        #             [
+        #                 xml.Node("detail", [], None, [], [], None, None),
+        #                 xml.Node("interface-name", [], None, [], [], "ge-0/0/0", None),
+        #             ], None, None)
+
+        # Reply looks roughly like:
+        # <rpc-reply xmlns:junos="http://xml.juniper.net/junos/23.1R0/junos">
+        #   <interface-information xmlns="http://xml.juniper.net/junos/23.1R0/junos-interface" junos:style="normal">
+        #     <physical-interface>
+        #       <name>ge-0/0/0</name>
+        #       <traffic-statistics junos:style="verbose">
+        #         <input-bytes>123</input-bytes>
+        #         <output-bytes>456</output-bytes>
+        #         <input-packets>789</input-packets>
+        #         <output-packets>1337</output-packets>
+        #       </traffic-statistics>
+        #     </physical-interface>
+        #   </interface-information>
+        # </rpc-reply>
+
+        # Which RPC was called is not present in the RPC reply so we have to
+        # keep track of that information separately. Thus since we know we just
+        # polled rpc-get-interface-information we build a cursor that starts at
+        # its schema and pass along...
+        #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
+        #print_children(cursor)
+
+        c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, schema, writer))
+
+    def _on_rpc_reply(c, n: xml.Node, schema, writer):
+        #print("Received reply:\n", xml.encode(n))
+        xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
+       
+        log.debug("RPC XNode:", {"xnode": xnode})
+
+        s_cursor = Cursor(schema)
+        s_cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
+        s_cursor.push(ITag(None, "device"))
+        s_cursor.push(ITag(None, "rpc"))
+        # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
+        dumb_push(s_cursor, "rpc-get-interface-information")
+        s_cursor.push(ITag(None, "get-interface-information"))
+
+
+        base_tags = []
+        base_tags.append(("host", "vmx"))
+        writer.write(xnode, s_cursor, base_tags, time.time().second, lambda w, e: _on_writer_done(c, w, schema, e))
+
+    def _on_writer_done(netconf_c, tsdb_c, _schema, e):
+        print("TSDB writer done!")
+        if e is None:
+            print("TSDB writer success!")
+        else:
+            print("TSDB writer failed:", e)
+        after 5: _on_vmx_connect(netconf_c, _schema, tsdb_c)
+
+    #def _on_end_user_session(c, e):
+    #    if e is None:
+    #        print("MAAPI ended user session")
+    #    else:
+    #        print("MAAPI end user session failed:", e)
+    #        await async env.exit(1)
+
+    print("Starting up...")
+    nso_sess = acton_streamer.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+    #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, _schema), _on_tsdb_error)
     
+actor test_tsdb_poll_old(env: Env, opts: Opts):
+    print("test_tsdb_poll")
+    def _poll():
+        print("test_tsdb_poll iter")
+        test_tsdb_writer(env, opts)
+        after 5: _poll()
+    _poll()
 
 actor test_netconf_client_nso(env: Env, opts: Opts):
     def _on_error(c, e):
