@@ -639,44 +639,18 @@ actor test_tsdb_load(env: Env, opts: Opts):
 
         c.quick_init(lambda c, s: _on_tsdb_init(c, schema))
 
-    def _on_tsdb_init(c, schema):
-        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
-
-
     def _on_tsdb_error(c, e):
         log.error("TSDB client failed: " + str(e), None)
         await async env.exit(1)
 
-    def _on_vmx_connect(c, schema, writer):
+    def _on_tsdb_init(c, schema):
+        writer = acton_streamer.tsdb.writer.TSDBWriter(c)
+
         log.info("NETCONF client connected!!!!", None)
+        payload_file = file.ReadFile(file.ReadFileCap(file.FileCap(env.auth)), "get-rpc-info.xml")
+        n = xml.decode(payload_file.read().decode())
+        xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
 
-        n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
-        # A single interface is easier to debug...
-        #n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [],
-        #             [
-        #                 xml.Node("detail", [], None, [], [], None, None),
-        #                 xml.Node("interface-name", [], None, [], [], "ge-0/0/0", None),
-        #             ], None, None)
-
-        # Reply looks roughly like:
-        # <rpc-reply xmlns:junos="http://xml.juniper.net/junos/23.1R0/junos">
-        #   <interface-information xmlns="http://xml.juniper.net/junos/23.1R0/junos-interface" junos:style="normal">
-        #     <physical-interface>
-        #       <name>ge-0/0/0</name>
-        #       <traffic-statistics junos:style="verbose">
-        #         <input-bytes>123</input-bytes>
-        #         <output-bytes>456</output-bytes>
-        #         <input-packets>789</input-packets>
-        #         <output-packets>1337</output-packets>
-        #       </traffic-statistics>
-        #     </physical-interface>
-        #   </interface-information>
-        # </rpc-reply>
-
-        # Which RPC was called is not present in the RPC reply so we have to
-        # keep track of that information separately. Thus since we know we just
-        # polled rpc-get-interface-information we build a cursor that starts at
-        # its schema and pass along...
         cursor = Cursor(schema)
         cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
         cursor.push(ITag(None, "device"))
@@ -688,17 +662,11 @@ actor test_tsdb_load(env: Env, opts: Opts):
         #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
         #print_children(cursor)
 
-        c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor, writer))
-
-    def _on_rpc_reply(c, n: xml.Node, s_cursor, writer):
-        #print("Received reply:\n", xml.encode(n))
-        xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
-       
         log.debug("RPC XNode:", {"xnode": xnode})
 
         base_tags = []
         base_tags.append(("host", "vmx"))
-        writer.write(xnode, s_cursor, base_tags, time.time().second, _on_writer_done)
+        writer.write(xnode, cursor, base_tags, time.time().second, _on_writer_done)
 
     def _on_writer_done(c, e):
         print("TSDB writer done!")
