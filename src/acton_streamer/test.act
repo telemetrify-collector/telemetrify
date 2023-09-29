@@ -568,6 +568,11 @@ actor test_tsdb_load(env: Env, opts: Opts):
 
     log = logging.Logger(log_handler)
 
+    payload_iters = 50
+    remaining_payloads = []
+    for i in range(0, 50, 1):
+        remaining_payloads.append(None)
+
     def _on_connect_error(e):
         log.error("MAAPI connect failed:" + str(e), None)
 
@@ -646,36 +651,44 @@ actor test_tsdb_load(env: Env, opts: Opts):
     def _on_tsdb_init(c, schema):
         writer = acton_streamer.tsdb.writer.TSDBWriter(c)
 
-        log.info("NETCONF client connected!!!!", None)
-        payload_file = file.ReadFile(file.ReadFileCap(file.FileCap(env.auth)), "get-rpc-info.xml")
-        n = xml.decode(payload_file.read().decode())
-        xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
+        start_time = time.time().second
+        for i in range(0, payload_iters, 1):
+            payload_file = file.ReadFile(file.ReadFileCap(file.FileCap(env.auth)), "get-rpc-info.xml")
+            n = xml.decode(payload_file.read().decode())
+            xnode = acton_streamer.net.netconf.netconf_to_xnode(n, [], 0)
 
-        cursor = Cursor(schema)
-        cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
-        cursor.push(ITag(None, "device"))
-        cursor.push(ITag(None, "rpc"))
-        # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
-        dumb_push(cursor, "rpc-get-interface-information")
-        cursor.push(ITag(None, "get-interface-information"))
+            cursor = Cursor(schema)
+            cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
+            cursor.push(ITag(None, "device"))
+            cursor.push(ITag(None, "rpc"))
+            # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
+            dumb_push(cursor, "rpc-get-interface-information")
+            cursor.push(ITag(None, "get-interface-information"))
 
-        #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
-        #print_children(cursor)
+            #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
+            #print_children(cursor)
 
-        log.debug("RPC XNode:", {"xnode": xnode})
+            log.debug("RPC XNode:", {"xnode": xnode})
 
-        base_tags = []
-        base_tags.append(("host", "vmx"))
-        writer.write(xnode, cursor, base_tags, time.time().second, _on_writer_done)
+            base_tags = []
+            base_tags.append(("host", "vmx"))
+            writer.write(xnode, cursor, base_tags, time.time().second, _on_writer_done)
+
+        while len(remaining_payloads) > 0:
+            pass
+
+        end_time = time.time().second
+        print(payload_iters, "RPC iterations processed in", end_time - start_time, "seconds")
+        await async env.exit(0)
 
     def _on_writer_done(c, e):
         print("TSDB writer done!")
         if e is None:
-            print("TSDB writer success!")
-            await async env.exit(0)
+            log.info("TSDB writer success!", None)
         else:
             print("TSDB writer failed:", e)
             await async env.exit(1)
+        #remaining_payloads.pop(-1)
 
     #def _on_end_user_session(c, e):
     #    if e is None:
