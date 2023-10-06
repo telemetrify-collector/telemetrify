@@ -27,14 +27,14 @@ services:
         volumes:
             - grafana_data:/var/lib/grafana
     vmx:
-        image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 
+        image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8
         privileged: true
         command: [ "--trace" ]
         ports:
-            - 10022:22 
+            - 10022:22
             - 10830:830
     nso:
-        image: streaming-nso/nso:6.1.2
+        image: streaming-nso/nso:6.1.4
 #        build:
 #            dockerfile: ./nso.Dockerfile
         volumes:

@@ -18,7 +18,7 @@ ARGS?=netconf-client-vr-vmx
 VR_NAME?=test-vmx1
 
 start:
-	docker run -it -d $(DOCKER_ARGS) --net=host --name $(CNT_PREFIX)-nso ned-juniper-junos-nc/testnso:6.1.2-$(shell whoami)
+	docker run -it -d $(DOCKER_ARGS) --net=host --name $(CNT_PREFIX)-nso ned-juniper-junos-nc/testnso:6.1.4-$(shell whoami)
 	docker run -it -d $(DOCKER_ARGS) --privileged --name $(VR_NAME) -p 10022:22 -p 10830:830 gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 --trace
 	@echo "Awaiting healthy ${VR_NAME} ..."
 	@while [ "$$(docker inspect -f {{.State.Health.Status}} $(VR_NAME))" != "healthy" ]; do sleep 1; done
