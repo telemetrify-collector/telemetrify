@@ -1,0 +1,26 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <device>
+    <name>cat1</name>
+    <config>
+      <interface xmlns="urn:ios">
+        <GigabitEthernet>
+          <name>2</name>
+          <shutdown xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"
+                    nc:operation="delete"/>
+        </GigabitEthernet>
+      </interface>
+    </config>
+  </device>
+  <device>
+    <name>cat2</name>
+    <config>
+      <interface xmlns="urn:ios">
+        <GigabitEthernet>
+          <name>2</name>
+          <shutdown xmlns:nc="urn:ietf:params:xml:ns:netconf:base:1.0"
+                    nc:operation="delete"/>
+        </GigabitEthernet>
+      </interface>
+    </config>
+  </device>
+</devices>

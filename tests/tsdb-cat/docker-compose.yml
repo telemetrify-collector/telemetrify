@@ -26,13 +26,26 @@ services:
 
         volumes:
             - grafana_data:/var/lib/grafana
-    vmx:
-        image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8
+    cat1:
+        image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-cat8000v:17.11.01a
         privileged: true
         command: [ "--trace" ]
         ports:
             - 10022:22
             - 10830:830
+    cat2:
+        image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-cat8000v:17.11.01a
+        privileged: true
+        command: [ "--trace" ]
+        ports:
+            - 20022:22
+            - 20830:830
+    xcon:
+        image: gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-xcon:latest
+        privileged: true
+        entrypoint: "/xcon"
+        command: [ "--p2p", "cat1/1--cat2/1" ]
+
     nso:
         image: streaming-nso/nso:6.1.4
 #        build:
@@ -41,6 +54,13 @@ services:
           - ../../:/mnt
         ports:
           - 4569:4569
+
+    nso-config:
+        image: streaming-nso/nso-configurator:6.1.4
+        volumes:
+          - .:/mnt
+        environment:
+          DEVEL_LOG_LEVEL: trace
 
 volumes:
     m3db_data:

@@ -58,6 +58,7 @@ CREATE_MM_TAG?=$(if $(CI),$(NSO_VERSION_IS_TOT),true)
 build: export DOCKER_BUILDKIT=1
 build: ensure-fresh-nid-available Dockerfile
 	docker build --target build   -t $(IMAGE_BASENAME)/build:$(DOCKER_TAG)   $(DOCKER_BUILD_ARGS) $(DOCKER_BUILD_CACHE_ARG) .
+	docker build --target nso-configurator -t $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
 	docker build --target nso -t $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
 # We build the "package" image without providing the NED_DIR build-arg. The
 # resulting image includes all packages found in the packages directory.
@@ -107,10 +108,12 @@ endif
 
 tag-release:
 	docker tag $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso:$(NSO_VERSION)
+	docker tag $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso-configurator:$(NSO_VERSION)
 	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:$(NSO_VERSION)
 	docker tag $(IMAGE_BASENAME)/netsim:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim:$(NSO_VERSION)
 ifeq ($(CREATE_MM_TAG),true)
 	docker tag $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso:MM_$(NSO_VERSION_MM)
+	docker tag $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso-configurator:MM_$(NSO_VERSION_MM)
 	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:MM_$(NSO_VERSION_MM)
 	docker tag $(IMAGE_BASENAME)/netsim:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim:MM_$(NSO_VERSION_MM)
 endif

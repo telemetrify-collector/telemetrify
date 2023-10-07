@@ -1,0 +1,17 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>ned-ios-xe-yang</name>
+  <package-version>17.11</package-version>
+  <description>Minimal IOS XE NETCONF NED for IP SLA</description>
+  <ncs-min-version>6.1</ncs-min-version>
+  <component>
+    <name>ned-ios-xe-17.11-yang</name>
+    <ned>
+      <netconf>
+        <ned-id>to be replaced by build</ned-id>
+      </netconf>
+      <device>
+        <vendor>Cisco</vendor>
+      </device>
+    </ned>
+  </component>
+</ncs-package>

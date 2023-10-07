@@ -60,6 +60,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Each package may implement the strip target to clean up extra files generated
 # by ncsc, pylint and mypy. For example, ncsc-out, .mypy_cache, .pylint.d.
 RUN for PKG_SRC in $(find /src/packages /src/test-packages -mindepth 1 -maxdepth 1 -type d | xargs --no-run-if-empty -n1 basename | awk '{ print "/var/opt/ncs/packages/"$1 }'); do \
+# The includeed cisco-ios-cli package is already built, no need to build it as
+# part of the streaming-nso build
+  case ${PKG_SRC} in \
+    */cisco-ios-cli*) continue;; \
+  esac; \
   if [ -f "${PKG_SRC}/pyvenv-dev/bin/activate" ]; then . ${PKG_SRC}/pyvenv-dev/bin/activate; \
   elif [ -f "${PKG_SRC}/pyvenv/bin/activate" ]; then . ${PKG_SRC}/pyvenv/bin/activate; \
   fi; \
@@ -99,7 +104,7 @@ ENTRYPOINT []
 CMD ["/run-netsim.sh"]
 
 
-FROM ${NSO_IMAGE_PATH}cisco-nso-base:${NSO_VERSION} AS nso
+FROM ${NSO_IMAGE_PATH}cisco-nso-base:${NSO_VERSION} AS nso-configurator
 
 RUN apt update && apt install -y gdb sshpass
 
@@ -124,6 +129,11 @@ RUN for PKG in $(find /var/opt/ncs/packages -mindepth 1 -maxdepth 1 -type d); do
     make -C ${PKG}/src compose || exit 1; \
   fi; \
 done
+
+FROM nso-configurator AS nso
+
+# Remove NEDs used for configuration, only keeping the lightweight oper-data models
+RUN rm -rf /var/opt/ncs/packages/cisco-ios-cli*
 
 # build a minimal image that only contains the NED itself - perfect way to
 # distribute the compiled NED by relying on Docker package registry

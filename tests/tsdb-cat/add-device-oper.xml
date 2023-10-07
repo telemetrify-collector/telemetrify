@@ -1,0 +1,37 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <authgroups>
+    <group>
+      <name>vrnetlab</name>
+      <default-map>
+        <remote-name>vrnetlab</remote-name>
+        <remote-password>VR-netlab9</remote-password>
+      </default-map>
+    </group>
+  </authgroups>
+  <device>
+    <name>cat1</name>
+    <address>cat1</address>
+    <authgroup>vrnetlab</authgroup>
+    <device-type>
+      <netconf>
+        <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
+      </netconf>
+    </device-type>
+    <state>
+      <admin-state>unlocked</admin-state>
+    </state>
+  </device>
+  <device>
+    <name>cat2</name>
+    <address>cat2</address>
+    <authgroup>vrnetlab</authgroup>
+    <device-type>
+      <netconf>
+        <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
+      </netconf>
+    </device-type>
+    <state>
+      <admin-state>unlocked</admin-state>
+    </state>
+  </device>
+</devices>
