@@ -19,7 +19,8 @@ _PARENT_STATE_PREFIX_NOCREATE = 2
 _PARENT_STATE_PARAM = 3
 _PARENT_STATE_POSTFIX_NOCREATE = 4
 
-actor MaapiWriter(mc: MaapiConnection, _schema: schema.Schema):
+actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
     # Task queue
     #write_tasks: Queue[(Node, int, bool, action(?Exception) -> None)] = Queue()
     write_tasks = Queue()

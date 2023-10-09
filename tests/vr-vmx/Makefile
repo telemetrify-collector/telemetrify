@@ -15,13 +15,15 @@ else
 	BUILD_PATH=$(PROJECT_DIR)/out/rel
 endif
 ARGS?=netconf-client-vr-vmx
-VR_NAME?=test-vmx1
+CNT_PREFIX?=test-$(TESTENV)-$(shell whoami)
+VR_NAME?=vmx1
+VR_CNT=$(CNT_PREFIX)-$(VR_NAME)
 
 start:
 	docker run -it -d $(DOCKER_ARGS) --net=host --name $(CNT_PREFIX)-nso ned-juniper-junos-nc/testnso:6.1.4-$(shell whoami)
-	docker run -it -d $(DOCKER_ARGS) --privileged --name $(VR_NAME) -p 10022:22 -p 10830:830 gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 --trace
-	@echo "Awaiting healthy ${VR_NAME} ..."
-	@while [ "$$(docker inspect -f {{.State.Health.Status}} $(VR_NAME))" != "healthy" ]; do sleep 1; done
+	docker run -it -d $(DOCKER_ARGS) --privileged --name $(CNT_PREFIX)-$(VR_NAME) -p 10022:22 -p 10830:830 gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 --trace
+	@echo "Awaiting healthy ${VR_CNT} ..."
+	@while [ "$$(docker inspect -f {{.State.Health.Status}} $(VR_CNT))" != "healthy" ]; do sleep 1; done
 	$(MAKE) config-nso
 
 

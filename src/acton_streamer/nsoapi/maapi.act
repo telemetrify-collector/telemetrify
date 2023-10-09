@@ -31,6 +31,7 @@ _MAAPI_GET_VALUES = 194
 _MAAPI_SET_VALUES = 195
 _MAAPI_LOAD_HASH_DB = 231
 _MAAPI_LOAD_ALL_NS = 232
+_MAAPI_GET_CRYPTO_KEYS = 248
 _MAAPI_LOAD_MNS_MAPS = 264
 _MAAPI_GET_MOUNT_ID = 265
 
@@ -97,7 +98,7 @@ class UserIdentity:
         vendor = None
         product = None
         version = None
-        client_id = 'acton-streamer'
+        client_id = 'telemetrify'
         return UserIdentity(vendor, product, version, client_id)
 
     def to_eobject(self) -> EObject:
@@ -587,7 +588,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
 
         _send_user_maapi_request(_MAAPI_GET_MOUNT_ID, True, None, e, lambda v: _some_result_cb(v, _transform_result, result_cb))
 
-    action def load_schema(result_cb: action(MaapiConnection, ?value) -> None):
+    action def load_schema(result_cb: action(MaapiConnection, ?Exception, ?acton_streamer.nsoapi.schema.SharedSchema) -> None):
         # sb = SchemaBuilder()
         # ERROR: Error when compiling nsoapi.maapi module: Compilation error
         # Name 'SchemaBuilder$newact' is not in scope
@@ -598,7 +599,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         def _on_load_hash_db(v: ?value):
             _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_MNS_MAPS, lambda e: sb.on_mns_term(e), _on_load_mns_maps)
         def _on_load_mns_maps(v: ?value):
-            result_cb(self, v if v is not None else sb.build())
+            result_cb(self, v if v is not None and isinstance(v, Exception) else None, sb.build_shared() if v is None else None)
         _request_schema_terms(user_recv_queue, _MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), _on_load_all_ns)
 
     def _request_schema_terms(queue, op: int, term_cb: action(EObject) -> value, done_cb: action(?Exception) -> None):

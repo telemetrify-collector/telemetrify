@@ -69,6 +69,16 @@ extension TypeId(Hashable):
 
 pass
 
+class SchemaPath(object):
+    @property
+    tags: list[Tag]
+    @property
+    mount_ids: list[?HTag]
+
+    def __init__(self, tags: list[Tag], mount_ids: list[?HTag]):
+        self.tags = tags
+        self.mount_ids = mount_ids
+
 actor SharedSchema(schema: Schema):
     def __dummy() -> Schema:
         """Needed to prevent schema param from being removed by optimizer"""
@@ -141,6 +151,42 @@ class Cursor:
         root_nsmaps = try_get(schema._mount_id_maps, ROOT_MOUNT_ID)
         self._mount_points.append((ROOT_MOUNT_ID, root_nsmaps) if root_nsmaps is not None else None)
 
+    def get_schema_path(self: Cursor) -> SchemaPath:
+        tags: list[Tag] = []
+        mount_ids: list[?HTag] = []
+        for node in self._path[1:]:
+            tags.append(node.tag)
+        for entry in self._mount_points:
+            mount_ids.append(entry.0 if entry is not None else None)
+        return SchemaPath(tags, mount_ids)
+
+    def push_schema_path(self: Cursor, schema_path: SchemaPath) -> bool:
+        tags = schema_path.tags
+        tags_index = 0
+        tags_len = len(tags)
+        mount_ids = schema_path.mount_ids
+        mount_ids_index = 0
+        mount_ids_len = len(mount_ids)
+
+        success = True
+
+        for tag in tags:
+            if not self.push(tag):
+                success = False
+                break
+            if self.node().is_mount_point():
+                if mount_ids_index >= mount_ids_len or not self.set_mount_id(mount_ids[mount_ids_index]):
+                    success = False
+                    break
+                mount_ids_index += 1
+            tags_index += 1
+
+        if not success:
+            for i in range(0, tags_index, 1):
+                self.pop()
+
+        return success
+
     def push(self: Cursor, tag: Tag) -> bool:
         _node: ?Node = None
         htag = self.lookup_htag(tag, True)
@@ -179,12 +225,15 @@ class Cursor:
                 return True
         return False
 
-    def set_mount_id(self: Cursor, mount_id: HTag) -> bool:
-        ns_maps = self._schema.mount_id_map(mount_id)
-        if ns_maps is not None:
-            self._mount_points[-1] = (mount_id, ns_maps)
-            return True
-        return False
+    def set_mount_id(self: Cursor, mount_id: ?HTag) -> bool:
+        if mount_id is not None:
+            ns_maps = self._schema.mount_id_map(mount_id)
+            if ns_maps is not None:
+                self._mount_points[-1] = (mount_id, ns_maps)
+                return True
+            return False
+        self._mount_points[-1] = None
+        return True
 
     def node(self: Cursor) -> Node:
         return self._path[-1]
@@ -1631,9 +1680,12 @@ actor SchemaBuilder():
                 if node.flags & CS_NODE_IS_WRITE == 0:
                     flag_names.append("oper")
                 #if node.flags & CS_NODE_IS_CDB != 0:
-                #if node.flags & CS_NODE_IS_ACTION != 0:
-                #if node.flags & CS_NODE_IS_PARAM != 0:
-                #if node.flags & CS_NODE_IS_RESULT != 0:
+                if node.flags & CS_NODE_IS_ACTION != 0:
+                    flag_names.append("action")
+                if node.flags & CS_NODE_IS_PARAM != 0:
+                    flag_names.append("param")
+                if node.flags & CS_NODE_IS_RESULT != 0:
+                    flag_names.append("result")
                 #if node.flags & CS_NODE_IS_NOTIF != 0:
                 #if node.flags & CS_NODE_HAS_WHEN != 0:
                 #if node.flags & CS_NODE_HAS_DISPLAY_WHEN != 0:

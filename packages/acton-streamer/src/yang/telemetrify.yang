@@ -1,0 +1,181 @@
+module telemetrify {
+  yang-version 1.1;
+  namespace "urn:telekom:abs:telemetrify";
+  prefix tlm;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  import ietf-yang-types {
+    prefix yang;
+  }
+
+  import tailf-common {
+    prefix tailf;
+  }
+
+  import tailf-ncs {
+    prefix ncs;
+  }
+
+  description
+      "Telemetry streaming implemented in Acton";
+
+  revision 2023-08-24 {
+    description
+      "Initial revision.";
+  }
+
+  augment "/ncs:devices/ncs:device" {
+    container telemetrify {
+      list subscription {
+        key "name";
+
+        leaf name {
+          type string;
+        }
+
+        container source {
+          choice subscription-type {
+            mandatory true;
+
+            container netconf-rpc-poll {
+              presence true;
+              must "../../../tlm:sources/tlm:netconf";
+
+              leaf path {
+                mandatory true;
+                description "RPC/Action tag-path";
+                type string;
+              }
+
+              leaf period {
+                mandatory true;
+                description "Polling period";
+                type uint32; // TODO: xs:duration?
+                units "ms";
+              }
+
+              // TODO: Input parameters?
+            }
+          }
+        }
+
+        list sink {
+          key "name";
+
+          leaf name {
+            type leafref {
+              path "/tlm:telemetrify/tlm:sink/tlm:name";
+            }
+          }
+
+          // leaf path-prefix {
+          //   when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
+          //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
+          //   }
+          //   type string;
+          // }
+
+          list base-tags {
+            when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
+              tailf:dependency "/tlm:telemetrify/tlm:sinks";
+            }
+
+            key "name";
+
+            leaf name {
+              type string;
+            }
+
+            leaf value {
+              mandatory true;
+              type string;
+            }
+          }
+
+          // Moar params? Translations, default namespaces etc...
+        }
+      }
+
+      container sources {
+        container netconf {
+          presence true;
+
+          // TODO: Use /devices/device settings by default
+
+          leaf address {
+            mandatory true;
+            type string;
+          }
+
+          leaf port {
+            mandatory true;
+            type inet:port-number;
+          }
+
+          // TODO:
+          // leaf authgroup {
+          //   type leafref {
+          //     "/ncs:devices/ncs:authgroups/ncs:group/ncs:name";
+          //   }
+          // }
+
+          leaf username {
+            mandatory true;
+            type string;
+          }
+
+          leaf password {
+            mandatory true;
+            // TODO:
+            // type tailf:aes-256-cfb-128-encrypted-string;
+            type string;
+          }
+        }
+      }
+    }
+  }
+
+  container telemetrify {
+    list sink {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      choice target {
+        mandatory true;
+
+        container nso-data-provider {
+          presence true;
+          leaf base-path {
+            type string;
+          }
+        }
+
+        container m3db {
+          presence true;
+          leaf address {
+            mandatory true;
+            type string;
+          }
+
+          leaf port {
+            mandatory true;
+            type uint16;
+          }
+
+          // TODO: Authentication?
+          // leaf authgroup {
+          //   type leafref {
+          //     path "/ncs:devices/ncs:authgroups/ncs:group/ncs:name";
+          //   }
+          // }
+        }
+      }
+    }
+  }
+}
