@@ -839,6 +839,197 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
 
 
+actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("netconf-get-poll")
+    logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
+    sinks = SubscriptionSinkCollection()
+
+    var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
+
+    var poller_seqno: int = 0
+    var get_xml: ?xml.Node = None
+    var schema_path: ?SchemaPath = None
+    var period: time.Duration = time.Duration(60, 0, time.MonotonicClock(0, 0, 0))
+
+    var is_running: bool = False
+
+    log.info("SUBSCRIBER netconf-get-poll CREATED", None)
+
+    def _do_get_request(seqno: int, poll_ts: time.Instant):
+        if seqno != poller_seqno:
+            return
+
+        if get_xml is not None:
+            request_ts = time.time()
+
+            source.rpc(get_xml, [], lambda r: _on_get_reply(seqno, poll_ts, request_ts, r))
+
+        #after 0.1: _on_get_reply(seqno, poll_ts, None)
+
+    def _on_get_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, node: ?xml.Node):
+        if seqno != poller_seqno:
+            return
+
+        # # <TEST>
+        # if node is None:
+        #     node = \
+        #         xml.Node("interface-information", [(None, "urn:juniper-get")], None, [], [
+        #             xml.Node("physical-interface", [], None, [], [
+        #                 xml.Node("name", [], None, [], [], "ge-0/0/0", None),
+        #                 xml.Node("traffic-statistics", [], None, [], [
+        #                     xml.Node("input-bytes", [], None, [], [], "12300", None),
+        #                     xml.Node("output-bytes", [], None, [], [], "45600", None),
+        #                     xml.Node("input-packets", [], None, [], [], "123", None),
+        #                     xml.Node("output-packets", [], None, [], [], "456", None)
+        #                 ], None, None)
+        #             ], None, None)
+        #         ], None, None)
+        # # </TEST>
+
+        # TODO: Process node
+        if node is not None:
+            xnode = netconf.netconf_to_xnode(node, [], 0)
+            print("SUBSCRIBER netconf-get-poll POLL:", xnode)
+            source_params = tnode_root()
+            source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
+            if schema_path is not None:
+                source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
+            sinks.write(xnode, source_params)
+        else:
+            pass
+            log.error("SUBSCRIBER netconf-get-poll POLL interrupted", None)
+
+        #log.info("POLLED...", None)
+        curr_ts = time.monotonic()
+        next_ts = last_ts.add(period)
+        #log.info("  period:", period.to_float(), None)
+
+        if next_ts < curr_ts:
+            # Allow drift when reply arrived later than next period
+            # TODO: Quantize to period?
+            next_ts = curr_ts
+
+        # log.info("  last_ts:", last_ts, None)
+        # log.info("  curr_ts:", curr_ts, None)
+        # log.info("  next_ts:", next_ts, None)
+
+        delay = next_ts.since(curr_ts)
+        log.info("  ... delay " + str(delay.to_float()) + "s", None)
+        after delay.to_float(): _do_get_request(seqno, next_ts)
+
+    #def update_sinks(sink_updates: list[(Keypath, ?SubscriptionSink)]):
+    def update_config(update: SubscriptionUpdate):
+        sinks.update(update.sinks)
+
+        _config = update.config
+        if _config is not None:
+            _stop_poller()
+            print("SUBSCRIBER netconf-get-poll CONFIG", _config)
+
+            poll = _config[PTag('tlm', 'netconf-get-poll')]
+            path = poll[PTag('tlm', 'path')].try_str()
+            period_ms = poll[PTag('tlm', 'period')].try_int()
+
+            if path is not None:
+                # TODO: Proper parsing into ptag-/key-path
+                #_tag = schema.QName.netconf_to_value(path, None)
+                _tag = QName.netconf_to_value(path, None)
+                if _tag is not None:
+                    _update_get_params(Keypath([_tag]))
+
+            if period_ms is not None and get_xml is not None:
+                period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
+                #log.info("period: " + str(period.to_float()) + "s", None)
+                if is_running:
+                    _try_start_poller()
+            else:
+                pass # TODO: Indicate config error
+
+    def _update_get_params(get_path: Keypath):
+        _get_xml: ?xml.Node = None
+        _is_action = False
+        _schema_path: ?SchemaPath = None
+
+        cursor = schema.Cursor(_schema)
+        if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
+            is_cursor_ok = False
+            get_path_len = len(get_path)
+            if get_path_len == 1:
+                # NED-RPC
+                if cursor.push(PTag('ncs', 'get')):
+                    if ned_id is not None and cursor.node().is_mount_point():
+                        cursor.set_mount_id(ned_id)
+                    unmangled_get_tag = get_path[0]
+                    if isinstance(unmangled_get_tag, PTag):
+                        prefix = unmangled_get_tag.prefix
+                        name = unmangled_get_tag.name
+                        if cursor.push(PTag(prefix, 'get-' + name)) and cursor.push(unmangled_get_tag):
+                            is_cursor_ok = True
+                        # if cursor.push(PTag(prefix, 'get-' + name)):
+                        #     if cursor.push(unmangled_get_tag):
+                        #         log.info("PING28", None)
+                        #         is_cursor_ok = True
+                        #     else:
+                        #         log.info(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)), None)
+                        #         for c in cursor.node().children:
+                        #             log.info("  " + optional_str(cursor.lookup_ptag(c), str(cursor.node().tag)), None)
+                        # else:
+                        #     log.info(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)), None)
+                        #     for c in cursor.node().children:
+                        #         log.info("  " + optional_str(cursor.lookup_ptag(c), str(cursor.node().tag)), None)
+            elif get_path_len > 1:
+                # NED-ACTION
+                if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
+                    if ned_id is not None and cursor.node().is_mount_point():
+                        cursor.set_mount_id(ned_id)
+                    is_cursor_ok = True
+                    for _id in get_path:
+                        if isinstance(_id, Tag) and not cursor.push(_id):
+                            is_cursor_ok = False
+                            break
+                    _is_action = True
+
+            if is_cursor_ok:
+                get_itag = cursor.lookup_itag(cursor.node().tag)
+                if get_itag is not None:
+                    get_name = get_itag.name
+                    ns = get_itag.ns
+                    nsdefs = [(None, ns)] if ns is not None else []
+                    _get_xml = xml.Node(get_itag.name, nsdefs, None, [], [], None, None)
+                    _schema_path = cursor.get_schema_path()
+                    # TODO: Configurable input params?
+
+        get_xml = _get_xml
+        is_action = _is_action
+        schema_path = _schema_path
+
+    def _try_start_poller():
+        if get_xml is not None:
+            curr_ts = time.monotonic()
+            after 0: _do_get_request(poller_seqno, curr_ts)
+
+    def _stop_poller():
+        poller_seqno += 1
+
+    def start():
+        if not is_running:
+            log.info("SUBSCRIBER netconf-get-poll STARTED", None)
+            is_running = True
+            _try_start_poller()
+
+    def stop():
+        if is_running:
+            log.info("SUBSCRIBER netconf-get-poll STOPPED", None)
+            is_running = False
+            _stop_poller()
+
+    def close():
+        pass
+
 class SubscriptionUpdate(object):
     @property
     config: ?TNode
