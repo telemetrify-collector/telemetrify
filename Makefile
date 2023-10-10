@@ -12,13 +12,26 @@ all: build
 
 .PHONY: all
 
-build:
-	actonc build $(BUILD_ARGS)
+build: build-bin build-packages
 .PHONY: build
 
-clean:
+build-bin:
+	actonc build $(BUILD_ARGS)
+.PHONY: build-bin
+
+build-packages: build-bin
+	$(MAKE) -C packages/telemetrify/src all
+	rsync -E $(OUTPUT)/bin/acton_streamer.main.main packages/telemetrify/bin
+.PHONY: build-packages
+
+clean: clean-packages
 	rm -rf out
 .PHONY: clean
+
+clean-packages:
+	$(MAKE) -C packages/telemetrify/src clean
+	-rm packages/telemetrify/bin/*
+.PHONY: clean-packages
 
 run-nogc:
 	GC_DONT_GC=1 $(OUTPUT)/bin/$(BIN) $(ARGS)

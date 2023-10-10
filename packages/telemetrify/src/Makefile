@@ -4,6 +4,10 @@ all: fxs
 # Include standard NCS examples build definitions and rules
 include $(NCS_DIR)/src/ncs/build/include.ncs.mk
 
+PYTHON ?= python3
+PYTHON_NS = ../python/ns
+PFLAGS = --python-disable-prefix --emit-python $(PYTHON_NS)
+
 SRC = $(wildcard yang/*.yang)
 DIRS = ../load-dir
 FXS = $(SRC:yang/%.yang=../load-dir/%.fxs)
