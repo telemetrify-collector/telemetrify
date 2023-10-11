@@ -943,7 +943,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
             if period_ms is not None and get_xml is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
-                #log.info("period: " + str(period.to_float()) + "s", None)
+                log.info("period: " + str(period.to_float()) + "s", None)
                 if is_running:
                     _try_start_poller()
             else:
@@ -957,41 +957,21 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         cursor = schema.Cursor(_schema)
         if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
             is_cursor_ok = False
-            get_path_len = len(get_path)
-            if get_path_len == 1:
-                # NED-RPC
-                if cursor.push(PTag('ncs', 'get')):
-                    if ned_id is not None and cursor.node().is_mount_point():
-                        cursor.set_mount_id(ned_id)
-                    unmangled_get_tag = get_path[0]
-                    if isinstance(unmangled_get_tag, PTag):
-                        prefix = unmangled_get_tag.prefix
-                        name = unmangled_get_tag.name
-                        if cursor.push(PTag(prefix, 'get-' + name)) and cursor.push(unmangled_get_tag):
-                            is_cursor_ok = True
-                        # if cursor.push(PTag(prefix, 'get-' + name)):
-                        #     if cursor.push(unmangled_get_tag):
-                        #         log.info("PING28", None)
-                        #         is_cursor_ok = True
-                        #     else:
-                        #         log.info(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)), None)
-                        #         for c in cursor.node().children:
-                        #             log.info("  " + optional_str(cursor.lookup_ptag(c), str(cursor.node().tag)), None)
-                        # else:
-                        #     log.info(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)), None)
-                        #     for c in cursor.node().children:
-                        #         log.info("  " + optional_str(cursor.lookup_ptag(c), str(cursor.node().tag)), None)
-            elif get_path_len > 1:
-                # NED-ACTION
-                if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
-                    if ned_id is not None and cursor.node().is_mount_point():
-                        cursor.set_mount_id(ned_id)
-                    is_cursor_ok = True
-                    for _id in get_path:
-                        if isinstance(_id, Tag) and not cursor.push(_id):
-                            is_cursor_ok = False
-                            break
-                    _is_action = True
+            _get_path = []
+
+            # NED-GET
+            if cursor.push(PTag('ncs', 'live-status')):
+                if ned_id is not None and cursor.node().is_mount_point():
+                    cursor.set_mount_id(ned_id)
+                is_cursor_ok = True
+                for _id in get_path:
+                    if isinstance(_id, Tag) and not cursor.push(_id):
+                        is_cursor_ok = False
+                        break
+
+                    _get_itag = cursor.lookup_itag(cursor.node().tag)
+                    if _get_itag is not None:
+                        _get_path.append((_get_itag.name, [(None, _get_itag.ns)]))
 
             if is_cursor_ok:
                 get_itag = cursor.lookup_itag(cursor.node().tag)
@@ -999,12 +979,18 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                     get_name = get_itag.name
                     ns = get_itag.ns
                     nsdefs = [(None, ns)] if ns is not None else []
-                    _get_xml = xml.Node(get_itag.name, nsdefs, None, [], [], None, None)
+                    _get_xml = xml.Node("get", [], None, [], [], None, None)
+                    if len(_get_path) > 0:
+                        print(_get_xml)
+                        #_get_xml.children.append(xml.Node("filter", [], None, [("type", "subtree")], [], None, None))
+                    #    _curr_node: ?xml.Node = _get_xml.children[0]
+                    #    for _itag in _get_path:
+                    #        if isinstance(_curr_node, xml.Node):
+                    #            _curr_node.children.append(xml.Node(_itag[0], _itag[1], None, [], [], None, None))
                     _schema_path = cursor.get_schema_path()
                     # TODO: Configurable input params?
 
         get_xml = _get_xml
-        is_action = _is_action
         schema_path = _schema_path
 
     def _try_start_poller():
