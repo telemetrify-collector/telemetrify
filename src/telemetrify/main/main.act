@@ -957,7 +957,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         cursor = schema.Cursor(_schema)
         if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
             is_cursor_ok = False
-            _get_path = []
+            _get_path: list[(str, list[(?str,str)])] = []
 
             # NED-GET
             if cursor.push(PTag('ncs', 'live-status')):
@@ -969,9 +969,14 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                         is_cursor_ok = False
                         break
 
-                    _get_itag = cursor.lookup_itag(cursor.node().tag)
-                    if _get_itag is not None:
-                        _get_path.append((_get_itag.name, [(None, _get_itag.ns)]))
+                    get_itag = cursor.lookup_itag(cursor.node().tag)
+                    if get_itag is not None:
+                        _ns: ?str = get_itag.ns
+                        if _ns is not None:
+                            _nsdef: (?str,str) = (None, _ns)
+                            _get_path.append((get_itag.name, [_nsdef]))
+                        else:
+                            _get_path.append((get_itag.name, []))
 
             if is_cursor_ok:
                 get_itag = cursor.lookup_itag(cursor.node().tag)
@@ -979,15 +984,20 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                     get_name = get_itag.name
                     ns = get_itag.ns
                     nsdefs = [(None, ns)] if ns is not None else []
-                    _get_xml = xml.Node("get", [], None, [], [], None, None)
-                    _curr_node = xml.Node("filter", [], None, [("type", "subtree")], [], None, None)
-                    _get_xml.children.append(_curr_node)
+                    _filter_node: ?xml.Node = None
                     if len(_get_path) > 0:
-                        print(_get_xml)
-                    #    _curr_node: ?xml.Node = _get_xml.children[0]
-                    #    for _itag in _get_path:
-                    #        if isinstance(_curr_node, xml.Node):
-                    #            _curr_node.children.append(xml.Node(_itag[0], _itag[1], None, [], [], None, None))
+                        for _itag in reversed(_get_path):
+                            pass
+                            if _filter_node is not None:
+                                _filter_node = xml.Node(_itag.0, _itag.1, None, [], [_filter_node], None, None)
+                            else:
+                                _filter_node = xml.Node(_itag.0, _itag.1, None, [], [], None, None)
+                        _filter_node = xml.Node("filter", [], None, [("type", "subtree")], [], None, None)
+
+                    if _filter_node is not None:
+                        _get_xml = xml.Node("get", [], None, [], [_filter_node], None, None)
+                    else:
+                        _get_xml = xml.Node("get", [], None, [], [], None, None)
                     _schema_path = cursor.get_schema_path()
                     # TODO: Configurable input params?
 
