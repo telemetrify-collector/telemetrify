@@ -980,9 +980,10 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                     ns = get_itag.ns
                     nsdefs = [(None, ns)] if ns is not None else []
                     _get_xml = xml.Node("get", [], None, [], [], None, None)
+                    _curr_node = xml.Node("filter", [], None, [("type", "subtree")], [], None, None)
+                    _get_xml.children.append(_curr_node)
                     if len(_get_path) > 0:
                         print(_get_xml)
-                        #_get_xml.children.append(xml.Node("filter", [], None, [("type", "subtree")], [], None, None))
                     #    _curr_node: ?xml.Node = _get_xml.children[0]
                     #    for _itag in _get_path:
                     #        if isinstance(_curr_node, xml.Node):
