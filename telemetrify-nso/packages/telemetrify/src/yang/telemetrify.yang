@@ -77,6 +77,26 @@ module telemetrify {
                 units "ms";
               }
             }
+
+            container netconf-get-poll {
+              presence true;
+              must "../../../tlm:sources/tlm:netconf";
+
+              leaf path {
+                mandatory true;
+                description "Get tag-path";
+                type string;
+              }
+
+              leaf period {
+                mandatory true;
+                description "Polling period";
+                type uint32; // TODO: xs:duration?
+                units "ms";
+              }
+
+              // TODO: Input parameters?
+            }
           }
         }
 
