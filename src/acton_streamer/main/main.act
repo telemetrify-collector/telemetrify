@@ -316,12 +316,11 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
 
     def _connect_client():
-        netconf_config = config[PTag('tlm', 'netconf')]
-
-        address = netconf_config[PTag('tlm', 'address')].try_str()
-        port = netconf_config[PTag('tlm', 'port')].try_int()
-        username = netconf_config[PTag('tlm', 'username')].try_str()
-        password = netconf_config[PTag('tlm', 'password')].try_str()
+        address_leaf = config[PTag('tlm', 'address')]
+        address = config[PTag('tlm', 'address')].try_str()
+        port = config[PTag('tlm', 'port')].try_int()
+        username = config[PTag('tlm', 'username')].try_str()
+        password = config[PTag('tlm', 'password')].try_str()
         key: ?str = None # TODO
 
         if address is not None and port is not None and \
