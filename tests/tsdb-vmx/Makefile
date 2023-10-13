@@ -1,3 +1,5 @@
+CNT_PREFIX=tsdb-vmx
+NSO=-1
 SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
@@ -58,23 +60,34 @@ import-dashboard:
 			-H 'Content-Type: application/json;charset=UTF-8' \
 			--data-binary "$$(sed "s/SOURCE_UID/$$SOURCE_UID/" dashboard-tsdb.json)"; echo
 
+runcmdC runcmdJ:
+	@if [ -z "$(CMD)" ]; then echo "CMD variable must be set"; false; fi
+	docker exec -t $(CNT_PREFIX)-nso$(NSO) bash -lc 'echo -e "$(CMD)" | ncs_cli --stop-on-error -$(subst runcmd,,$@)u admin'
+
 add-vmx:
-	echo "configure\nedit devices device vmx\nset address $$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.GlobalIPv6Address}}{{end}}' vmx) port 830 authgroup lsa\nset device-type netconf ned-id lsa-netconf\nset state admin-state unlocked\nset out-of-sync-commit-behaviour accept\ncommit and-quit" --retry --time-limit 10
-	echo "request devices device $* ssh fetch-host-keys" --time-limit 60
-	echo "request devices device $* sync-from" --time-limit 60
+	$(MAKE) runcmdJ CMD="configure\nedit devices authgroups group vrnetlab default-map remote-name vrnetlab remote-password VR-netlab9\ncommit\nexit"
+	$(MAKE) runcmdJ CMD="configure\nedit devices device vmx\nset address vmx port 830 authgroup vrnetlab\nset device-type netconf ned-id lsa-netconf\nset state admin-state unlocked\ncommit and-quit"
+	$(MAKE) runcmdJ CMD="request devices device vmx ssh fetch-host-keys"
+	$(MAKE) runcmdJ CMD="request devices device vmx sync-from"
+	$(MAKE) runcmdJ CMD="configure\nedit devices device vmx telemetrify\nset sources netconf address 127.0.0.1 port 1234 username vrnetlab password VR-netlab9\nset subscription if source netconf-rpc-poll path /get-interface-information period 10000\n\ncommit and-quit"
 
 
 
 stop:
 	docker compose down -v
 
+#test:
+#	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.main.main"
 
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
 
 .PHONY: start stop test test-debug cli
+
+cli:
+	docker compose exec nso bash -lc 'ncs_cli -u admin'
 
 build-nso:
 	$(MAKE) -C ../../streaming-nso build tag-release
