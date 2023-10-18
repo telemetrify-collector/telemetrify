@@ -94,7 +94,10 @@ test:
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
 
-.PHONY: start stop test test-debug cli
+log:
+	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"
+
+.PHONY: start stop test test-debug cli log
 
 build-nso:
 	$(MAKE) -C ../../streaming-nso build tag-release

@@ -76,18 +76,19 @@ add-vmx:
 stop:
 	docker compose down -v
 
-#test:
-#	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.main.main"
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 
 test-debug:
 	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
 
-.PHONY: start stop test test-debug cli
-
 cli:
 	docker compose exec nso bash -lc 'ncs_cli -u admin'
+
+log:
+	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"
+
+.PHONY: start stop test test-debug cli log
 
 build-nso:
 	$(MAKE) -C ../../streaming-nso build tag-release
