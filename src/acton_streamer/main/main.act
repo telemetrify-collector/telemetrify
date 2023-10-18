@@ -259,9 +259,9 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
     def _on_client_error(error_msg: str, seqno: int):
         if seqno != client_seqno:
             return
-        # TODO:
-        # _stop_subscribers()
-        pass
+        _close_client()
+        # TODO: Configurable retry timer/backoff?
+        after 1: _connect_client()
 
     def _on_client_notif(node: xml.Node, seqno: int):
         # if seqno != client_seqno:
@@ -275,13 +275,8 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         restart = False
 
         if source_update is not None:
-            old_client = client
-            if old_client is not None:
-                _stop_subscribers()
-                # TODO: Gather stop replies from subscribers before closing netconf client
-                old_client.close()
+            if _close_client():
                 restart = True
-                client = None
 
             config = source_update
 
@@ -347,6 +342,16 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         # # <TEST>
         # after 0: _start_subscribers()
         # # </TEST>
+
+    def _close_client() -> bool:
+        _client = client
+        if _client is not None:
+            _stop_subscribers()
+            # TODO: Gather stop replies from subscribers before closing netconf client?
+            _client.close()
+            client = None
+            return True
+        return False
 
     def _start_subscribers():
         for subscriber in subscribers.values():
