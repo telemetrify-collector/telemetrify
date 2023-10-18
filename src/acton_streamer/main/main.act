@@ -316,7 +316,6 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
 
     def _connect_client():
-        address_leaf = config[PTag('tlm', 'address')]
         address = config[PTag('tlm', 'address')].try_str()
         port = config[PTag('tlm', 'port')].try_int()
         username = config[PTag('tlm', 'username')].try_str()
@@ -413,9 +412,9 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             request_ts = time.time()
 
             if is_action:
-                source.rpc(rpc_xml, [], lambda r: _on_rpc_reply(seqno, poll_ts, request_ts, r))
-            else:
                 source.rpc_action(rpc_xml, [], lambda r: _on_rpc_reply(seqno, poll_ts, request_ts, r))
+            else:
+                source.rpc(rpc_xml, [], lambda r: _on_rpc_reply(seqno, poll_ts, request_ts, r))
 
         #after 0.1: _on_rpc_reply(seqno, poll_ts, None)
 
@@ -423,9 +422,10 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         if seqno != poller_seqno:
             return
 
-        # # <TEST>
-        # if node is None:
-        #     node = \
+        # # # <TEST>
+        # # if node is None:
+        # node = \
+        #     xml.Node("rpc-reply", [(None, "urn:ietf:params:xml:ns:netconf:base:1.0")], None, [], [
         #         xml.Node("interface-information", [(None, "urn:juniper-rpc")], None, [], [
         #             xml.Node("physical-interface", [], None, [], [
         #                 xml.Node("name", [], None, [], [], "ge-0/0/0", None),
@@ -437,7 +437,8 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         #                 ], None, None)
         #             ], None, None)
         #         ], None, None)
-        # # </TEST>
+        #     ], None, None)
+        # # # </TEST>
 
         # TODO: Process node
         if node is not None:
@@ -576,7 +577,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             _stop_poller()
 
     def close():
-        pass
+        stop()
 
 class SubscriptionUpdate(object):
     @property
