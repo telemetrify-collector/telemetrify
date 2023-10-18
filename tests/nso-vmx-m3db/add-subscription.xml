@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config xmlns="http://tail-f.com/ns/config/1.0">
+  <devices xmlns="http://tail-f.com/ns/ncs">
+    <device>
+      <name>vmx1</name>
+      <telemetrify xmlns="urn:telekom:abs:telemetrify">
+        <subscription>
+          <name>sub1</name>
+          <source>
+            <netconf-rpc-poll>
+              <path>jrpc:get-interface-information</path>
+              <period>5000</period>
+            </netconf-rpc-poll>
+          </source>
+          <sink>
+            <name>m3db</name>
+          </sink>
+        </subscription>
+        <sources>
+          <netconf>
+            <address>vmx1</address>
+            <port>830</port>
+            <username>vrnetlab</username>
+            <password>VR-netlab9</password>
+          </netconf>
+        </sources>
+      </telemetrify>
+    </device>
+  </devices>
+  <telemetrify xmlns="urn:telekom:abs:telemetrify">
+    <sink>
+      <name>m3db</name>
+      <m3db>
+        <address>m3db</address>
+        <port>7201</port>
+      </m3db>
+    </sink>
+  </telemetrify>
+</config>
