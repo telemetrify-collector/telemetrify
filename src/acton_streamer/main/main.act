@@ -241,7 +241,7 @@ actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema
             print("SINK m3db WRITE ERROR:", e)
 
     log_handler = logging.Handler(None)
-    log_handler.add_sink(logging.StdoutSink())
+    #log_handler.add_sink(logging.StdoutSink())
 
     #log = logging.Logger(log_handler)
 

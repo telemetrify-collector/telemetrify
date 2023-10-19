@@ -160,16 +160,18 @@ actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
         #    print("No metrics to write")
 
         def _on_response(c, success):
-            if success:
-                print("Metric send successful")
-            else:
-                print("Metric send failed")
+            pass
+#            if success:
+#                print("Metric send successful")
+#            else:
+#                print("Metric send failed")
 
         def _on_last_response(c, success, cb: action(TSDBWriter, ?Exception) -> None):
-            if success:
-                print("Metric final send successful")
-            else:
-                print("Metric final send failed")
+            pass
+#            if success:
+#                print("Metric final send successful")
+#            else:
+#                print("Metric final send failed")
 
             cb(self, None)
 
