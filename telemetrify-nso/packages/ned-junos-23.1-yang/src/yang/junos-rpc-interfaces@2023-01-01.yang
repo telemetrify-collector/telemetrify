@@ -3,9 +3,8 @@
  * All rights reserved.
  */
  module junos-rpc-interfaces {
-   namespace "http://yang.juniper.net/junos/rpc/interfaces";
-
-   prefix interfaces;
+   namespace "urn:juniper-rpc";
+   prefix jrpc;
 
    import junos-common-types {
      prefix jt;
