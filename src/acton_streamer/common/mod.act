@@ -29,6 +29,9 @@ class Tag(Id):
     def is_root(self) -> bool:
         raise Exception("Not Implemented")
 
+    def prsrc(self) -> str:
+        raise NotImplementedError("Can't print source for Tag")
+
 class ITag(Tag):
     @property
     ns: ?str
@@ -57,6 +60,11 @@ class ITag(Tag):
     #         return EList([EAtom(_ns), EAtom(self.name)], False)
     #     else:
     #         return EAtom(self.name)
+
+    def prsrc(self) -> str:
+        _ns = self.ns
+        s_ns = '"' + _ns + '"' if _ns is not None else "None"
+        return 'ITag(' + s_ns + ', "' + self.name + '")'
 
 extension ITag(Hashable):
     def __eq__(self, other: ITag) -> bool:
@@ -429,6 +437,8 @@ class Node(object):
 
     # def new_instance(self, op: int, tag: ?Tag, namespaces: ?(?str) -> ?str, keys: list[Node], value: ?value, children: list[Node]) -> Node:
     #     raise Exception("Not implemented")
+    def prsrc(self, indent: int) -> str:
+        raise NotImplementedError("Can't print source for Node")
 
 class XNode(Node):
     @property
@@ -471,6 +481,26 @@ class XTree(XNode):
     #         raise ValueError("XTree does not allow value")
     #     return XTree(op, tag, namespaces, children)
 
+    # TODO: default indent=0
+    def prsrc(self, indent: int) -> str:
+        """Print source code of self and call children"""
+        _tag = self._tag
+        s_tag = ", " + (_tag.prsrc() if _tag is not None else "None")
+        children_strs = []
+        for child in self._children:
+            children_strs.append(child.prsrc(indent+1))
+
+        _ns = self._namespaces
+        # TODO: implement support for printing namespaces!?
+        s_ns = ", " + "None"
+
+        s_children = ", [\n" + ",\n".join(children_strs) + "]"
+
+        s_indent = ""
+        for i in range(0, indent, 1):
+            s_indent += "    "
+        return s_indent + "XTree(OP_" + op_str(self._op) + s_tag + s_ns + s_children + ")"
+
 class XLeaf(XNode):
     @property
     _value: ?value
@@ -490,6 +520,23 @@ class XLeaf(XNode):
     #     if children:
     #         raise ValueError("XTree does not allow children")
     #     return XLeaf(op, tag, namespaces, value)
+
+    def prsrc(self, indent: int) -> str:
+        """Print source code"""
+        _tag = self._tag
+        s_tag = ", " + (_tag.prsrc() if _tag is not None else "None")
+
+        _ns = self._namespaces
+        # TODO: implement support for printing namespaces!?
+        s_ns = ", " + "None"
+
+        _val = self._value
+        s_val = ', "' + str(_val) + '"' if _val is not None else "None"
+
+        s_indent = ""
+        for i in range(0, indent, 1):
+            s_indent += "    "
+        return s_indent + "XLeaf(OP_" + op_str(self._op) + s_tag + s_ns + s_val + ")"
 
 class TNode(Node):
     @property

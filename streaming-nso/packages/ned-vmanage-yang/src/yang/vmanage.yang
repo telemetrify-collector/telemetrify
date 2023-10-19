@@ -1,0 +1,128 @@
+module vmanage {
+  namespace "http://terastrm.net/ns/yang/vmanage";
+  prefix vmanage;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  container statistics {
+    list approute {
+      key name;
+
+      leaf name {
+        type string;
+      }
+      leaf remote_color {
+        type string;
+      }
+      leaf fec_re {
+        type uint64;
+      }
+      leaf vqoe_score {
+        type uint64;
+      }
+      leaf device_model {
+        type string;
+      }
+      leaf latency {
+        type uint64;
+        units "ms";
+      }
+      leaf tx_octets {
+        type uint64;
+      }
+      leaf dst_ip {
+        type inet:ip-address;
+      }
+      leaf local_color {
+        type string;
+      }
+      leaf src_ip {
+        type inet:ip-address;
+      }
+      leaf sla_class_names {
+        type string;
+      }
+      leaf loss {
+        type uint64;
+      }
+      leaf total {
+        type uint64;
+      }
+      leaf tx_pkts {
+        type uint64;
+      }
+      leaf fec_tx {
+        type uint64;
+      }
+      leaf rx_octets {
+        type uint64;
+      }
+      leaf statcycletime {
+        type uint64;
+      }
+      leaf siteid {
+        type uint64;
+      }
+      leaf state {
+        // TODO: should be enum?
+        type string;
+      }
+      leaf local_system_ip {
+        type inet:ip-address;
+      }
+      leaf tenant {
+        type string;
+      }
+      leaf entry_time {
+        type uint64;
+      }
+      leaf loss_percentage {
+        type uint64;
+      }
+      leaf app_probe_class {
+        type string;
+      }
+      leaf rx_pkts {
+        type uint64;
+      }
+      leaf vmanage_system_ip {
+        type inet:ip-address;
+      }
+      leaf fec_rx {
+        type uint64;
+      }
+      leaf src_port {
+        type uint64;
+      }
+      leaf jitter {
+        type uint64;
+      }
+      leaf remote_system_ip {
+        type inet:ip-address;
+      }
+      leaf vdevice_name {
+        type string;
+      }
+      leaf proto {
+        type string;
+      }
+      leaf vip_idx {
+        type uint64;
+      }
+      leaf dst_port {
+        type uint64;
+      }
+      leaf sla_class_list {
+        type string;
+      }
+      leaf tunnel_color {
+        type string;
+      }
+      leaf host_name {
+        type string;
+      }
+    }
+  }
+}

@@ -59,6 +59,24 @@ module telemetrify {
 
               // TODO: Input parameters?
             }
+
+            container vmanage-poll {
+              presence true;
+              must "../../../tlm:sources/tlm:vmanage-http";
+
+              leaf path {
+                mandatory true;
+                description "Path to fetch";
+                type string;
+              }
+
+              leaf period {
+                mandatory true;
+                description "Polling period";
+                type uint32; // TODO: xs:duration?
+                units "ms";
+              }
+            }
           }
         }
 
@@ -129,6 +147,28 @@ module telemetrify {
 
           leaf password {
             mandatory true;
+            // TODO:
+            // type tailf:aes-256-cfb-128-encrypted-string;
+            type string;
+          }
+        }
+
+        container vmanage-http {
+          presence true;
+
+          leaf address {
+            type string;
+          }
+
+          leaf port {
+            type inet:port-number;
+          }
+
+          leaf username {
+            type string;
+          }
+
+          leaf password {
             // TODO:
             // type tailf:aes-256-cfb-128-encrypted-string;
             type string;

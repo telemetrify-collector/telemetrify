@@ -416,7 +416,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
 
     def on_tcp_receive(conn: net.TCPConnection, data: bytes) -> None:
         buf += data
-        print("Received TCP data")
+        #print("Received TCP data")
 
         while True:
             r, buf = parse_response(buf)
@@ -449,11 +449,11 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
     def get(path: str, on_response: action(Client, Response) -> None):
         req = build_request(address, b"GET", path.encode(), b"1.1", {}, b"")
         _on_response.append((req, on_response))
-        print("len(_on_response): ", str(_on_response))
+        #print("len(_on_response): ", str(_on_response))
         conn.write(req)
 
     def post(path: str, body: bytes, on_response: action(Client, Response) -> None):
         req = build_request(address, b"POST", path.encode(), b"1.1", {}, body)
         _on_response.append((req, on_response))
-        print("len(_on_response): ", len(_on_response))
+        #print("len(_on_response): ", len(_on_response))
         conn.write(req)

@@ -102,7 +102,21 @@ class DeviceSourceNetconfRefiner(PassthroughRefiner):
     def id() -> int:
         return 1002
 
+class DeviceSourceVmanageRefiner(PassthroughRefiner):
+    def __init__(self):
+        #super().__init__([Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'sources'), PTag('tlm', 'netconf')])]))
+        self.priority = 0
+        self.subscription_dependencies = [Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'sources'), PTag('tlm', 'vmanage-http')])]
+        self.refiner_dependencies = []
+        self.subtrees = {}
+
+    @staticmethod
+    def id() -> int:
+        return 1019
+
+
 SOURCE_KEY_NETCONF = Keypath([Key(['netconf'])])
+SOURCE_KEY_VMANAGE_HTTP = Keypath([Key(['vmanage-http'])])
 
 class DeviceSourceRefiner(Refiner):
     @property
@@ -113,7 +127,8 @@ class DeviceSourceRefiner(Refiner):
         self.subscription_dependencies = [
             ]
         self.refiner_dependencies = [
-                DeviceSourceNetconfRefiner.id()
+                DeviceSourceNetconfRefiner.id(),
+                DeviceSourceVmanageRefiner.id(),
             ]
 
         self.device_source_configs = {}
@@ -127,6 +142,7 @@ class DeviceSourceRefiner(Refiner):
 
         source_deps = [
             (SOURCE_KEY_NETCONF, input_refiners[DeviceSourceNetconfRefiner.id()]),
+            (SOURCE_KEY_VMANAGE_HTTP, input_refiners[DeviceSourceVmanageRefiner.id()]),
         ]
 
         for source_key, (source_refiner, device_keys) in source_deps:
