@@ -14,10 +14,10 @@ else
 	OUTPUT=out/rel
 endif
 
-Dockerfile: prepare-telemetrify-packages
+Dockerfile: prepare-telemetrify-bin
 
-prepare-telemetrify-packages:
-	$(MAKE) -C .. build-packages
-	rsync -rupE ../packages/telemetrify packages
+prepare-telemetrify-bin:
+	$(MAKE) -C .. build
+	rsync -E ../$(OUTPUT)/bin/acton_streamer.main.main packages/telemetrify/bin
 
-.PHONY: copy-telemetrify-packages
+.PHONY: prepare-telemetrify-bin
