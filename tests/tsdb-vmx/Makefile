@@ -71,6 +71,10 @@ add-vmx:
 	$(MAKE) runcmdJ CMD="request devices device vmx sync-from"
 	$(MAKE) runcmdJ CMD="configure\nedit devices device vmx telemetrify\nset sources netconf address 127.0.0.1 port 1234 username vrnetlab password VR-netlab9\nset subscription if source netconf-rpc-poll path /get-interface-information period 10000\n\ncommit and-quit"
 
+add-vmanage:
+	$(MAKE) runcmdJ CMD="configure\nedit devices authgroups group vrnetlab default-map remote-name vrnetlab remote-password VR-netlab9\ncommit\nexit"
+	$(MAKE) runcmdJ CMD="configure\nedit devices device vmanage\nset address 127.0.0.1 port 1234 authgroup vrnetlab\nset device-type netconf ned-id netconf\nset state admin-state unlocked\ncommit and-quit"
+	$(MAKE) runcmdJ CMD="configure\nedit devices device vmanage telemetrify\nset sources vmanage-http address 127.0.0.1 port 1234 username vrnetlab password VR-netlab9\nset subscription approute source vmanage-poll path /statistics/approute period 10000\n\ncommit and-quit"
 
 
 stop:
