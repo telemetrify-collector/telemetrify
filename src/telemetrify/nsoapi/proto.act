@@ -1,0 +1,899 @@
+from telemetrify.common.io import IncompleteReadError
+from telemetrify.common.utils import unsafe_list_append
+
+# class Tag:
+Double = 70
+Compressed = 80
+SmallInt = 97
+Int = 98
+Float = 99
+Atom = 100
+Ref = 101 # old stype references
+Port = 102
+Pid = 103
+SmallTuple = 104
+LargeTuple = 105
+Nil = 106 # empty lists
+String = 107 # strings and lists of small integers
+List = 108
+Bin = 109
+SmallBig = 110
+LargeBig = 111
+NewRef = 114 # new style references
+Version = 131 # version number used to mark serialized E terms
+
+# class ELimits:
+#IntMax = (1 << 27) - 1 # largest value that can be encoded as an integer
+IntMax = pow(2, 27) - 1 # largest value that can be encoded as an integer
+#IntMin = -(1 << 27) # smallest value that can be encoded as an integer
+IntMin = -pow(2, 27) # smallest value that can be encoded as an integer
+AtomLengthMax = 255 # longest allowed Erlang atom length
+
+CDB_REL_FLAG_MASK = 0x80000000
+CDB_ERROR_FLAG_MASK = CDB_REL_FLAG_MASK
+
+_ERL_EXTERN_FMT = Version
+
+class ProtoError(Exception):
+    def __init__(self):
+        pass
+
+class ServerVersionError(ProtoError):
+    def __init__(self):
+        pass
+
+class MaapiProtoError(ProtoError):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self) -> str:
+        return "MaapiProtoError(\"" + self.msg + "\")"
+
+class BufferWriter(object):
+    @property
+    parts: list[bytes]
+
+    def __init__(self):
+        self.parts = []
+
+    def to_bytes(self):
+        return bytes([]).join(self.parts)
+
+    def write_bytes(self, b: bytes):
+        self.parts.append(b)
+
+    def write_int(self, v: int):
+        if v >= 0 and v <= 255:
+            self.write_bytes(bytes([SmallInt, v]))
+        elif v >= IntMin and v <= IntMax:
+            self.write_tag(Int)
+            self.write_i32_be(v)
+        else:
+            # While this compiles it does lead to segfault when attempting to use the variable b later
+            # if v < 0:
+            #     b = -v
+            #     s = 1
+            # else:
+            #     b = v
+            #     s = 0
+            b: int = v
+            s: int = 0
+            if v < 0:
+                b = -v
+                s = 1
+            d = []
+            while True:
+                # Little-endian
+                # BUG: Runtime error on bitwise operations
+                # d.append(b & 0xFF)
+                # if b == 0:
+                #     break
+                # b >>= 8
+                d.append(b % 0x100)
+                if b == 0:
+                    break
+                b //= 0x100
+            self.write_bytes(bytes([SmallBig, len(d), s]))
+            self.write_bytes(bytes(d))
+
+    def write_u8(self, v):
+        # self.write_bytes(bytes([v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([v % 0x100]))
+
+    def write_u16_be(self, v: int):
+        # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
+
+    def write_u32_be(self, v: int):
+        # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
+
+    def write_i16_be(self, v: int):
+        # self.write_bytes(bytes([v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([(v // 0x100) % 0x100, v % 0x100]))
+
+    def write_i32_be(self, v: int):
+        # self.write_bytes(bytes([v >> 24 & 0xFF, v >> 16 & 0xFF, v >> 8 & 0xFF, v & 0xFF])) # BUG: Runtime error on bitwise operations
+        self.write_bytes(bytes([v // 0x1000000 % 0x100, v // 0x10000 % 0x100, v // 0x100 % 0x100, v % 0x100]))
+
+    def write_tag(self, tag: int):
+        self.write_u8(tag)
+
+    def write_atom(self, v: str):
+        b = v.encode()
+        self.write_tag(Atom)
+        self.write_u16_be(len(b))
+        self.write_bytes(b)
+
+    def write_binary(self, v: bytes):
+        self.write_tag(Bin)
+        self.write_u32_be(len(v))
+        self.write_bytes(v)
+
+    def write_list_header(self, size: int):
+        if size > 0:
+            self.write_tag(List)
+            self.write_u32_be(size)
+        else:
+            self.write_tag(Nil)
+
+    def write_list_footer(self, size: int):
+        if size > 0:
+            self.write_tag(Nil)
+
+    def write_tuple_header(self, size: int):
+        if size < 0xFF: # Why exclude 0xFF? Doing as java-maapi does just in case...
+            self.write_bytes(bytes([SmallTuple, size]))
+        else:
+            self.write_tag(LargeTuple)
+            self.write_u32_be(size)
+
+class BufferReader(object):
+    @property
+    parts: list[bytes]
+    @property
+    i: int
+    @property
+    j: int
+    @property
+    total_bytes: int
+    @property
+    unread_bytes: int
+
+    def __init__(self):
+        self.parts = []
+        self.i = 0
+        self.j = 0
+        self.total_bytes = 0
+        self.unread_bytes = 0
+
+    def append_data(self, data: bytes):
+        l = len(data)
+        self.parts.append(data)
+        self.total_bytes += l
+        self.unread_bytes += l
+
+    def consume(self):
+        #print("CONSUME!", self.i, self.j)
+        if self.i > 0:
+            # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
+            self.parts = self.parts[self.i:]
+            self.i = 0
+        if self.j > 0:
+            if len(self.parts) > 0:
+                #self.parts[0] = self.parts[0][self.j:]
+                parts: list[bytes] = self.parts # Workaround type-checker bug?
+                parts[0] = parts[0][self.j:]
+            self.j = 0
+        self.total_bytes = self.unread_bytes
+        #print("CONSUMED!", self.parts)
+
+    def rewind(self):
+        #print("REWIND!")
+        self.i = 0
+        self.j = 0
+        self.unread_bytes = self.total_bytes
+
+    def read_bytes_count(self) -> int:
+        return self.total_bytes - self.unread_bytes
+
+    def has_unread_bytes(self) -> bool:
+        return self.unread_bytes > 0
+
+    def assert_unread_bytes(self, count: int) -> value: # (bool | IncompleteReadError)
+        # if self.unread_bytes < count:
+        #     raise IncompleteReadError()
+        if self.unread_bytes < count:
+            return IncompleteReadError()
+        else:
+            return True
+
+    def read_bytes(self, count: int) -> value: # (bytes | IncompleteReadError)
+        #print("READ", count)
+        #print("READ0!", self.i, self.j)
+        # if count > self.unread_bytes:
+        #     raise IncompleteReadError()
+        if count > self.unread_bytes:
+            return IncompleteReadError()
+        remaining = count
+        acc = []
+        parts: list[bytes] = self.parts # Workaround type-checker bug?
+        while remaining > 0:
+            #part = self.parts[self.i]
+            part = parts[self.i]
+            next_j = self.j + remaining
+            chunk = part[self.j:next_j]
+            chunk_len = len(chunk)
+            remaining -= chunk_len
+            if next_j >= len(part):
+                self.i += 1
+                next_j = 0
+            self.j = next_j
+            acc.append(chunk)
+        self.unread_bytes -= count
+        #print("READ1!", self.i, self.j)
+        return bytes([]).join(acc)
+
+    def skip_bytes(self, count: int) -> value: # (bool | IncompleteReadError):
+        #print("SKIP", count)
+        #print("SKIP0!", self.i, self.j)
+        if count > self.unread_bytes:
+            return IncompleteReadError()
+        remaining = count
+        parts: list[bytes] = self.parts # Workaround type-checker bug?
+        while remaining > 0:
+            #part = self.parts[self.i]
+            part = parts[self.i]
+            part_len = len(part)
+            part_remain = part_len - self.j
+            if remaining < part_remain:
+                self.j += remaining
+                break
+            remaining -= part_remain
+            self.i += 1
+            self.j = 0
+        self.unread_bytes -= count
+        #print("SKIP0!", self.i, self.j)
+        return True
+
+    def read_u8(self) -> value: # (int | IncompleteReadError)
+        b = self.read_bytes(1)
+        if isinstance(b, bytes):
+            return b[0]
+        return b
+
+    def read_u16_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ux_be(2)
+
+    def read_u32_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ux_be(4)
+
+    def read_ux_be(self, size: int) -> value: # (int | IncompleteReadError)
+        b = self.read_bytes(size)
+        if isinstance(b, bytes):
+            v: int = 0
+            # BUG: Runtime error on bitwise operations
+            # for x in b:
+            #     v <<= 8
+            #     v |= x
+            if size > 0:
+                v = b[0]
+                for x in b[1:]:
+                    v *= 0x100
+                    v += x
+            return v
+        return b
+
+    def read_i16_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ix_be(2)
+
+    def read_i32_be(self) -> value: # (int | IncompleteReadError)
+        return self.read_ix_be(4)
+
+    def read_ix_be(self, size: int) -> value: # (int | IncompleteReadError)
+        b = self.read_bytes(size)
+        if isinstance(b, bytes):
+            v: int = 0
+            # BUG: Runtime error on bitwise operations
+            # for x in b:
+            #     v <<= 8
+            #     v |= x
+            # if size > 0 and b[0] & 0x80 != 0:
+            #     v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+            if size > 0:
+                v = b[0]
+                is_neg = v >= 0x80
+                for x in b[1:]:
+                    v *= 0x100
+                    v += x
+                if is_neg:
+                    v = pow(0x100, size) - v
+            return v
+        return b
+
+    # def read_intn_le(self, size) -> value: # (int | IncompleteReadError)
+    #     b = self.read_bytes(size)
+    #     if not isinstance(b, bytes):
+    #         return b
+    #     v: int = 0
+    #     for i in range(0, size, 1):
+    #         v |= b[i] << (size-1-i) * 8
+    #     if size > 0 and b[size-1] & 0x80 != 0:
+    #         v |= 0xFFFFFFFFFFFFFFFF << size * 8 # sign-extend assuming acton int is 64 bit.
+    #     return v
+
+    def read_tag(self) -> value: # (int | IncompleteReadError)
+        return self.read_u8()
+
+    def read_int(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
+        # if tag == Version:
+        #     tag = self.read_u8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # if tag == SmallInt:
+        #     return self.read_u8()
+        # elif tag == Int:
+        #     return self.read_i32_be()
+        # elif tag == SmallBig:
+        #     size = self.read_u8()
+        #     if not isinstance(size, int):
+        #         return size
+
+        #     if size > 8:
+        #         #raise ValueError("Invalid SmallBig `int` size: " + str(size))
+        #         return ValueError("Invalid SmallBig `int` size: " + str(size))
+        #     sign = self.read_u8()
+        #     if not isinstance(sign, int):
+        #         return sign
+        #     b = self.read_bytes(size)
+        #     if not isinstance(b, bytes):
+        #         return b
+        #     v = 0
+        #     for i in range(0, size, 1):
+        #         v |= b[i] << (size-1-i) * 8
+        #     return v if sign == 0 else -v
+        # else:
+        #     #raise ValueError("Invalid `int` tag: " + str(tag))
+        #     return ValueError("Invalid `int` tag: " + str(tag))
+        if tag == Version:
+            t = self.read_u8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
+
+        if tag == SmallInt:
+            return self.read_u8()
+        elif tag == Int:
+            return self.read_i32_be()
+        elif tag == SmallBig:
+            size = self.read_u8()
+            if isinstance(size, int):
+                if size > 8:
+                    return ValueError("Invalid SmallBig `int` size: " + str(size))
+                sign = self.read_u8()
+                if isinstance(sign, int):
+                    b = self.read_bytes(size)
+                    if isinstance(b, bytes):
+                        v = 0
+                        # BUG: Runtime error on bitwise operations
+                        # for i in range(0, size, 1):
+                        #     v |= b[i] << (size-1-i) * 8
+                        for i in range(size-1, -1, -1):
+                            v *= 0x100
+                            v += b[i]
+                        return v if sign == 0 else -v
+                    else:
+                        return b
+                else:
+                    return sign
+            else:
+                return size
+        else:
+            return ValueError("Invalid `int` tag: " + str(tag))
+
+    def read_atom(self, tag: int) -> value: # (str | IncompleteReadError)
+        # if tag == Version:
+        #     tag = self.read_u8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # size = self.read_u16_be()
+        # if not isinstance(size, int):
+        #     return size
+
+        # b = self.read_bytes(size)
+        # if not isinstance(b, bytes):
+        #     return b
+        # return b.decode()
+        if tag == Version:
+            t = self.read_u8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
+
+        size = self.read_u16_be()
+        if isinstance(size, int):
+            b = self.read_bytes(size)
+            if isinstance(b, bytes):
+                return b.decode()
+            else:
+                return b
+        else:
+            return size
+
+    def read_binary(self, tag: int) -> value: # (bytes | IncompleteReadError)
+        # if tag == Version:
+        #     tag = self.read_u8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # size = self.read_u32_be()
+        # if not isinstance(size, int):
+        #     return size
+
+        # return self.read_bytes(size)
+        if tag == Version:
+            t = self.read_u8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
+
+        size = self.read_u32_be()
+        if isinstance(size, int):
+            return self.read_bytes(size)
+        else:
+            return size
+
+    def read_tuple_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
+        # if tag == Version:
+        #     tag = self.read_u8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # if tag == SmallTuple:
+        #     return self.read_u8()
+        # elif tag == LargeTuple:
+        #     return self.read_u32_be()
+        # else:
+        #     #raise ValueError("Invalid `tuple` tag: " + str(tag))
+        #     return ValueError("Invalid `tuple` tag: " + str(tag))
+        if tag == Version:
+            t = self.read_u8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
+
+        if tag == SmallTuple:
+            return self.read_u8()
+        elif tag == LargeTuple:
+            return self.read_u32_be()
+        else:
+            return ValueError("Invalid `tuple` tag: " + str(tag))
+
+    def read_list_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
+        # if tag == Version:
+        #     tag = self.read_u8()
+        #     if not isinstance(tag, int):
+        #         return tag
+
+        # if tag == Nil:
+        #     return 0
+        # elif tag == String:
+        #     return self.read_u16_be()
+        # elif tag == List:
+        #     return self.read_u32_be()
+        # else:
+        #     #raise ValueError("Invalid `list` tag: " + str(tag))
+        #     return ValueError("Invalid `list` tag: " + str(tag))
+        if tag == Version:
+            t = self.read_u8()
+            if isinstance(t, int):
+                tag = t
+            else:
+                return t
+
+        if tag == Nil:
+            return 0
+        elif tag == String:
+            return self.read_u16_be()
+        elif tag == List:
+            return self.read_u32_be()
+        else:
+            return ValueError("Invalid `list` tag: " + str(tag))
+
+class EObject:
+    def __init__(self):
+        # Silent data loss/corruption if we don't have an init here?
+        pass
+
+    def encode(self, writer):
+        pass
+
+    @staticmethod
+    def decode_tagged(reader) -> value: # (EObject | IncompleteReadError | ValueError)
+        tag = reader.read_tag()
+        if isinstance(tag, int):
+            if tag == Version:
+                t = reader.read_tag()
+                if isinstance(t, int):
+                    tag = t
+                else:
+                    return tag
+
+            #print("DECODE TAG:", tag)
+
+            if tag == SmallInt:
+                return EInt.decode(reader, tag)
+            if tag == Int:
+                return EInt.decode(reader, tag)
+            if tag == SmallBig:
+                return EInt.decode(reader, tag)
+
+            # if tag == LargeBig:
+
+            if tag == Atom:
+                return EAtom.decode(reader, tag)
+
+            # if tag == Float:
+            # if tag == Double:
+
+            # if tag == Ref:
+            # if tag == NewRef:
+
+            if tag == String:
+                return EString.decode(reader, tag)
+            if tag == List:
+                return EList.decode(reader, tag)
+            if tag == Nil:
+                return EList.decode(reader, tag)
+
+            if tag == SmallTuple:
+                return ETuple.decode(reader, tag)
+            if tag == LargeTuple:
+                return ETuple.decode(reader, tag)
+
+            if tag == Bin:
+                return EBinary.decode(reader, tag)
+
+            # if tag == Pid:
+
+            # if tag == Compressed:
+
+            return ValueError("Invalid `EObject` tag: " + str(tag))
+        return tag
+
+class EList(EObject):
+    @property
+    elems: list[EObject]
+    @property
+    is_proper: bool
+
+    def __init__(self, elems, is_proper):
+        self.elems = elems
+        self.is_proper = is_proper
+
+    def __str__(self) -> str:
+        # return str(self.elems)
+        sl: list[str] = []
+        for e in self.elems:
+            #sl.append(str(e))
+            unsafe_list_append(sl, str(e))
+        return "[" + ", ".join(sl) + "]"
+
+    def encode(self, writer):
+        size = len(self.elems)
+        as_proper: bool = self.is_proper or size < 2
+        if not as_proper:
+            size -= 1
+        writer.write_list_header(size)
+        for elem in self.elems:
+            elem.encode(writer)
+        if  as_proper:
+            writer.write_list_footer(size)
+
+    @staticmethod
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError | ValueError)
+        elems: list[EObject] = []
+        is_proper = False
+        size = reader.read_list_size(tag)
+        if isinstance(size, int):
+            for i in range(0, size, 1):
+                elem = EObject.decode_tagged(reader)
+                if isinstance(elem, EObject):
+                    elems.append(elem)
+                else:
+                    return elem
+
+            if size > 0:
+                tail = EObject.decode_tagged(reader)
+                if isinstance(tail, EList):
+                    is_proper = True
+                elif isinstance(tail, EObject):
+                    # is_proper = False
+                    elems.append(tail)
+                else:
+                    return tail
+
+            return EList(elems, is_proper)
+        else:
+            return size
+
+extension EList(Collection[EObject]):
+    def __iter__(self) -> Iterator[EObject]:
+        return iter(self.elems)
+
+    @staticmethod
+    def __fromiter__(iterable: Iterable[EObject]) -> EList:
+        #return EList(list(iterable))
+        return EList(list(iter(iterable)), True)
+
+    def __len__(self) -> int:
+        return len(self.elems)
+
+extension EList(Indexed[int, EObject]):
+    def __getitem__(self, index: int) -> EObject:
+        return self.elems[index]
+
+    def __setitem__(self, index: int, _val: EObject) -> None:
+        # TODO: Future FrozenIndexed protocol?
+        raise Exception("Not implemented")
+
+    def __delitem__(self, index: int) -> None:
+        # TODO: Future FrozenIndexed protocol?
+        raise Exception("Not implemented")
+
+class ETuple(EObject):
+    @property
+    elems: list[EObject]
+
+    def __init__(self, elems: list[EObject]):
+        self.elems = elems
+
+    def __str__(self) -> str:
+        # return "(" + ", ".join([str(e) for e in self.elems]) + ")"
+        sl: list[str] = []
+        for e in self.elems:
+            #sl.append(str(e))
+            unsafe_list_append(sl, str(e))
+        return "(" + ", ".join(sl) + ")"
+
+    def encode(self, writer: BufferWriter):
+        size: int = len(self.elems)
+        writer.write_tuple_header(size)
+        for elem in self.elems:
+            elem.encode(writer)
+
+    @staticmethod
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError | ValueError)
+        elems: list[EObject] = []
+        size = reader.read_tuple_size(tag)
+        if isinstance(size, int):
+            for i in range(0, size, 1):
+                # elem = EObject.decode_tagged(reader)
+                # if isinstance(elem, EObject):
+                #     elems.append(elem)
+                # else:
+                #     return elem
+                e = EObject.decode_tagged(reader)
+                if isinstance(e, EObject):
+                    elems.append(e)
+                else:
+                    return e
+            return ETuple(elems)
+        else:
+            return size
+
+extension ETuple(Collection[EObject]):
+    def __iter__(self) -> Iterator[EObject]:
+        return iter(self.elems)
+
+    @staticmethod
+    def __fromiter__(iterable: Iterable[EObject]) -> ETuple:
+        #return ETuple(list(iterable))
+        return ETuple(list(iter(iterable)))
+
+    def __len__(self) -> int:
+        return len(self.elems)
+
+extension ETuple(Indexed[int, EObject]):
+    def __getitem__(self, index: int) -> EObject:
+        return self.elems[index]
+
+    def __setitem__(self, index: int, _val: EObject) -> None:
+        # TODO: Future FrozenIndexed protocol?
+        raise Exception("Not implemented")
+
+    def __delitem__(self, index: int) -> None:
+        # TODO: Future FrozenIndexed protocol?
+        raise Exception("Not implemented")
+
+class EBinary(EObject):
+    @property
+    data: bytes
+
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def __str__(self) -> str:
+        return self.data.decode()
+
+    @staticmethod
+    def from_str(s: str):
+        return EBinary(s.encode())
+
+    def encode(self, writer):
+        writer.write_binary(self.data)
+
+    @staticmethod
+    def decode(reader, tag) -> value: # (EObject | IncompleteReadError)
+        b = reader.read_binary(tag)
+        if isinstance(b, bytes):
+            return EBinary(b)
+        return b
+
+class EAtom(EObject):
+    @property
+    val: str
+
+    def __init__(self, val: str):
+        self.val = val
+
+    def __str__(self) -> str:
+        return self.val
+
+    @staticmethod
+    def from_bool(b: bool):
+        return EAtom('true') if b else EAtom('false')
+
+    def to_bool(self) -> bool:
+        # if self.val == 'true':
+        #     return True
+        # elif self.val == 'false':
+        #     return False
+        # else:
+        #     raise ValueError("Invalid bool value", self.val)
+        return self.val == 'true'
+
+    def encode(self, writer):
+        writer.write_atom(self.val)
+
+    @staticmethod
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError)
+        a = reader.read_atom(tag)
+        if isinstance(a, str):
+            return EAtom(a)
+        return a
+
+extension EAtom(Eq):
+    def __eq__(self, other: EAtom):
+        return self.val == other.val
+
+class EInt(EObject):
+    @property
+    val: int
+
+    def __init__(self, val: int):
+        self.val = val
+
+    def __str__(self) -> str:
+        return self.val.__str__()
+
+    def encode(self, writer):
+        writer.write_int(self.val)
+
+    @staticmethod
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError)
+        v = reader.read_int(tag)
+        if isinstance(v, int):
+            return EInt(v)
+        return v
+
+class EString(EObject):
+    @property
+    data: bytes
+
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def __str__(self) -> str:
+        return self.data.decode()
+
+    @staticmethod
+    def from_str(s: str):
+        return EString(s.encode())
+
+    def encode(self, writer):
+        data_len = len(self.data)
+        if data_len == 0:
+            writer.write_tag(Nil)
+        elif data_len <= 0xFFFF:
+            writer.write_tag(String)
+            writer.write_u16_be(data_len)
+            writer.write_bytes(self.data)
+        # Erlang external term format says to encode longer strings as LIST_EXT, however
+        # java-api encodes as BINARY_EXT, but expects LIST_EXT when reading longer STRING_EXT
+        # e.g. from CDB_SUB_EVENT
+        else:
+            writer.write_binary(self.data)
+        # else:
+        #     writer.write_list_header(size)
+        #     for elem in self.elems:
+        #         writer.write_bytes(bytes([SmallInt, v]))
+        #     writer.write_list_footer(size)
+
+    @staticmethod
+    def decode(reader, tag: int) -> value: # (EObject | IncompleteReadError)
+        size = reader.read_u16_be()
+        if isinstance(size, int):
+            b = reader.read_bytes(size)
+            if isinstance(b, bytes):
+                return EString(b)
+            else:
+                return b
+        else:
+            return size
+
+class ConfResponse(object):
+    @property
+    op: int
+    @property
+    term: ?EObject
+    @property
+    is_error: bool
+    @property
+    error_code: int
+    @property
+    error_msg: ?str
+
+    def __init__(self, op: int, term: ?EObject, is_error: bool, error_code: int, error_msg: ?str):
+        self.op = op
+        self.term = term
+        self.is_error = is_error
+        self.error_code = error_code
+        self.error_msg = error_msg
+
+    def __str__(self) -> str:
+        # return "ConfResponse(op=" + str(self.op) + ", term=" + str(self.term) + \
+        #     ", err" + str(self.is_error) + ", errcode" + str(self.error_code) + ", errstr" + str(self.error_msg) + ")"
+
+        term_str: str = ""
+        _term: ?EObject = self.term
+        if _term is not None:
+            term_str = str(_term)
+        error_msg: str = ""
+        _error_msg: ?str = self.error_msg
+        if _error_msg is not None:
+            error_msg = _error_msg
+        return "ConfResponse(op=" + self.op.__str__() \
+            + ", term=" + term_str \
+            + ", err=" + str(self.is_error) \
+            + ", errcode=" + str(self.error_code) \
+            + ", errstr=" + error_msg + ")"
+
+protocol ToEObject:
+    to_eobject: () -> EObject
+
+# # # EObject
+# # protocol EObject:
+# #     encode: (BufferWriter) -> None
+
+# #     @staticmethod
+# #     decode: (BufferReader) -> Self
+
+# # # EList
+# # class EList:
+# #     def __init__(self):
+# #         pass
+
+# # extension EList(EObject):
+# #     def encode(self, writer):
+# #         pass
+
+# #     @staticmethod
+# #     def decode(reader):
+# #         return EList()

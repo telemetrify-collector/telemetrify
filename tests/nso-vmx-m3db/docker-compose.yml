@@ -38,7 +38,7 @@ services:
         labels:
             - "com.cisco.nso.testenv.name=${CNT_PREFIX}"
     nso:
-        image: pruned-streaming-nso/nso:6.1.4
+        image: pruned-telemetrify-nso/nso:6.1.4
         build:
             dockerfile: ./nso.Dockerfile
         volumes:

@@ -6,7 +6,7 @@ else
 	OUTPUT=out/rel
 endif
 ARGS?=
-BIN?=acton_streamer.test
+BIN?=telemetrify.test
 
 all: build
 

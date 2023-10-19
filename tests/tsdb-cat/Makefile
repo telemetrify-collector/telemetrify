@@ -100,7 +100,7 @@ log:
 .PHONY: start stop test test-debug cli log
 
 build-nso:
-	$(MAKE) -C ../../streaming-nso build tag-release
+	$(MAKE) -C ../../telemetrify-nso build tag-release
 
 rebuild-app:
 	$(MAKE) -C ../..

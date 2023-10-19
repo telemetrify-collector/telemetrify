@@ -1,0 +1,410 @@
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nsoapi.cdb import *
+from telemetrify.nsoapi.conf import *
+from telemetrify.nsoapi.conv import *
+from telemetrify.nsoapi.proto import *
+from telemetrify.nsoapi.schema import *
+
+class Refiner(object):
+    @property
+    priority: int
+    @property
+    subscription_dependencies: list[Keypath]
+    @property
+    refiner_dependencies: list[int]
+
+    def __init__(self):
+        raise Exception("Not Implemented")
+
+    @staticmethod
+    def id() -> int:
+        raise Exception("Not Implemented")
+
+    mut def update(self, tree: TNode, input_subs: dict[Keypath, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        raise Exception("Not Implemented")
+
+    def state(self, keys: Keypath) -> ?value:
+        raise Exception("Not Implemented")
+
+# extension Refiner(Ord):
+#     def __eq__(self, other) -> bool:
+#         self.priority == other.priority and self.id() == other.id()
+
+#     def __lt__(self, other) -> bool:
+#         return self.priority < other.priority #or self == other and self.id < other.id
+
+# Workaround for https://github.com/actonlang/acton/issues/1126
+extension Refiner(Ord2):
+    def eq(self, other) -> bool:
+        return self.priority == other.priority and self.id() == other.id()
+
+    def lt(self, other) -> bool:
+        return self.priority < other.priority #or self == other and self.id < other.id
+
+extension Refiner(Hashable):
+    def __eq__(self, other) -> bool:
+        return self.priority == other.priority and self.id() == other.id()
+
+    def __hash__(self) -> int:
+        return safe_hash(self.id() + 1000002043 * self.priority)
+
+def _get_subtree_path_keys(node: TNode, path: Keypath) -> list[Keypath]:
+    keys: list[Keypath] = []
+    curr_keys: list[Id] = []
+    stack: list[(TNode, int, int)] = []
+
+    stack.append((node, 0, 0))
+
+    path_len = len(path)
+
+    while stack:
+        n, path_index, curr_keys_len = list_pop(stack)
+
+        while len(curr_keys) > curr_keys_len:
+            list_pop(curr_keys)
+
+        if path_index < path_len:
+            key = n.key()
+            if key is not None:
+                curr_keys.append(key)
+                curr_keys_len += 1
+
+            _id = path[path_index]
+            if isinstance(_id, Key):
+                if _id.is_wildcard():
+                    children = list(n.iter())
+                    if children:
+                        for c in list_reversed(children):
+                            stack.append((c, path_index + 1, curr_keys_len))
+                else:
+                    c = n[_id]
+                    if c:
+                        stack.append((c, path_index + 1, curr_keys_len))
+            elif isinstance(_id, Tag):
+                c = n[_id]
+                if c.exists():
+                    stack.append((c, path_index + 1, curr_keys_len))
+        else:
+            keys.append(Keypath(list(curr_keys)))
+
+    return keys
+
+class PassthroughRefiner(Refiner):
+    @property
+    subtrees: dict[Keypath, TNode]
+
+    def __init__(self, subscription_path: Keypath):
+        self.priority = 0
+        self.subscription_dependencies = [subscription_path]
+        self.refiner_dependencies = []
+        self.subtrees = {}
+
+    def update(self, root: TNode, input_subs: dict[Keypath, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        _subtrees: dict[Keypath, TNode] = {}
+
+        sub_path = self.subscription_dependencies[0]
+        keys = input_subs[sub_path]
+
+        ancestor_deleted_keys = []
+
+        for key in keys:
+            key_index = 0
+            key_len = len(key)
+
+            node = root
+            #for _id in sub_path:
+            for path_index in range(0, len(sub_path), 1):
+                _id: Id = sub_path[path_index]
+                if isinstance(_id, Key) and _id.is_wildcard():
+                    if key_index < key_len:
+                        node = node[key[key_index]]
+                        key_index += 1
+                    else:
+                        #for deleted_key_tail in _get_subtree_path_keys(node, sub_path[path_index:]):
+                        for deleted_key_tail in _get_subtree_path_keys(node, sub_path.get_slice(path_index, len(sub_path))):
+                            ancestor_deleted_keys.append(key + deleted_key_tail)
+                        break
+                else:
+                    node = node[_id]
+
+            if node.exists():
+                _subtrees[key] = node
+
+        self.subtrees = _subtrees
+
+        return keys + ancestor_deleted_keys if ancestor_deleted_keys else keys
+
+    def state(self, keys: Keypath) -> ?value:
+        return try_get(self.subtrees, keys)
+
+def _get_subpath_num_keys(sub_path: Keypath) -> int:
+    c = 0
+    for _id in sub_path:
+        if isinstance(_id, Key):
+            c += 1
+    return c
+
+def _get_subtree_keys(node: TNode, max_keys: int) -> list[Keypath]:
+    """
+        Invariant:
+            Tree (node) is of a single subscription path where max_keys is the number of keys in that subscription path.
+            i.e. no container siblings within the subscription path
+    """
+
+    if max_keys < 1:
+        return []
+
+    keys: list[Keypath] = []
+    curr_keys: list[Id] = []
+    stack: list[(TTree, int)] = []
+
+    if isinstance(node, TTree):
+        stack.append((node, 0))
+
+        while stack:
+            n, curr_keys_len = list_pop(stack)
+
+            while len(curr_keys) > curr_keys_len:
+                list_pop(curr_keys)
+
+            key = n.key()
+            if key is not None:
+                curr_keys.append(key)
+                if len(curr_keys) >= max_keys:
+                    keys.append(Keypath(list(curr_keys)))
+                    continue
+                curr_keys_len += 1
+
+            children = list(n.iter())
+            if children:
+                for c in list_reversed(children):
+                    if isinstance(c, TTree):
+                        stack.append((c, curr_keys_len))
+            else:
+                keys.append(Keypath(list(curr_keys)))
+    return keys
+
+actor ConfigCache(cdb_sub_conn: CdbConnection,
+            cdb_cmd_conn: CdbConnection,
+            shared_schema: SharedSchema,
+            refiner_ctors: list[pure() -> Refiner],
+            callbacks: list[(list[int], action(dict[int, list[(Keypath, ?value)]]) -> None)],
+            on_error: action(Exception) -> None):
+
+    var _refiners: dict[int, Refiner] = {}
+    var _callback_indexes: dict[int, list[int]] = {}
+
+    #var _schema = shared_schema.shared_schema()
+    var _schema = unsafe_get_shared_schema(shared_schema)
+
+    var _sub_ids: dict[int, (Keypath, int, set[Refiner])] = {}
+    var __refiner_dependents: dict[Refiner, list[Refiner]] = {}
+
+    var _pending_sub_ids: list[int] = []
+    var _pending_sub_modifications: list[(int, EList)] = []
+
+    var _root = TTree(OP_NONE, PTag.root(), None, {})
+
+    def _assign_priority(r: Refiner):
+        if r.priority == 0:
+            #r.priority = 1 + max([_assign_priority(_refiners[i]) for i in r.refiner_dependencies], 0)
+            mp = 0
+            for i in r.refiner_dependencies:
+                dp = _assign_priority(_refiners[i])
+                if dp > mp:
+                    mp = dp
+            r.priority = 1 + mp
+        return r.priority
+
+    sub_paths: set[Keypath] = set([])
+
+    for c in refiner_ctors:
+        r = c()
+        #sub_paths.update(r.subscription_dependencies)
+        set_update(sub_paths, r.subscription_dependencies)
+        if r.id() in _refiners:
+            raise ValueError("ConfigCache: Attempted to register duplicate refiner-id")
+        _refiners[r.id()] = r
+
+    for r in _refiners.values():
+        _assign_priority(r)
+        for refiner_id in r.refiner_dependencies:
+            dependency = _refiners[refiner_id]
+            dict_list_append(__refiner_dependents, dependency, r)
+
+    for i in range(0, len(callbacks), 1):
+        dependency_ids = callbacks[i].0
+        for dependency_id in dependency_ids:
+            dict_list_append(_callback_indexes, dependency_id, i)
+
+    def update() -> None:
+        updated_sub_paths: dict[Keypath, list[Keypath]] = {}
+        updated_refiners: dict[Refiner, list[Keypath]] = {}
+        scheduled_refiners: set[Refiner] = set([])
+
+        #schedule_heap: MinHeap[Refiner] = MinHeap()
+        schedule_heap: MinHeap_Ord2[Refiner] = MinHeap_Ord2()
+
+        for sub_id, etvs in _pending_sub_modifications:
+            merge_root = etagvals_to_ttree(etvs, Cursor(_schema))
+            if isinstance(merge_root, TTree):
+                #print("Got ttree: " + str(merge_root))
+                _root.merge(merge_root)
+                #print("New root: " + str(_root))
+
+                sub_entry = try_get(_sub_ids, sub_id)
+                if sub_entry is not None:
+                    sub_path, max_keys, refiners = sub_entry
+                    #print("For: ", sub_path, "max_keys:", max_keys)
+                    keys = _get_subtree_keys(merge_root, max_keys)
+                    #print("Got keys: " + list_str(keys))
+                    updated_sub_paths[sub_path] = keys
+                    for refiner in refiners:
+                        if refiner not in scheduled_refiners:
+                            #schedule_heap.insert(refiner)
+                            MinHeap_Ord2.insert(schedule_heap, refiner)
+                            scheduled_refiners.add(refiner)
+
+            elif isinstance(merge_root, Exception):
+                on_error(Exception("Get modifications to tnode conversion error: " + merge_root.error_message))
+
+        _pending_sub_modifications.clear()
+
+        while True:
+            #curr_refiner = schedule_heap.try_pop()
+            curr_refiner = MinHeap_Ord2.try_pop(schedule_heap) # https://github.com/actonlang/acton/issues/1448
+            if curr_refiner is not None:
+                input_subs: dict[Keypath, list[Keypath]] = {}
+                input_refiners: dict[int, (Refiner, list[Keypath])] = {}
+                for sub_path in curr_refiner.subscription_dependencies:
+                    input_subs[sub_path] = updated_sub_paths.get(sub_path, [])
+                for dependency_id in curr_refiner.refiner_dependencies:
+                    dependency = _refiners[dependency_id]
+                    input_refiners[dependency_id] = (dependency, updated_refiners.get(dependency, []))
+                updated_keys = curr_refiner.update(_root, input_subs, input_refiners)
+                updated_refiners[curr_refiner] = updated_keys
+                dependents = try_get(__refiner_dependents, curr_refiner)
+                if dependents is not None:
+                    for dependent in dependents:
+                        if dependent not in scheduled_refiners:
+                            #schedule_heap.insert(dependent)
+                            MinHeap_Ord2.insert(schedule_heap, dependent) # https://github.com/actonlang/acton/issues/1448
+                            scheduled_refiners.add(dependent)
+            else:
+                break
+
+        trigger_callback_indexes: set[int] = set([])
+        for refiner in scheduled_refiners:
+            refiner_id = refiner.id()
+            set_update(trigger_callback_indexes, _callback_indexes.get(refiner_id, []))
+        for callback_index in trigger_callback_indexes:
+            dependency_ids: list[int], callback: action(dict[int, list[(Keypath, ?value)]]) -> None = callbacks[callback_index]
+            args: dict[int, list[(Keypath, ?value)]] = {}
+            for dependency_id in dependency_ids:
+                dependency = _refiners[dependency_id]
+                updates: list[(Keypath, ?value)] = []
+                for keys in updated_refiners.get(dependency, []):
+                    updates.append((keys, dependency.state(keys)))
+                args[dependency_id] = updates
+
+            callback(args)
+
+    def _on_sub_event(c: CdbConnection, v: value) -> None:
+        if isinstance(v, list):
+            print("Sub event: Triggered sub-ids:", v)
+            _pending_sub_ids = v
+            _do_get_modifications()
+        elif isinstance(v, Exception):
+            print("Sub event error:", v.error_message)
+            on_error(Exception("Sub event error: " + v.error_message))
+        else:
+            print("Sub event error:", v)
+            on_error(Exception("Sub event error: " + str(v)))
+
+    def _do_get_modifications():
+        #if _pending_sub_ids:
+        if len(_pending_sub_ids) > 0:
+            sub_id = list_pop(_pending_sub_ids)
+            # TODO: Why does setting a ?EKeypath parameter to None result in actonc: Cannot infer None < telemetrify.nsoapi.conf.EKeypath
+            #cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, None, _on_get_modifications)
+            cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, EKeypath([]), lambda c, v: _on_get_modifications(c, v, sub_id))
+        else:
+            cdb_sub_conn.sync_subscription_socket(CDB_SUB_SYNC_DONE_PRIORITY, _on_sync_subscription_socket, _on_sub_event)
+
+    def _on_get_modifications(c: CdbConnection, v: value, sub_id: int):
+        if isinstance(v, EList):
+            #
+            print(v)
+            #
+            _pending_sub_modifications.append((sub_id, v))
+            _do_get_modifications()
+        elif isinstance(v, Exception):
+            print("Get modifications error:", v.error_message)
+            on_error(Exception("Get modifications error: " + v.error_message))
+        else:
+            print("Get modifications error:", v)
+            on_error(Exception("Get modifications error: " + str(v)))
+
+    def _on_sync_subscription_socket(c: CdbConnection, v: ?Exception):
+        if v is not None:
+            on_error(Exception("Sub sync error: " + str(v.error_message)))
+        update()
+
+    def _on_subscription_success(sub_ids: dict[Keypath, int]) -> None:
+        for sub_path, sub_id in sub_ids.items():
+            _sub_ids[sub_id] = (sub_path, _get_subpath_num_keys(sub_path), set([]))
+        for refiner in _refiners.values():
+            sub_paths = refiner.subscription_dependencies
+            for sub_path in sub_paths:
+                sub_id = try_get(sub_ids, sub_path)
+                if sub_id is not None:
+                    _sub_ids[sub_id].2.add(refiner)
+
+        cdb_cmd_conn.trigger_subscriptions(list(_sub_ids.keys()), _on_trigger_subscriptions)
+
+    def _on_trigger_subscriptions(c: CdbConnection, v: ?Exception):
+        if v is not None:
+            on_error(Exception("Initial trigger_subscriptions error: " + str(v.error_message)))
+
+    _SubscriptionSetup(cdb_sub_conn, sub_paths, shared_schema, _on_sub_event, _on_subscription_success, on_error)
+
+actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_paths: set[Keypath], shared_schema: SharedSchema,
+                            sub_event_cb: action(CdbConnection, value) -> None,
+                            on_success: action(dict[Keypath, int]) -> None, on_error: action(Exception) -> None):
+
+    #var _schema = shared_schema.shared_schema()
+    var _schema = unsafe_get_shared_schema(shared_schema)
+
+    var _subscription_points: dict[Keypath, int] = {}
+
+    def _do_subscribe():
+        #if paths:
+        if len(subscription_paths) != 0:
+            path = subscription_paths.pop()
+            #ekp = keypath_to_ekeypath(path, Cursor(_schema), False)
+            # Luckily IKP works for subscriptions as HKP paths with namespace transitions fail
+            # during subscribe_done with error i ncserr.log where it tries to lookup a tag with the parent
+            # namespace rather then the one actually specified!
+            ekp = keypath_to_ekeypath(path, Cursor(_schema), True)
+            if ekp is not None:
+                cdb_sub_conn.subscribe(CDB_SUB_TYPE_RUNNING, 0, 0, ekp, lambda c, v: _on_subscribe(c, v, path))
+            else:
+                on_error(ValueError("Invalid subscription path: " + str(path)))
+        else:
+            cdb_sub_conn.subscribe_done(_on_subscribe_done, sub_event_cb)
+
+    def _on_subscribe(c, v, kp):
+        if isinstance(v, int):
+            _subscription_points[kp] = v
+            _do_subscribe()
+        else:
+            on_error(ValueError("Invalid subscription path: " + str(kp)))
+
+    def _on_subscribe_done(c, e):
+        if e is not None:
+            on_error(ValueError("Subscribe_done failed"))
+        else:
+            on_success(_subscription_points)
+
+    _do_subscribe()

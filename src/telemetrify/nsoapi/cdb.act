@@ -1,0 +1,428 @@
+import file
+import net
+from telemetrify.common.io import IncompleteReadError
+import telemetrify.nsoapi.channel as channel
+from telemetrify.nsoapi.proto import *
+from telemetrify.nsoapi.conf import *
+from telemetrify.common.utils import *
+
+# DB_CANDIDATE = 1
+# DB_RUNNING = 2
+# DB_STARTUP = 3
+# DB_OPERATIONAL = 4
+# DB_PRE_COMMIT_RUNNING = 6
+# DB_INTENDED = 7
+
+# MODE_READ = 1
+# MODE_READ_WRITE = 2
+
+_CDB_OP_CLIENT_NAME = 0
+_CDB_OP_SUBSCRIBE = 32
+_CDB_OP_SUB_EVENT = 33
+_CDB_OP_SYNC_SUB = 34
+_CDB_OP_SUBSCRIBE_DONE = 37
+#_CDB_OP_OPER_SUBSCRIBE = 38
+_CDB_OP_GET_MODIFICATIONS = 40
+_CDB_OP_WAIT_START = 64
+_CDB_OP_TRIGGER_SUBS = 68
+#_CDB_OP_GET_TRANSACTION_HANDLE = 70
+_CDB_OP_TRIGGER_OPER_SUBS = 75
+
+# _ERR_NOEXISTS = 1
+# _ERR_ALREADY_EXISTS = 2
+# _ERR_ACCESS_DENIED = 3
+# _ERR_NOT_WRITABLE = 4
+# _ERR_BADTYPE = 5
+# _ERR_NOTCREATABLE = 6
+# _ERR_NOTDELETABLE = 7
+# _ERR_BADPATH = 8
+# _ERR_INUSE = 11
+
+LOCK_WAIT: i64 = 1
+LOCK_SESSION: i64 = 1 << 1
+LOCK_REQUEST: i64 = 1 << 2
+LOCK_PARTIAL: i64 = 1 << 3
+
+CDB_SUB_TYPE_RUNNING = 1
+CDB_SUB_TYPE_RUNNING_TWOPHASE = 2
+CDB_SUB_TYPE_OPERATIONAL = 3
+
+CDB_SUB_SYNC_DONE_PRIORITY = 1
+CDB_SUB_SYNC_DONE_SOCKET = 2
+CDB_SUB_SYNC_DONE_TRANSACTION = 3
+CDB_SUB_SYNC_DONE_OPERATIONAL = 4
+
+CDB_GET_MODS_INCLUDE_LISTS: i64 = 1
+CDB_GET_MODS_REVERSE: i64 = 1 << 1
+CDB_GET_MODS_SUPPRESS_DEFAULTS: i64 = 1 << 2
+CDB_GET_MODS_CLI_NO_BACKQUOTES: i64 = 1 << 3
+CDB_GET_MODS_INCLUDE_MOVES: i64 = 1 << 4
+CDB_GET_MODS_WANT_ANCESTOR_DELETE: i64 = 1 << 5
+
+class CdbException(ProtoError):
+    def __init__(self, op: int, error_code: int, error_msg: ?str, conf_path: ?str):
+        self.op = op
+        self.error_code = error_code
+        self.error_msg = error_msg
+        self.conf_path = conf_path
+
+    def __str__(self) -> str:
+        # return "CdbException(op=" + str(self.op) \
+        #     + ", errcode=" + str(self.error_code) \
+        #     + ", errstr=" + str(self.error_msg) \
+        #     + ", path=" + str(self.conf_path) + ")"
+
+        error_msg: str = ""
+        _error_msg: ?str = self.error_msg
+        if _error_msg is not None:
+            error_msg = _error_msg
+        conf_path: str = "None"
+        _conf_path: ?str = self.conf_path
+        if _conf_path is not None:
+            conf_path = _conf_path
+        return "CdbException(op=" + str(self.op) \
+            + ", errcode=" + str(self.error_code) \
+            + ", errmsg=" + error_msg \
+            + ", path=" + conf_path + ")"
+
+def addr_to_eobject(addr: str) -> EObject:
+    if addr != "127.0.0.1":
+        raise Exception("NOT IMPLEMENTED!") # NotImplementedError()
+    else:
+        return ETuple([EInt(127), EInt(0), EInt(0), EInt(1)])
+
+# # TODO: Would be nice to inject a connection instance
+# #       e.g. for testing or session recording/replay.
+# #       Interfaces/protocols for actors?
+actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
+    listen_cap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
+    input_stream: BufferReader = BufferReader()
+    var recv_bytes_total: int = 0
+
+    var internal_recv_queue: Queue[proc() -> ?value] = Queue()
+    var user_recv_queue: Queue[proc() -> ?value] = Queue()
+
+    # Workaround compiler ordering issue
+    var conn: ?net.TCPConnection = None
+
+    def _write(data: bytes):
+        print("CdbConnection TCP send:", data)
+        if conn is not None:
+            conn.write(data)
+            # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
+            # await async conn.write(data)
+        else:
+            # `conn` is made nullable only to workaround compiler ordering issue
+            raise ValueError("Attempting to write without valid connection")
+
+    def _connect_cdb_cb() -> ?value:
+        e = input_stream.assert_unread_bytes(9)
+        if isinstance(e, IncompleteReadError):
+            return e
+
+        d = input_stream.read_u8()
+        _proto_vsn = input_stream.read_i16_be()
+        _conf_vsn = input_stream.read_i32_be()
+
+        if isinstance(d, int) and isinstance(_proto_vsn, int) and isinstance(_conf_vsn, int):
+            if d == 0:
+                # OK
+                pass
+            elif d == 1:
+                raise ServerVersionError()
+            elif d == 2:
+                # Warning about differences in MAXDEPTH/MAXKEYLEN. Not relevant?
+                pass
+
+            input_stream.skip_bytes(2) # What's here?
+
+            proto_vsn = _proto_vsn
+            conf_vsn = _conf_vsn
+
+            #
+            # Send name (fire-and-forget, i.e. no reply from nso server)
+            #
+
+            payload_writer = BufferWriter()
+
+            payload_writer.write_i32_be(_CDB_OP_CLIENT_NAME)
+            payload_writer.write_bytes(name.encode())
+
+            payload_data = payload_writer.to_bytes()
+
+            len_writer = BufferWriter()
+            payload_len = len(payload_data)
+            len_writer.write_i32_be(payload_len)
+            len_data = len_writer.to_bytes()
+
+            # _write(len_data + payload_data)
+            _write(len_data)
+            _write(payload_data)
+
+            #print("CdbConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
+            # TODO: restore this, hex currently not used due to bug in actonc
+            print("CdbConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", conf_vsn)
+            on_connect(self)
+        else:
+            on_connect_error(ProtoError())
+
+    def _connect_cdb():
+        w = BufferWriter()
+        w.write_u8(channel.IA_CLIENT_CDB) # TODO: Support access-secret-challenge
+        w.write_i16_be(channel.CLIENT_PROTO_VSN)
+        w.write_i32_be(channel.CLIENT_CONF_VSN)
+        w.write_i16_be(0)
+
+        _write(w.to_bytes())
+
+        internal_recv_queue.append(_connect_cdb_cb)
+        _post_poll_recv()
+
+    def _poll_recv():
+        # _loop: bool = True
+        # while _loop:
+        #     if internal_recv_queue:
+        #         _loop = _poll_recv_queue(internal_recv_queue) and input_stream.has_unread_bytes()
+        #     elif user_recv_queue:
+        #         _loop = _poll_recv_queue(user_recv_queue) and input_stream.has_unread_bytes()
+        #     else:
+        #         _loop = False
+        # ERROR: Error when compiling nsoapi.cdb module: Compilation error
+        #  295:17-21
+        #     |
+        # 295 |                _loop = _poll_recv_queue(internal_recv_queue) and input_stream.has_unread_bytes()
+        #     |                ^^^^^
+        # Name _loop is not in scope
+        while True:
+            if internal_recv_queue:
+                #print("_poll_recv: internal_recv_queue")
+                if not _poll_recv_queue(internal_recv_queue):
+                    break
+            elif user_recv_queue:
+                #print("_poll_recv: user_recv_queue")
+                if not _poll_recv_queue(user_recv_queue):
+                    break
+            else:
+                break
+        #print("_poll_recv: Done")
+
+    def _post_poll_recv():
+        # We really only want to do an async fire-and-forget call to ourselves ASAP
+        after 0: _poll_recv()
+
+    def _poll_recv_queue(queue: Queue[proc() -> ?value]) -> bool:
+        recv = queue.peek()
+        result: ?value = recv()
+        if result is not None and isinstance(result, IncompleteReadError):
+            input_stream.rewind()
+            return False
+        else:
+            input_stream.consume()
+            queue.pop()
+            return True
+
+    def _on_tcp_connect(c):
+        print("CdbConnection TCP connected")
+        _connect_cdb()
+
+    def _on_tcp_receive(c, data):
+        # print("CdbConnection TCP recv:", data)
+        data_len: int = len(data)
+        recv_bytes_total += data_len
+        if len(data) > 80:
+            print("CdbConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
+        else:
+            print("CdbConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
+        input_stream.append_data(data)
+        # _post_poll_recv()
+        if record_to is not None:
+            record_to.write(data)
+        _poll_recv()
+
+    def _on_tcp_error(c, msg):
+        print("CdbConnection TCP error:", msg)
+        input_stream.consume()
+        # TODO: (re)consider backoff
+        after 1: _reconnect()
+
+    def _new_connection():
+        return net.TCPConnection(listen_cap, "127.0.0.1", port, _on_tcp_connect, _on_tcp_receive, _on_tcp_error)
+
+    def _reconnect():
+        conn = _new_connection()
+
+    # Workaround compiler ordering issue
+    conn = _new_connection()
+
+    def _send_user_cdb_request(op: ?int, read_op: bool, req: ?EObject, response_cb: action(?value) -> None):
+        _send_cdb_request(user_recv_queue, op, read_op, req, response_cb)
+
+    def _send_cdb_request(queue, op: ?int, read_op: bool, req: ?EObject, response_cb: action(?value) -> None):
+        payload_writer = BufferWriter()
+        if req is not None and isinstance(req, EObject):
+            print("ENC EObject:", str(req))
+            payload_writer.write_tag(_ERL_EXTERN_FMT)
+            req.encode(payload_writer)
+        payload_data = payload_writer.to_bytes()
+
+        # # <DEBUG>
+        # if req is not None and isinstance(req, EObject):
+        #     r = BufferReader()
+        #     r.append_data(payload_data)
+        #     d = EObject.decode_tagged(r)
+        #     if isinstance(d, EObject):
+        #         print("DEC EObject:", str(d))
+        #     else:
+        #         print("DEC EObject: <decode failed>")
+        # # </DEBUG>
+
+        header_writer = BufferWriter()
+        if op is not None:
+            header_writer.write_i32_be(op)
+        header_data = header_writer.to_bytes()
+
+        len_writer = BufferWriter()
+        header_payload_len = len(header_data) + len(payload_data)
+        len_writer.write_i32_be(header_payload_len)
+        len_data = len_writer.to_bytes()
+
+        queue.append(lambda: _cdb_response_cb(op, read_op, response_cb))
+        _post_poll_recv()
+
+        # _write(len_data + header_data + payload_data)
+        _write(len_data)
+        _write(header_data)
+        _write(payload_data)
+
+    def _cdb_response_cb(op: ?int, read_op: bool, response_cb: action(?value) -> None) -> ?value:
+        result: ?value = channel.read_response(input_stream, op, read_op)
+        if result is not None and isinstance(result, IncompleteReadError):
+            return result
+        response_cb(result)
+
+    def try_to_cdb_exception(resp: ConfResponse) -> ?CdbException:
+        if resp.is_error:
+            return CdbException(resp.op, resp.error_code, resp.error_msg, None)
+        return None
+
+    def _none_result_cb(resp: ?value, result_cb: action(CdbConnection, ?Exception) -> None):
+        retval: ?Exception = None
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                retval = try_to_cdb_exception(resp)
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
+    def _int_result_cb(resp: ?value, result_cb: action(CdbConnection, value) -> None):
+        retval: value = False
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                ex = try_to_cdb_exception(resp)
+                if ex is not None:
+                    retval = ex
+                else:
+                    _t: ?EObject = resp.term
+                    if _t is not None:
+                        t: EObject = _t
+                        if isinstance(t, EInt):
+                            retval = t.val
+                        else:
+                            retval = MaapiProtoError("Unexpected response type: " + str(t))
+                    else:
+                        retval = MaapiProtoError("Unexpected response type: None")
+
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
+    def _some_result_cb(resp: ?value, transform_cb: pure(EObject) -> value, result_cb: action(CdbConnection, value) -> None):
+        retval: value = False
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                ex = try_to_cdb_exception(resp)
+                if ex is not None:
+                    retval = ex
+                else:
+                    _t: ?EObject = resp.term
+                    if _t is not None:
+                        retval = transform_cb(_t)
+                    else:
+                        retval = MaapiProtoError("Unexpected response type: None")
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
+    proc def _enqueue_sub_event_cb(sub_event_cb: action(CdbConnection, value) -> None):
+        def _transform_result(res: EObject) -> value:
+            if isinstance(res, ETuple):
+                _elems = res.elems
+                if len(_elems) >= 3:
+                    #_latest_sub_notif_type = _elems[0]
+                    #_sub_flags = _elems[1]
+                    _sub_ids = _elems[2]
+                    if isinstance(_sub_ids, EString):
+                        sub_ids: list[int] = []
+                        for b in _sub_ids.data:
+                            #sub_ids.append(int(b))
+                            unsafe_list_append(sub_ids, int(b))
+                        return sub_ids
+                    elif isinstance(_sub_ids, EList):
+                        sub_ids: list[int] = []
+                        for _sub_id in _sub_ids.elems:
+                            if isinstance(_sub_id, EInt):
+                                #sub_ids.append(_sub_id.val)
+                                unsafe_list_append(sub_ids, _sub_id.val)
+                            else:
+                                return ValueError("Unexpected sub event body")
+                        return sub_ids
+
+            return ValueError("Unexpected sub event body")
+
+        user_recv_queue.append(lambda: _cdb_response_cb(_CDB_OP_SUB_EVENT, True, lambda v: _some_result_cb(v, _transform_result, sub_event_cb)))
+        # _post_poll_recv() # Is required to have been done by the caller
+
+    action def wait_start(result_cb: action(CdbConnection, ?Exception) -> None):
+        _send_user_cdb_request(_CDB_OP_WAIT_START, True, None, lambda v: _none_result_cb(v, result_cb))
+
+    action def subscribe(sub_type: int, flags: i64, priority: int, path: EKeypath, result_cb: action(CdbConnection, ?value) -> None):
+        e = ETuple([
+            EInt(sub_type),
+            EInt(int(flags)),
+            EInt(0), # TODO: What is this "feature of user defined subscription points" that is not used by java-api?
+            EInt(priority),
+            EInt(0), # TODO: nshash (but of what? just the root or filtering a single ns?)
+            path.to_eobject()
+            ])
+        _send_user_cdb_request(_CDB_OP_SUBSCRIBE, True, e, lambda v: _int_result_cb(v, result_cb))
+
+    action def subscribe_done(result_cb: action(CdbConnection, ?Exception) -> None, sub_event_cb: action(CdbConnection, value) -> None):
+        _send_user_cdb_request(_CDB_OP_SUBSCRIBE_DONE, True, None, lambda v: _none_result_cb(v, result_cb))
+        _enqueue_sub_event_cb(sub_event_cb)
+
+    action def get_modifications(sub_id: int, mod_flags: i64, filter_path: ?EKeypath, result_cb: action(CdbConnection, value) -> None):
+        e = ETuple([
+            EInt(sub_id),
+            EInt(int(mod_flags)),
+            filter_path.to_eobject() if filter_path is not None else EList([], True),
+            ])
+        _send_user_cdb_request(_CDB_OP_GET_MODIFICATIONS, True, e, lambda v: _some_result_cb(v, lambda _e: _e, result_cb))
+
+    action def sync_subscription_socket(sub_sync_type: int, result_cb: action(CdbConnection, ?Exception) -> None, sub_event_cb: action(CdbConnection, value) -> None):
+        e = EInt(sub_sync_type)
+        _send_user_cdb_request(_CDB_OP_SYNC_SUB, True, e, lambda v: _none_result_cb(v, result_cb))
+        _enqueue_sub_event_cb(sub_event_cb)
+
+    action def trigger_subscriptions(sub_ids: list[int], result_cb: action(CdbConnection, ?Exception) -> None):
+        _sub_ids = []
+        for _id in sub_ids:
+            _sub_ids.append(EInt(_id))
+        e = EList(_sub_ids, True)
+        _send_user_cdb_request(_CDB_OP_TRIGGER_SUBS, True, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def trigger_oper_subscriptions(sub_ids: list[int], lock_flags: i64, result_cb: action(CdbConnection, ?Exception) -> None):
+        _sub_ids = []
+        for _id in sub_ids:
+            _sub_ids.append(EInt(_id))
+        e = ETuple([EList(_sub_ids, True), EInt(int(lock_flags))])
+        _send_user_cdb_request(_CDB_OP_TRIGGER_OPER_SUBS, True, e, lambda v: _none_result_cb(v, result_cb))

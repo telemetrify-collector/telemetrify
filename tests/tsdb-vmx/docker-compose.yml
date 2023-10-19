@@ -34,7 +34,7 @@ services:
             - 10022:22
             - 10830:830
     nso:
-        image: streaming-nso/nso:6.1.4
+        image: telemetrify-nso/nso:6.1.4
 #        build:
 #            dockerfile: ./nso.Dockerfile
         volumes:

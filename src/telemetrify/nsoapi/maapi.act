@@ -1,0 +1,606 @@
+import file
+import net
+import telemetrify.nsoapi.channel as channel
+from telemetrify.common.io import IncompleteReadError
+from telemetrify.common.mod import HTag
+from telemetrify.nsoapi.proto import *
+from telemetrify.nsoapi.conf import *
+from telemetrify.nsoapi.schema import * # Actors not imported by '*'? E.g. SchemaBuilder
+import telemetrify.nsoapi.schema
+from telemetrify.common.utils import *
+
+DB_CANDIDATE = 1
+DB_RUNNING = 2
+DB_STARTUP = 3
+DB_OPERATIONAL = 4
+DB_PRE_COMMIT_RUNNING = 6
+DB_INTENDED = 7
+
+MODE_READ = 1
+MODE_READ_WRITE = 2
+
+_MAAPI_START_USER_SESSION = 100
+_MAAPI_END_USER_SESSION = 101
+_MAAPI_START_TRANS = 140
+_MAAPI_FINISH_TRANS = 142 # AKA MAAPI_STOP_TRANS internally in java-api but finishTrans externally and maapi_finish_trans in c-api
+_MAAPI_APPLY_TRANS = 143
+_MAAPI_SET_ELEM = 172
+_MAAPI_DELETE = 174
+_MAAPI_CREATE = 175
+_MAAPI_GET_VALUES = 194
+_MAAPI_SET_VALUES = 195
+_MAAPI_LOAD_HASH_DB = 231
+_MAAPI_LOAD_ALL_NS = 232
+_MAAPI_GET_CRYPTO_KEYS = 248
+_MAAPI_LOAD_MNS_MAPS = 264
+_MAAPI_GET_MOUNT_ID = 265
+
+_ERR_NOEXISTS = 1
+_ERR_ALREADY_EXISTS = 2
+_ERR_ACCESS_DENIED = 3
+_ERR_NOT_WRITABLE = 4
+_ERR_BADTYPE = 5
+_ERR_NOTCREATABLE = 6
+_ERR_NOTDELETABLE = 7
+_ERR_BADPATH = 8
+_ERR_INUSE = 11
+
+class MaapiException(ProtoError):
+    def __init__(self, op: int, error_code: int, error_msg: ?str, conf_path: ?str):
+        self.op = op
+        self.error_code = error_code
+        self.error_msg = error_msg
+        self.conf_path = conf_path
+
+    def __str__(self) -> str:
+        # return "MaapiException(op=" + str(self.op) \
+        #     + ", errcode=" + str(self.error_code) \
+        #     + ", errstr=" + str(self.error_msg) \
+        #     + ", path=" + str(self.conf_path) + ")"
+
+        error_msg: str = ""
+        _error_msg: ?str = self.error_msg
+        if _error_msg is not None:
+            error_msg = _error_msg
+        conf_path: str = "None"
+        _conf_path: ?str = self.conf_path
+        if _conf_path is not None:
+            conf_path = _conf_path
+        return "MaapiException(op=" + str(self.op) \
+            + ", errcode=" + str(self.error_code) \
+            + ", errmsg=" + error_msg \
+            + ", path=" + conf_path + ")"
+
+def addr_to_eobject(addr: str) -> EObject:
+    if addr != "127.0.0.1":
+        raise Exception("NOT IMPLEMENTED!") # NotImplementedError()
+    else:
+        return ETuple([EInt(127), EInt(0), EInt(0), EInt(1)])
+
+class UserIdentity:
+    @property
+    vendor: ?str
+    @property
+    product: ?str
+    @property
+    version: ?str
+    @property
+    client_id: ?str
+
+    def __init__(self, vendor: ?str, product: ?str, version: ?str, client_id: ?str):
+        self.vendor = vendor
+        self.product = product
+        self.version = version
+        self.client_id = client_id
+
+    @staticmethod
+    def from_eobject(o: EObject) -> UserIdentity:
+        vendor = None
+        product = None
+        version = None
+        client_id = 'telemetrify'
+        return UserIdentity(vendor, product, version, client_id)
+
+    def to_eobject(self) -> EObject:
+        #if self.vendor is None and self.product is None and self.version is None and self.client_id is None:
+        _vendor = self.vendor
+        _product = self.product
+        _version = self.version
+        _client_id = self.client_id
+        if _vendor is None and _product is None and _version is None and _client_id is None:
+             return EAtom('undefined')
+        else:
+            elems = []
+            # elems.append(EBinary(self.vendor.encode()) if self.vendor is not None else EAtom('undefined'))
+            # elems.append(EBinary(self.product.encode()) if self.product is not None else EAtom('undefined'))
+            # elems.append(EBinary(self.version.encode()) if self.version is not None else EAtom('undefined'))
+            # elems.append(EBinary(self.client_id.encode()) if self.client_id is not None else EAtom('undefined'))
+            if _vendor is not None and isinstance(_vendor, str):
+                vendor: str = _vendor
+                elems.append(EBinary(vendor.encode()))
+            else:
+                elems.append(EAtom('undefined'))
+            if _product is not None and isinstance(_product, str):
+                product: str = _product
+                elems.append(EBinary(product.encode()))
+            else:
+                elems.append(EAtom('undefined'))
+            if _version is not None and isinstance(_version, str):
+                version: str = _version
+                elems.append(EBinary(version.encode()))
+            else:
+                elems.append(EAtom('undefined'))
+            if _client_id is not None and isinstance(_client_id, str):
+                client_id: str = _client_id
+                elems.append(EBinary(client_id.encode()))
+            else:
+                elems.append(EAtom('undefined'))
+            return ETuple(elems)
+
+class UserSessionDescription:
+    @property
+    user: str
+    @property
+    src_addr: str
+    @property
+    context: str
+    @property
+    groups: list[str]
+    @property
+    proto: ?int
+    @property
+    use_ikp: bool
+    @property
+    user_identity: UserIdentity
+
+    def __init__(self, user: str, src_addr: str, context: str, groups: list[str], proto: ?int, use_ikp, user_ident: UserIdentity):
+        self.user = user
+        self.src_addr = src_addr
+        self.context = context
+        self.groups = groups
+        self.proto = proto
+        self.use_ikp = use_ikp
+        self.user_ident = user_ident
+
+    @staticmethod
+    def from_eobject(o: EObject) -> UserSessionDescription:
+        user = ""
+        src_addr = ""
+        context = ""
+        groups = []
+        proto = 0
+        use_ikp = True
+        user_ident = UserIdentity(None, None, None, None)
+        return UserSessionDescription(user, src_addr, context, groups, proto, use_ikp, user_ident)
+
+    def to_eobject(self, conf_vsn) -> EObject:
+        if conf_vsn > 0x06020000:
+            elems = []
+            elems.append(EBinary(self.user.encode()))
+            elems.append(addr_to_eobject(self.src_addr))
+            elems.append(EAtom(self.context))
+
+            # elems.append(EInt(0 if self.proto is None else self.proto))
+            proto: ?int = self.proto
+            elems.append(EInt(proto if proto is not None else 0))
+
+            elems.append(EAtom.from_bool(self.use_ikp))
+
+            # elems.append(EList([EBinary(g.encode()) for g in self.groups], True))
+            group_elems = []
+            for g in self.groups:
+                group_elems.append(EBinary(g.encode()))
+            elems.append(EList(group_elems, True))
+
+            elems.append(self.user_ident.to_eobject())
+
+            return ETuple(elems)
+        else:
+            elems = []
+            elems.append(EBinary(self.user.encode()))
+            elems.append(addr_to_eobject(self.src_addr))
+            elems.append(EAtom(self.context))
+
+            # elems.append(EInt(0 if self.proto is None else self.proto))
+            proto: ?int = self.proto
+            elems.append(EInt(proto if proto is not None else 0))
+
+            for g in self.groups:
+                elems.append(EBinary(g.encode()))
+
+            return EList(elems, True)
+
+# TODO: Would be nice to inject a connection instance
+#       e.g. for testing or session recording/replay.
+#       Interfaces/protocols for actors?
+actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
+    listen_cap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
+    input_stream: BufferReader = BufferReader()
+    var recv_bytes_total: int = 0
+
+    var internal_recv_queue: Queue[proc() -> ?value] = Queue()
+    var user_recv_queue: Queue[proc() -> ?value] = Queue()
+    # var internal_recv_queue = Queue()
+    # var user_recv_queue = []
+
+    proto_vsn = 0
+    conf_vsn = 0
+
+    # Workaround compiler ordering issue
+    var conn: ?net.TCPConnection = None
+
+    def close():
+        # TODO: Impl support for destructor in actonc and/or manual close?
+        # if conn is not None:
+        #     conn.close()
+        pass
+
+    def _write(data: bytes):
+        #print("MaapiConnection TCP send:", data)
+        if conn is not None:
+            conn.write(data)
+            # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
+            # await async conn.write(data)
+        else:
+            # `conn` is made nullable only to workaround compiler ordering issue
+            raise ValueError("Attempting to write without valid connection")
+
+    def _connect_maapi_cb() -> ?value:
+        e = input_stream.assert_unread_bytes(9)
+        if isinstance(e, IncompleteReadError):
+            return e
+
+        d = input_stream.read_u8()
+        _proto_vsn = input_stream.read_i16_be()
+        _conf_vsn = input_stream.read_i32_be()
+
+        if isinstance(d, int) and isinstance(_proto_vsn, int) and isinstance(_conf_vsn, int):
+            if d == 0:
+                pass
+            elif d == 1:
+                raise ServerVersionError()
+            elif d == 2:
+                # TODO: For non maapi sessions
+                pass
+
+            input_stream.skip_bytes(2) # What's here?
+
+            proto_vsn = _proto_vsn
+            conf_vsn = _conf_vsn
+
+            #print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
+            # TODO: restore this, hex currently not used due to bug in actonc
+            print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", conf_vsn)
+            on_connect(self)
+        else:
+            on_connect_error(ProtoError())
+
+    def _connect_maapi():
+        w = BufferWriter()
+        w.write_u8(channel.IA_CLIENT_MAAPI) # TODO: Support access-secret-challenge
+        w.write_i16_be(channel.CLIENT_PROTO_VSN)
+        w.write_i32_be(channel.CLIENT_CONF_VSN)
+        w.write_i16_be(0)
+
+        _write(w.to_bytes())
+
+        internal_recv_queue.append(_connect_maapi_cb)
+        _post_poll_recv()
+
+    # def _pop_recv():
+    #     # We arent't allowed to return a proc(), even for use internally in the actor,
+    #     # presumably due to a general safeguard to avoid leaking non-action-effect or just proc/mut methods?
+    #     #return active_recv_queue.pop(0)
+    #     active_recv_queue.pop()
+
+    # def _poll_recv():
+    #     if len(active_recv_queue) >= 1:
+    #         recv, done = active_recv_queue[0]
+    #         try:
+    #             result = recv()
+    #         except IncompleteReadError:
+    #             pass
+    #         else:
+    #             _pop_recv()
+    #             done(result)
+    #     else:
+    #         # TODO: If received unexpected data, reconnect?
+    #         pass
+
+    def _poll_recv():
+        # _loop: bool = True
+        # while _loop:
+        #     if internal_recv_queue:
+        #         _loop = _poll_recv_queue(internal_recv_queue) and input_stream.has_unread_bytes()
+        #     elif user_recv_queue:
+        #         _loop = _poll_recv_queue(user_recv_queue) and input_stream.has_unread_bytes()
+        #     else:
+        #         _loop = False
+        # ERROR: Error when compiling nsoapi.maapi module: Compilation error
+        #  295:17-21
+        #     |
+        # 295 |                _loop = _poll_recv_queue(internal_recv_queue) and input_stream.has_unread_bytes()
+        #     |                ^^^^^
+        # Name _loop is not in scope
+        while True:
+            if internal_recv_queue:
+                #print("_poll_recv: internal_recv_queue")
+                if not _poll_recv_queue(internal_recv_queue):
+                    break
+            elif user_recv_queue:
+                #print("_poll_recv: user_recv_queue")
+                if not _poll_recv_queue(user_recv_queue):
+                    break
+            else:
+                break
+        #print("_poll_recv: Done")
+
+    def _post_poll_recv():
+        # We really only want to do an async fire-and-forget call to ourselves ASAP
+        after 0: _poll_recv()
+
+    def _poll_recv_queue(queue: Queue[proc() -> ?value]) -> bool:
+        recv = queue.peek()
+        result: ?value = recv()
+        if result is not None and isinstance(result, IncompleteReadError):
+            input_stream.rewind()
+            return False
+        else:
+            input_stream.consume()
+            queue.pop()
+            return True
+
+    def _on_tcp_connect(c):
+        print("MaapiConnection TCP connected")
+        _connect_maapi()
+
+    def _on_tcp_receive(c, data):
+        # print("MaapiConnection TCP recv:", data)
+        data_len: int = len(data)
+        recv_bytes_total += data_len
+        # if len(data) > 80:
+        #     print("MaapiConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
+        # else:
+        #     print("MaapiConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
+        input_stream.append_data(data)
+        # _post_poll_recv()
+        if record_to is not None:
+            record_to.write(data)
+        _poll_recv()
+
+    def _on_tcp_error(c, msg):
+        print("MaapiConnection TCP error:", msg)
+        input_stream.consume()
+        # TODO: (re)consider backoff
+        after 1: _reconnect()
+
+    def _new_connection():
+        return net.TCPConnection(listen_cap, "127.0.0.1", port, _on_tcp_connect, _on_tcp_receive, _on_tcp_error)
+
+    def _reconnect():
+        conn = _new_connection()
+
+    # Workaround compiler ordering issue
+    conn = _new_connection()
+
+    def _send_user_maapi_request(op: ?int, read_op: bool, thandle: ?int, req: ?EObject, response_cb: action(?value) -> None):
+        _send_maapi_request(user_recv_queue, op, read_op, thandle, req, response_cb)
+
+    def _send_maapi_request(queue, op: ?int, read_op: bool, thandle: ?int, req: ?EObject, response_cb: action(?value) -> None):
+        payload_writer = BufferWriter()
+        if req is not None and isinstance(req, EObject):
+            #print("ENC EObject:", str(req))
+            payload_writer.write_tag(_ERL_EXTERN_FMT)
+            req.encode(payload_writer)
+        payload_data = payload_writer.to_bytes()
+
+        # # <DEBUG>
+        # if req is not None and isinstance(req, EObject):
+        #     r = BufferReader()
+        #     r.append_data(payload_data)
+        #     d = EObject.decode_tagged(r)
+        #     if isinstance(d, EObject):
+        #         print("DEC EObject:", str(d))
+        #     else:
+        #         print("DEC EObject: <decode failed>")
+        # # </DEBUG>
+
+        header_writer = BufferWriter()
+        if op is not None:
+            header_writer.write_i32_be(op)
+            if thandle is not None:
+                header_writer.write_i32_be(thandle)
+        header_data = header_writer.to_bytes()
+
+        len_writer = BufferWriter()
+        header_payload_len = len(header_data) + len(payload_data)
+        len_writer.write_i32_be(header_payload_len)
+        len_data = len_writer.to_bytes()
+
+        queue.append(lambda: _maapi_response_cb(op, read_op, response_cb))
+        _post_poll_recv()
+
+        # _write(len_data + header_data + payload_data)
+        _write(len_data)
+        _write(header_data)
+        _write(payload_data)
+
+    def _maapi_response_cb(op: ?int, read_op: bool, response_cb: action(?value) -> None) -> ?value:
+        result: ?value = channel.read_response(input_stream, op, read_op)
+        if result is not None and isinstance(result, IncompleteReadError):
+            return result
+        response_cb(result)
+
+    def try_to_maapi_exception(resp: ConfResponse) -> ?MaapiException:
+        if resp.is_error:
+            return MaapiException(resp.op, resp.error_code, resp.error_msg, None)
+        return None
+
+    def _none_result_cb(resp: ?value, result_cb: action(MaapiConnection, ?Exception) -> None):
+        retval: ?Exception = None
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                retval = try_to_maapi_exception(resp)
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
+    def _int_result_cb(resp: ?value, result_cb: action(MaapiConnection, value) -> None):
+        retval: value = False
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                ex = try_to_maapi_exception(resp)
+                if ex is not None:
+                    retval = ex
+                else:
+                    _t: ?EObject = resp.term
+                    if _t is not None:
+                        t: EObject = _t
+                        if isinstance(t, EInt):
+                            retval = t.val
+                        else:
+                            retval = MaapiProtoError("Unexpected response type: " + str(t))
+                    else:
+                        retval = MaapiProtoError("Unexpected response type: None")
+
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
+    def _some_result_cb(resp: ?value, transform_cb: pure(EObject) -> value, result_cb: action(MaapiConnection, value) -> None):
+        retval: value = False
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                ex = try_to_maapi_exception(resp)
+                if ex is not None:
+                    retval = ex
+                else:
+                    _t: ?EObject = resp.term
+                    if _t is not None:
+                        retval = transform_cb(_t)
+                    else:
+                        retval = MaapiProtoError("Unexpected response type: None")
+            elif isinstance(resp, Exception):
+                retval = resp
+        result_cb(self, retval)
+
+    def _multi_response_cb(resp: ?value, op, term_cb: action(EObject) -> value, finished_cb: action(?Exception) -> None):
+        has_more = False
+        error: ?Exception = None
+        if resp is not None:
+            if isinstance(resp, ConfResponse):
+                ex = try_to_maapi_exception(resp)
+                if ex is not None:
+                    retval = ex
+                else:
+                    _term: ?EObject = resp.term
+                    if _term is not None:
+                        term_cb_res = term_cb(_term)
+                        if isinstance(term_cb_res, bool):
+                            has_more = term_cb_res
+                        elif isinstance(term_cb_res, Exception):
+                            error = term_cb_res
+                        else:
+                            error = ValueError("Internal error, unexpected result in term_cb")
+                    else:
+                        retval = MaapiProtoError("Unexpected response type")
+            elif isinstance(resp, Exception):
+                retval = resp
+
+        if has_more:
+            # More replies
+            internal_recv_queue.append(lambda: _maapi_response_cb(op, False, lambda v: _multi_response_cb(v, op, term_cb, finished_cb)))
+            _post_poll_recv()
+        else:
+            # Done!
+            finished_cb(error)
+
+    action def start_user_session(session_descr: UserSessionDescription, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = session_descr.to_eobject(conf_vsn)
+        if isinstance(e, EObject):
+            _send_user_maapi_request(_MAAPI_START_USER_SESSION, True, None, e, lambda v: _none_result_cb(v, result_cb))
+            # def _start_user_session_cb(resp: ?value):
+            #     _none_result_cb(resp, result_cb)
+            # _send_user_maapi_request(_MAAPI_START_USER_SESSION, True, None, e, _start_user_session_cb)
+        elif isinstance(e, Exception):
+            result_cb(self, e)
+
+    action def end_user_session(result_cb: action(MaapiConnection, ?Exception) -> None):
+        _send_user_maapi_request(_MAAPI_END_USER_SESSION, True, None, None, lambda v: _none_result_cb(v, result_cb))
+
+    action def start_trans(db_id: int, mode: int, user_ident: UserIdentity, result_cb: action(MaapiConnection, value) -> None):
+        elems = []
+        elems.append(EInt(db_id))
+        elems.append(EInt(mode))
+        if conf_vsn > 0x06020000:
+            elems.append(user_ident.to_eobject())
+        e = ETuple(elems)
+
+        _send_user_maapi_request(_MAAPI_START_TRANS, True, None, e, lambda v: _int_result_cb(v, result_cb))
+
+    action def apply_trans(thandle: int, keep_open: bool, flags: int, result_cb: action(MaapiConnection, ?Exception) -> None):
+        elems = []
+        elems.append(EAtom.from_bool(keep_open))
+        elems.append(EInt(flags))
+        e = ETuple(elems)
+
+        _send_user_maapi_request(_MAAPI_APPLY_TRANS, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def finish_trans(thandle: int, result_cb: action(MaapiConnection, ?Exception) -> None):
+        _send_user_maapi_request(_MAAPI_FINISH_TRANS, True, thandle, None, lambda v: _none_result_cb(v, result_cb))
+
+    action def set_values(thandle: int, path: EKeypath, eparams: list[EObject], result_cb: action(MaapiConnection, ?Exception) -> None):
+        elems = []
+        # elems.append(EList([v.to_eobject() for v in values], True))
+        elems.append(EList(eparams, True))
+        elems.append(path.to_eobject())
+        e = ETuple(elems)
+
+        _send_user_maapi_request(_MAAPI_SET_VALUES, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def set_elem(thandle: int, path: EKeypath, val: EObject, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = ETuple([val, path.to_eobject()])
+        _send_user_maapi_request(_MAAPI_SET_ELEM, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def delete(thandle: int, path: EKeypath, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = path.to_eobject()
+        _send_user_maapi_request(_MAAPI_DELETE, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def create(thandle: int, path: EKeypath, result_cb: action(MaapiConnection, ?Exception) -> None):
+        e = path.to_eobject()
+        _send_user_maapi_request(_MAAPI_CREATE, True, thandle, e, lambda v: _none_result_cb(v, result_cb))
+
+    action def get_mount_id(thandle: int, path: EKeypath, result_cb: action(MaapiConnection, value) -> None):
+        e = ETuple([
+            EInt(thandle),
+            path.to_eobject(),
+            EInt(0) # use_ikp == 0 # TODO: Is this for the path argument, or the returned mount_id, or both?
+            ])
+
+        def _transform_result(res: EObject) -> value:
+            mount_id = telemetrify.nsoapi.schema.ROOT_MOUNT_ID
+            if isinstance(res, ETuple) and len(res.elems) == 2:
+                _ns_hash = res.elems[0]
+                _name_hash = res.elems[1]
+                if isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
+                    mount_id = HTag(_ns_hash.val, _name_hash.val)
+            return mount_id
+
+        _send_user_maapi_request(_MAAPI_GET_MOUNT_ID, True, None, e, lambda v: _some_result_cb(v, _transform_result, result_cb))
+
+    action def load_schema(result_cb: action(MaapiConnection, ?Exception, ?telemetrify.nsoapi.schema.SharedSchema) -> None):
+        # sb = SchemaBuilder()
+        # ERROR: Error when compiling nsoapi.maapi module: Compilation error
+        # Name 'SchemaBuilder$newact' is not in scope
+        sb = telemetrify.nsoapi.schema.SchemaBuilder()
+        # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self, v if v is not None else sb.build())) # Type inference conflict
+        def _on_load_all_ns(v: ?value):
+            _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_HASH_DB, lambda e: sb.on_hash_term(e), _on_load_hash_db)
+        def _on_load_hash_db(v: ?value):
+            _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_MNS_MAPS, lambda e: sb.on_mns_term(e), _on_load_mns_maps)
+        def _on_load_mns_maps(v: ?value):
+            result_cb(self, v if v is not None and isinstance(v, Exception) else None, sb.build_shared() if v is None else None)
+        _request_schema_terms(user_recv_queue, _MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), _on_load_all_ns)
+
+    def _request_schema_terms(queue, op: int, term_cb: action(EObject) -> value, done_cb: action(?Exception) -> None):
+        _send_maapi_request(queue, op, False, None, None, lambda v: _multi_response_cb(v, op, term_cb, done_cb))

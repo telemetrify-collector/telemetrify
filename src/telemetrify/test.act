@@ -1,0 +1,801 @@
+import file
+import process
+import xml
+import net
+import time
+import logging
+import tsdb.m3
+import telemetrify.nsoapi.cdb
+import telemetrify.nsoapi.maapi
+import telemetrify.nsoapi.schema
+import telemetrify.nso.subscriber
+import telemetrify.nso.writer
+import telemetrify.tsdb.writer
+import telemetrify.net.netconf
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nso.subscriber import *
+from telemetrify.nso.writer import *
+from telemetrify.nsoapi.conf import *
+from telemetrify.nsoapi.conv import *
+from telemetrify.nsoapi.cdb import *
+from telemetrify.nsoapi.maapi import *
+from telemetrify.nsoapi.proto import *
+from telemetrify.nsoapi.schema import *
+from telemetrify.main.config import *
+
+_OPT_RECORD_TO = '--record-to'
+
+_OPTS_HELP: dict[str, str] = {
+    _OPT_RECORD_TO: _OPT_RECORD_TO + " <filename>",
+}
+
+class Opts(object):
+    @property
+    record_to: ?file.WriteFile
+
+    def __init__(self):
+        self.record_to = None
+
+    def parse(self, env: Env, cmd: str, opts: list[str]) -> bool:
+        opts_len = len(opts)
+        i = 0
+        # while i < opts_len:
+        # Workaround actonc: Name i is not in scope
+        while True:
+            if i >= opts_len:
+                break
+            opt = opts[i]
+            if opt == _OPT_RECORD_TO:
+                i += 1
+                if i >= opts_len:
+                    return False
+                filepath: str = opts[i]
+                _record_to: ?file.WriteFile = file.WriteFile(file.WriteFileCap(file.FileCap(env.cap)), filepath)
+                self.record_to = _record_to
+            else:
+                return False
+            i += 1
+        return True
+
+actor main(env):
+    def run_test_maapi_session_schema(env: Env, opts: Opts):
+        test_maapi_session_schema(env, opts)
+
+    def run_test_set_values_ikp(env: Env, opts: Opts):
+        test_set_values_ikp(env, opts)
+
+    def run_test_set_values_hkp(env: Env, opts: Opts):
+        test_set_values_hkp(env, opts)
+
+    def run_test_writer(env: Env, opts: Opts):
+        test_writer(env, opts)
+
+    def run_test_tsdb_writer(env: Env, opts: Opts):
+        test_tsdb_writer(env, opts)
+
+    def run_test_netconf_client_nso(env: Env, opts: Opts):
+        test_netconf_client_nso(env, opts)
+
+    def run_test_netconf_client_vr_vmx(env: Env, opts: Opts):
+        test_netconf_client_vr_vmx(env, opts)
+
+    def run_test_cdb_wait_start(env: Env, opts: Opts):
+        test_cdb_wait_start(env, opts)
+
+    def run_test_tnode(env: Env, opts: Opts):
+        test_tnode(env, opts)
+
+    def run_test_etv_tnode(env: Env, opts: Opts):
+        test_etv_tnode(env, opts)
+
+    def run_test_subscriber(env: Env, opts: Opts):
+        test_subscriber(env, opts)
+
+    tests: dict[str, proc(Env, Opts) -> None] = {
+        "maapi-schema": run_test_maapi_session_schema,
+        "set-values-ikp": run_test_set_values_ikp,
+        "set-values-hkp": run_test_set_values_hkp,
+        "writer": run_test_writer,
+        "tsdb-writer": run_test_tsdb_writer,
+        "netconf-client-nso": run_test_netconf_client_nso,
+        "netconf-client-vr-vmx": run_test_netconf_client_vr_vmx,
+        "cdb-wait-start": run_test_cdb_wait_start,
+        "tnode": run_test_tnode,
+        "etv-tnode": run_test_etv_tnode,
+        "subscriber": run_test_subscriber,
+    }
+
+    args = env.argv
+    path: str = args[0]
+
+    def print_help_and_exit():
+        print("usage:", path.split("/", -1)[-1], "[ " + " | ".join(tests.keys()) + " ] [ " + " | ".join(_OPTS_HELP.values()) + " ]")
+        await async env.exit(1)
+
+    if len(args) >= 2:
+        cmd: str = args[1]
+        if cmd in tests:
+            opts = Opts()
+            if not opts.parse(env, cmd, args[2:]):
+                print_help_and_exit()
+            t = tests[cmd]
+            t(env, opts)
+        else:
+            print_help_and_exit()
+    else:
+        print_help_and_exit()
+
+actor test_maapi_session_schema(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_connect(c):
+        print("MAAPI connected!!!! ")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, True, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!! ")
+            c.load_schema(_on_load_schema)
+            #c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            print("MAAPI loaded schema!!!! ")
+            print(shared_schema)
+            c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI load schema failed:", optional_str(e, "None"))
+            await async env.exit(1)
+
+    def _on_end_user_session(c, e):
+        if e is None:
+            print("MAAPI ended user session")
+            await async env.exit(0)
+        else:
+            print("MAAPI end user session failed:", e)
+            await async env.exit(1)
+
+    print("Current time:", time.now())
+    print("Starting up...")
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+actor test_set_values_ikp(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_connect(c):
+        print("MAAPI connected!!!!")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, True, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!!")
+            #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+            c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_start_trans(c, thandle):
+        if isinstance(thandle, int):
+            print("MAAPI started transaction thandle:", thandle)
+            #c.set_values(thandle, EKeypath([EList([EBinary("http://tail-f.com/ns/ncs".encode()), EBinary("devices".encode())], False)]), [], lambda c, e:_on_set_values(c, e, thandle))
+            c.set_values(thandle,
+                EKeypath([
+                    EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('python-vm')], False),
+                    # EAtom('logging'),
+                ]), [
+                    #ETuple([EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('python-vm')], False), EAtom('start')]),
+                    ETuple([EAtom('logging'), EAtom('start')]),
+                    #ETuple([EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('logging')], False), EAtom('start')]),
+                    ETuple([EAtom('level'), ETuple([EInt(C_ENUM_VALUE), EInt(1)])]),
+                    #ETuple([EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('logging')], False), EAtom('stop')]),
+                    ETuple([EAtom('logging'), EAtom('stop')]),
+                    #ETuple([EList([EAtom('http://tail-f.com/ns/ncs'), EAtom('python-vm')], False), EAtom('stop')]),
+                ], lambda c, e:_on_set_values(c, e, thandle))
+        else:
+            print("MAAPI start transaction failed:", thandle)
+            await async env.exit(1)
+
+    def _on_set_values(c, e, thandle):
+        if e is None:
+            print("MAAPI set_values success thandle:", thandle)
+            c.apply_trans(thandle, False, 0, lambda c, e:_on_apply_trans(c, e, thandle))
+        else:
+            print("MAAPI set_values failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_apply_trans(c, e, thandle):
+        if e is None:
+            print("MAAPI applied transaction thandle:", thandle)
+            c.finish_trans(thandle, lambda c, e:_on_finish_trans(c, e, thandle))
+        else:
+            print("MAAPI apply transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_finish_trans(c, e, thandle):
+        if e is None:
+            print("MAAPI finished transaction thandle:", thandle)
+            c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI finish transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_end_user_session(c, e):
+        if e is None:
+            print("MAAPI ended user session")
+            await async env.exit(0)
+        else:
+            print("MAAPI end user session failed:", e)
+            await async env.exit(1)
+
+    print("Starting up...")
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+actor test_set_values_hkp(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_connect(c):
+        print("MAAPI connected!!!!")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!!")
+            #c.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+            c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), _on_start_trans)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_start_trans(c, thandle):
+        if isinstance(thandle, int):
+            print("MAAPI started transaction thandle:", thandle)
+            c.set_values(thandle,
+                EKeypath([
+                    EList([EInt(469622343), EInt(1992021447)], False) # http://tail-f.com/ns/ncs python-vm
+                ]),
+                [
+                    #ETuple([EList([EInt(469622343), EInt(1992021447)], False), EAtom('start')]), # http://tail-f.com/ns/ncs python-vm
+                    ETuple([EList([EInt(469622343), EInt(547433513)], False), EAtom('start')]), # logging
+                    ETuple([EList([EInt(469622343), EInt(2112619197)], False), ETuple([EInt(28), EInt(1)])]), # level
+                    ETuple([EList([EInt(469622343), EInt(547433513)], False), EAtom('stop')]), # logging
+                    #ETuple([EList([EInt(469622343), EInt(1992021447)], False), EAtom('stop')]) # python-vm
+                ],
+                lambda c, e: _on_set_values(c, e, thandle))
+        else:
+            print("MAAPI start transaction failed:", thandle)
+            await async env.exit(1)
+
+    def _on_set_values(c, e, thandle):
+        if e is None:
+            print("MAAPI set_values success thandle:", thandle)
+            c.apply_trans(thandle, False, 0, lambda c, e:_on_apply_trans(c, e, thandle))
+        else:
+            print("MAAPI set_values failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_apply_trans(c, e, thandle):
+        if e is None:
+            print("MAAPI applied transaction thandle:", thandle)
+            c.finish_trans(thandle, lambda c, e:_on_finish_trans(c, e, thandle))
+        else:
+            print("MAAPI apply transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_finish_trans(c, e, thandle):
+        if e is None:
+            print("MAAPI finished transaction thandle:", thandle)
+            c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI finish transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_end_user_session(c, e):
+        if e is None:
+            print("MAAPI ended user session")
+            await async env.exit(0)
+        else:
+            print("MAAPI end user session failed:", e)
+            await async env.exit(1)
+
+    print("Starting up...")
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+actor test_writer(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_connect(c):
+        print("MAAPI connected!!!!")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!!")
+            c.load_schema(_on_load_schema)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            print("MAAPI loaded schema!!!!")
+
+            schema = unsafe_get_shared_schema(shared_schema)
+
+            for _name, _hash in schema._name_to_hash.items():
+                print(_name + " : " + str(_hash))
+
+            c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), lambda c, t: _on_start_trans(c, shared_schema, t))
+        else:
+            print("MAAPI load schema failed:", optional_str(e, "None"))
+            await async env.exit(1)
+
+    def _on_start_trans(c, schema, thandle):
+        if isinstance(thandle, int):
+            print("MAAPI started transaction thandle:", thandle)
+
+            #writer = MaapiWriter(c, v)
+            writer = telemetrify.nso.writer.MaapiWriter(c, schema)
+
+            tree = \
+                XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'python-vm'), None, [
+                    XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'logging'), None, [
+                        XLeaf(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'level'), None, 'level-debug')
+                    ]),
+                ])
+
+            writer.write(tree, thandle, False, lambda e: _on_writer_done(c, e, thandle))
+
+            # TODO: Write
+            #_on_writer_done(c, None, thandle)
+        else:
+            print("MAAPI start transaction failed:", thandle)
+            await async env.exit(1)
+
+    def _on_writer_done(c, e, thandle):
+        if e is None:
+            print("MAAPI writer done!")
+            c.apply_trans(thandle, False, 0, lambda c, e:_on_apply_trans(c, e, thandle))
+        else:
+            print("MAAPI writer failed:", e)
+            await async env.exit(1)
+
+    def _on_apply_trans(c, e, thandle):
+        if e is None:
+            print("MAAPI applied transaction thandle:", thandle)
+            c.finish_trans(thandle, lambda c, e:_on_finish_trans(c, e, thandle))
+        else:
+            print("MAAPI apply transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_finish_trans(c, e, thandle):
+        if e is None:
+            print("MAAPI finished transaction thandle:", thandle)
+            c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI finish transaction failed thandle:", thandle, "err:", e)
+            await async env.exit(1)
+
+    def _on_end_user_session(c, e):
+        if e is None:
+            print("MAAPI ended user session")
+            await async env.exit(0)
+        else:
+            print("MAAPI end user session failed:", e)
+            await async env.exit(1)
+
+    print("Starting up...")
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+actor test_tsdb_writer(env: Env, opts: Opts):
+
+    log_handler = logging.Handler(None)
+    log_handler.add_sink(logging.StdoutSink())
+
+    log = logging.Logger(log_handler)
+
+    def _on_connect_error(e):
+        log.error("MAAPI connect failed:" + str(e), None)
+
+    def _on_connect(c):
+        log.info("Current time:" + str(time.now()), None)
+        log.info("MAAPI connected!!!!", None)
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            log.info("Current time:" + str(time.now()), None)
+            log.info("MAAPI user session started!!!!", None)
+            c.load_schema(_on_load_schema)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            schema: Schema = unsafe_get_shared_schema(shared_schema)
+            log.info("Current time:" + str(time.now()), None)
+            log.info("MAAPI loaded schema!!!!", None)
+            log.debug("", {"schema": schema})
+
+            for _name, _hash in schema._name_to_hash.items():
+                log.debug(_name + " : " + str(_hash), None)
+
+            log.info("Starting TSDB client", None)
+            tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, shared_schema), _on_tsdb_error, log_handler)
+            #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, shared_schema), _on_tsdb_error)
+        else:
+            if e is not None:
+                log.error("MAAPI load schema failed:", {"schema": e})
+            else:
+                log.error("MAAPI load schema failed", None)
+            await async env.exit(1)
+
+    def _on_nc_error(c, e):
+        log.error("NETCONF client failed:" + str(e), None)
+        await async env.exit(1)
+
+    def dumb_push(cursor, name):
+        """Stupid cursor.push() working around some problem
+        """
+        # The cursor.push can take an ITag and try to look it up into an HTag.
+        # This fails, seemingly because the schema we are working on
+        # (urn:junos-rpc) isn't in the NamespaceMaps, not sure why. We hack
+        # around it by just iterating over HTags instead, get the corresponding
+        # ITag, check the name and boom!
+        for k,v in cursor.node().children.items():
+            itag = cursor.lookup_itag(k)
+            if itag is not None:
+                if itag.name == name:
+                    cursor.push(k)
+                    return True
+        return False
+
+    def print_children(cursor):
+        for k,v in cursor.node().children.items():
+            itag = cursor.lookup_itag(k)
+            if itag is not None:
+                print("child name:", itag.name)
+
+    def _on_tsdb_connect(c, shared_schema):
+        print("TSDB connected!")
+        print("Current time:", time.now())
+
+        c.quick_init(lambda c, s: _on_tsdb_init(c, shared_schema))
+
+    def _on_tsdb_init(c, shared_schema):
+        writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema)
+        vmx_sess = telemetrify.net.netconf.Client(env.auth, "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, shared_schema, writer), _on_nc_error, None)
+
+    def _on_tsdb_error(c, e):
+        log.error("TSDB client failed: " + str(e), None)
+        await async env.exit(1)
+
+    def _on_vmx_connect(c, shared_schema, writer):
+        log.info("NETCONF client connected!!!!", None)
+
+        schema = unsafe_get_shared_schema(shared_schema)
+
+        n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        # A single interface is easier to debug...
+        #n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [],
+        #             [
+        #                 xml.Node("detail", [], None, [], [], None, None),
+        #                 xml.Node("interface-name", [], None, [], [], "ge-0/0/0", None),
+        #             ], None, None)
+
+        # Reply looks roughly like:
+        # <rpc-reply xmlns:junos="http://xml.juniper.net/junos/23.1R0/junos">
+        #   <interface-information xmlns="http://xml.juniper.net/junos/23.1R0/junos-interface" junos:style="normal">
+        #     <physical-interface>
+        #       <name>ge-0/0/0</name>
+        #       <traffic-statistics junos:style="verbose">
+        #         <input-bytes>123</input-bytes>
+        #         <output-bytes>456</output-bytes>
+        #         <input-packets>789</input-packets>
+        #         <output-packets>1337</output-packets>
+        #       </traffic-statistics>
+        #     </physical-interface>
+        #   </interface-information>
+        # </rpc-reply>
+
+        # Which RPC was called is not present in the RPC reply so we have to
+        # keep track of that information separately. Thus since we know we just
+        # polled rpc-get-interface-information we build a cursor that starts at
+        # its schema and pass along...
+        cursor = Cursor(schema)
+        cursor.push(ITag("http://tail-f.com/ns/ncs", "devices"))
+        cursor.push(ITag(None, "device"))
+        cursor.push(ITag(None, "rpc"))
+        # TODO: replace dumb_push with cursor.push() after fixing the problem with cursor.push()
+        dumb_push(cursor, "rpc-get-interface-information")
+        cursor.push(ITag(None, "get-interface-information"))
+
+        #print("Cursor ITag:", cursor.lookup_itag(cursor.node().tag))
+        #print_children(cursor)
+
+        # actonc: Cannot solve W_11598 : T_11596x ($Wrapped[T_11591x, action]), mut < T_11596x
+        #c.rpc(n, [], lambda c, n: _on_rpc_reply(c, n, cursor.get_schema_path(), writer))
+        def __on_rpc_reply(c, n):
+            _on_rpc_reply(c, n, cursor.get_schema_path(), writer)
+        c.rpc(n, [], __on_rpc_reply)
+
+    def _on_rpc_reply(c, n: ?xml.Node, schema_path, writer):
+        #print("Received reply:\n", xml.encode(n))
+        pass
+        if n is not None:
+            xnode = telemetrify.net.netconf.netconf_to_xnode(n, [], 0)
+
+            log.debug("RPC XNode:", {"xnode": xnode})
+
+            base_tags = []
+            base_tags.append(("host", "vmx"))
+            writer.write(xnode, schema_path, base_tags, time.time().second, _on_writer_done)
+        else:
+            print("RPC cancelled!")
+
+    def _on_writer_done(c, e):
+        print("TSDB writer done!")
+        if e is None:
+            print("TSDB writer success!")
+            await async env.exit(0)
+        else:
+            print("TSDB writer failed:", e)
+            await async env.exit(1)
+
+    #def _on_end_user_session(c, e):
+    #    if e is None:
+    #        print("MAAPI ended user session")
+    #    else:
+    #        print("MAAPI end user session failed:", e)
+    #        await async env.exit(1)
+
+    print("Starting up...")
+    nso_sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+
+#     #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, _schema), _on_tsdb_error)
+
+actor test_netconf_client_nso(env: Env, opts: Opts):
+    def _on_error(c, e):
+        print("NETCONF client failed:", e)
+        await async env.exit(1)
+
+    def _on_connect(c):
+        print("NETCONF client connected!!!!")
+
+        # n = \
+        #     xml.Node("alarms", [(None, "http://tail-f.com/ns/ncs-alarms")], None, [], [
+        #         xml.Node("filter-alarms", [], None, [], [
+        #             xml.Node("alarm-status", [], None, [], [], "any", None)
+        #         ], None, None)
+        #     ], None, None)
+
+        # c.rpc_action(n, [], _on_rpc_reply)
+
+        n = \
+            xml.Node("establish-subscription", [(None, "urn:ietf:params:xml:ns:yang:ietf-subscribed-notifications"), ("yp", "urn:ietf:params:xml:ns:yang:ietf-yang-push")], None, [], [
+                xml.Node("datastore", [("ds", "urn:ietf:params:xml:ns:yang:ietf-datastores")], "yp", [], [], "ds:operational", None),
+                xml.Node("datastore-xpath-filter", [("nm", "http://tail-f.com/yang/ncs-monitoring")], "yp", [], [], "/nm:ncs-state/version", None),
+                xml.Node("periodic", [], "yp", [], [
+                    xml.Node("period", [], "yp", [], [], "500", None),
+                ], None, None),
+            ], None, None)
+
+        c.rpc(n, [], _on_rpc_reply)
+
+    def _on_rpc_reply(c, n: ?xml.Node):
+        if n is not None:
+            print("Received reply:\n", xml.encode(n))
+        else:
+            print("Cancelled!")
+
+    def _on_notif(c, n: xml.Node):
+        print("Received notif:\n", xml.encode(n))
+
+    print("Starting up...")
+    sess = telemetrify.net.netconf.Client(env.cap, "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
+
+actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
+    def _on_error(c, e):
+        print("NETCONF client failed:", e)
+        await async env.exit(1)
+
+    def _on_connect(c):
+        print("NETCONF client connected, sending RPC!")
+
+        # n = \
+        #     xml.Node("get-bgp-summary-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        # n = \
+        #     xml.Node("get-bridge-instance-information", [(None, "urn:juniper-rpc")], None, [], [], None, None)
+        n = xml.Node("get-interface-information", [(None, "urn:juniper-rpc")], None, [],
+                     [
+                         xml.Node("detail", [], None, [], [], None, None),
+                         xml.Node("interface-name", [], None, [], [], "ge-0/0/0", None),
+                     ], None, None)
+
+        # print("Calling rpc:\n", xml.encode(n))
+
+        c.rpc(n, [], _on_rpc_reply)
+
+    def _on_rpc_reply(c, n: ?xml.Node):
+        if n is not None:
+            print("Received reply:\n", xml.encode(n))
+            await async env.exit(0)
+        else:
+            print("Cancelled!")
+            await async env.exit(1)
+
+    print("Starting up...")
+    sess = telemetrify.net.netconf.Client(env.cap, "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
+
+actor test_cdb_wait_start(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("CDB connect failed:", e)
+
+    def _on_connect(c):
+        print("CDB connected!!!!")
+        c.wait_start(_on_wait_start)
+
+    def _on_wait_start(c, e):
+        if e is None:
+            print("CDB wait start ok!!!!")
+            await async env.exit(0)
+        else:
+            print("CDB wait start failed:", e)
+            await async env.exit(1)
+
+    sess = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer", _on_connect, _on_connect_error, opts.record_to)
+
+actor test_tnode(env: Env, opts: Opts):
+    root = TTree(OP_NONE, PTag.root(), None, {})
+    dev1 = root.cont(None, PTag("ncs", "devices")).cont(None, PTag("ncs", "device")).elem(None, ["router1"]).leaf(None, PTag("x", "test"), 42)
+    if dev1.req_int() != 42:
+        await async env.exit(1)
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].req_int() != 42:
+        await async env.exit(1)
+    _val = root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].try_int()
+    if _val is not None:
+        await async env.exit(1)
+
+    merge_root = TTree(OP_MERGE, PTag.root(), None, {})
+    merge_root.cont(OP_MERGE, PTag("ncs", "devices")).cont(OP_MERGE, PTag("ncs", "device")).elem(OP_MERGE, ["router2"]).leaf(OP_MERGE, PTag("x", "test"), 43)
+
+    root.merge(merge_root)
+
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].req_int() != 42:
+        await async env.exit(1)
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].req_int() != 43:
+        await async env.exit(1)
+
+    delete_root = TTree(OP_NOCREATE, PTag.root(), None, {})
+    delete_root.cont(OP_NOCREATE, PTag("ncs", "devices")).cont(OP_NOCREATE, PTag("ncs", "device")).elem(OP_NOCREATE, ["router1"]).leaf(OP_DELETE, PTag("x", "test"), None)
+
+    root.merge(delete_root)
+
+    _val2 = root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].try_int()
+    if _val2 is not None:
+        await async env.exit(1)
+    if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router2"])][PTag("x", "test")].req_int() != 43:
+        await async env.exit(1)
+
+    print("Success!")
+    await async env.exit(0)
+
+actor test_etv_tnode(env: Env, opts: Opts):
+    def _on_maapi_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_maapi_connect(c):
+        print("MAAPI connected!!!!")
+        c.load_schema(_on_load_schema)
+
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            print("MAAPI loaded schema!!!!")
+            schema = unsafe_get_shared_schema(shared_schema)
+
+            root = TTree(OP_NONE, PTag.root(), None, {})
+            def do_merge(etvs):
+                merge_root = etagvals_to_ttree(etvs, Cursor(schema))
+                if isinstance(merge_root, TTree):
+                    print("Got ttree:\n" + str(merge_root))
+                    root.merge(merge_root)
+                    print("New root:\n" + str(root))
+                elif isinstance(merge_root, Exception):
+                    print("Error: " + merge_root.error_message)
+                    await async env.exit(1)
+
+            do_merge(EList([
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1998270519)], False), EBinary.from_str("banan")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1479564322)], False), EBinary.from_str("user1")]),
+                ETuple([EList([EInt(469622343), EInt(1062808443)], False), EAtom('leaf')]),
+                ETuple([EList([EInt(469622343), EInt(929903810)], False), EBinary.from_str("$9$nYElLnof75j3Efgw4bxplDRTEJDxk1aCaS0cDjXZyCY=")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1479564322)], False), EBinary.from_str("user2")]),
+                ETuple([EList([EInt(469622343), EInt(1062808443)], False), EAtom('leaf')]),
+                ETuple([EList([EInt(469622343), EInt(929903810)], False), EBinary.from_str("$9$nYElLnof75j3Efgw4bxplDRTEJDxk1aCaS0cDjXZyCY=")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('stop')]),
+                ], True))
+
+            do_merge(EList([
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('start')]),
+                ETuple([EList([EInt(469622343), EInt(1998270519)], False), EBinary.from_str("banan")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('delete')]),
+                ETuple([EList([EInt(469622343), EInt(1479564322)], False), EBinary.from_str("user1")]),
+                ETuple([EList([EInt(469622343), EInt(2113235867)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(1540685982)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(145223189)], False), EAtom('stop')]),
+                ETuple([EList([EInt(469622343), EInt(270307409)], False), EAtom('stop')]),
+                ], True))
+
+            await async env.exit(0)
+        else:
+            print("MAAPI load schema failed:", optional_str(e, "None"))
+            await async env.exit(1)
+
+    print("Starting up...")
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, opts.record_to)
+
+actor test_subscriber(env: Env, opts: Opts):
+    def _on_maapi_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_maapi_connect(c):
+        print("MAAPI connected!!!!")
+        c.load_schema(_on_load_schema)
+
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            print("MAAPI loaded schema!!!!")
+            cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
+                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, opts.record_to)
+        else:
+            print("MAAPI load schema failed:", optional_str(e, "None"))
+            await async env.exit(1)
+
+    def _on_cdb_connect_error(e):
+        print("CDB connect failed:", e)
+        await async env.exit(1)
+
+    def _on_cdb_sub_connect(sc, s):
+        print("CDB (sub) connected!!!!")
+        cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, opts.record_to)
+
+    def _on_cdb_cmd_connect(sc, cc, s):
+        print("CDB (cmd) connected!!!!")
+        cache = telemetrify.nso.subscriber.ConfigCache(sc, cc, s,
+            [DeviceSettingsRefiner],
+            [([DeviceSettingsRefiner.id()], _on_config_update)], _on_config_cache_error)
+        #await async env.exit(0)
+
+    def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]]):
+        for refiner_id, updates in refiner_updates.items():
+            print("refiner_id: " + str(refiner_id))
+            for k, v in updates:
+                print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+
+    def _on_config_cache_error(e):
+        print("ConfigCache failed:", optional_str(e.error_message, ""))
+        await async env.exit(1)
+
+    print("Starting up...")
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, opts.record_to)

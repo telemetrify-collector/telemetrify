@@ -1,0 +1,244 @@
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nsoapi.proto import *
+
+#
+# Conf types
+#
+
+C_UNKNOWN = 0 # Not part of confd/nso
+C_NOEXISTS = 1 # YANG: -; acton: None, eterm: EAtom('not_found')
+C_XMLTAG = 2
+C_SYMBOL = 3
+C_STR = 4
+C_BUF = 5 # YANG: string; acton: str; eterm: EBinary(value)
+C_INT8 = 6 # YANG: int8; acton: int; eterm: ETuple(EInt(C_INT8), EInt(value))
+C_INT16 = 7 # YANG: int16; acton: int; eterm: ETuple(EInt(C_INT16), EInt(value))
+C_INT32 = 8 # YANG: int32; acton: int; eterm: EInt(value)
+C_INT64 = 9 # YANG: int64; acton: int; eterm: ETuple(EInt(C_INT64), EInt(value))
+C_UINT8 = 10 # YANG: unsigned int8; acton: int; eterm: ETuple(C_UINT8, value)
+C_UINT16 = 11 # YANG: unsigned int16; acton: int; eterm: ETuple(C_UINT16, value)
+C_UINT32 = 12 # YANG: unsigned int32; acton: int; eterm: ETuple(C_UINT32, value)
+C_UINT64 = 13 # YANG: unsigned int64; acton: int; eterm: ETuple(C_UINT64, value)
+C_DOUBLE = 14 # XML xs:float/xs:double; acton: double; eterm: EFloat(value)/EDouble(value)
+C_IPV4 = 15 # YANG: inet:ipv4-address A.B.C.D; acton: (A:int,B:int,C:int,D:int); eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D))
+C_IPV6 = 16 # YANG: inet:ipv6-address A:B:C:D:E:F:G:H; acton: (A:int,B:int,C:int,D:int,E:int,F:int,G:int,H:int); eterm: ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H))
+C_BOOL = 17 # YANG: boolean; acton: bool; eterm: EAtom('true') or EAtom('false')
+C_QNAME = 18 # XML xs:QName; acton: [ns:str,name:str]; eterm: ETuple(C_QNAME, ETuple(EBinary(ns), EBinary(name)))
+C_DATETIME = 19 # YANG: yang:date-and-time; eterm: ETuple(C_DATETIME, ETuple(EInt(Y),EInt(M),EInt(D),EInt(H),EInt(M),EInt(S),EInt(Mcr),EInt(TZ),EInt(TZM)))
+C_DATE = 20 # XML xs:date; eterm: ETuple(C_DATE, ETuple(EInt(Y),EInt(M),EInt(D),EInt(TZ),EInt(TZM)))
+C_TIME = 23 # XML xs:time; eterm: ETuple(C_TIME, ETuple(EInt(H),EInt(M),EInt(S),EInt(Mcr),EInt(TZ),EInt(TZM)))
+C_DURATION = 27 # XML xs:duration; eterm: ETuple(C_DURATION, ETuple(EInt(Y),EInt(M),EInt(D),EInt(H),EInt(M),EInt(S),EInt(Mcr)))
+C_ENUM_VALUE = 28 # YANG: enum value; eterm: ETuple(C_ENUM_VALUE, EInt(value))
+C_BIT32 = 29 # YANG: bits size 32; eterm: ETuple(C_BIT32, EInt(value))
+C_BIT64 = 30 # YANG: bits size 64; eterm: ETuple(C_BIT64, EInt(value))
+C_LIST = 31 # YANG: leaf-list; eterm: EList(values)
+C_XMLBEGIN = 32 # start/end of container
+C_XMLEND = 33 # used to construct array replies
+C_INSTANCE_IDENTIFIER = 34 # YANG: instance-identifier; eterm: ETuple(C_INSTANCE_IDENTIFIER, ikeypath)
+C_UNION = 35 # unused?
+C_OID = 38 # YANG: yang:object-identifier; eterm: ETuple(C_OID, EBinary(u32.to_bigendian_bytes() + ...)}
+C_BINARY = 39 # YANG: binary, yang:hex-string, tailf:hex-list, ... ; eterm: ETuple(C_BINARY, EBinary(value)}
+C_IPV4PREFIX = 40 # YANG: inet:ipv4-prefix; eterm: ETuple(C_IPV4PREFIX, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D)), EInt(prefix_len)))
+C_IPV6PREFIX = 41 # YANG: inet:ipv6-prefix; eterm: ETuple(C_IPV6PREFIX, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H)), EInt(prefix_len)))
+C_DEFAULT = 42 # YANG: `default-value`; acton: -; eterm: EAtom('default')
+C_DECIMAL64 = 43 # YANG: decimal64); eterm: ETuple(C_DECIMAL64, ETuple(EInt(raw_value), EInt(fraction_digits)))
+C_IDENTITYREF = 44 # YANG: identityref; eterm: ETuple(C_IDENTITYREF, ETuple(EInt(ns_hash), EInt(name_hash)))
+C_XMLBEGINDEL = 45
+C_DQUAD = 46 # YANG: yang:dotted-quad; eterm: ETuple(C_DQUAD, EBinary(value))
+C_HEXSTR = 47 # YANG: yang:hex-string; eterm: ETuple(C_HEXSTR, EBinary(value))
+C_IPV4_AND_PLEN = 48 # YANG: tailf:ipv4-address-and-prefix-length; eterm: ETuple(C_IPV4_AND_PLEN, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D)), EInt(prefix_len)))
+C_IPV6_AND_PLEN = 49 # YANG: tailf:ipv6-address-and-prefix-length; eterm: ETuple(C_IPV6_AND_PLEN, ETuple(ETuple(EInt(A), EInt(B), EInt(C), EInt(D), EInt(E), EInt(F), EInt(G), EInt(H)), EInt(prefix_len)))
+C_BITBIG = 50 # YANG: bits size > 64; eterm: ETuple(C_BITBIG, EBinary(value))
+C_XMLMOVEFIRST = 51 # ordered-by-user move first
+C_XMLMOVEAFTER = 52 # ordered-by-user move after
+
+#
+# More special conf types not part of confd/nso
+#
+C_START = 128 # eterm: EAtom('start')
+C_STOP = 129 # eterm: EAtom('stop')
+C_DELETE = 130 # eterm: EAtom('delete')
+C_LEAF = 131 # eterm: EAtom('leaf')
+
+#
+# Special conf values
+#
+
+_EV_NOEXISTS = 'not_found'
+_EV_DEFAULT = 'default'
+_EV_TRUE = 'true'
+_EV_FALSE = 'false'
+_EV_START = 'start'
+_EV_STOP = 'stop'
+_EV_LEAF = 'leaf'
+_EV_DELETE = 'delete'
+
+E_NOEXISTS = EAtom(_EV_NOEXISTS)
+E_DEFAULT = EAtom(_EV_DEFAULT)
+E_TRUE = EAtom(_EV_TRUE)
+E_FALSE = EAtom(_EV_FALSE)
+E_START = EAtom(_EV_START)
+E_STOP = EAtom(_EV_STOP)
+E_LEAF = EAtom(_EV_LEAF)
+E_DELETE = EAtom(_EV_DELETE)
+
+#
+
+class ConfNoExists:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_NOEXISTS
+
+class ConfDefault:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_DEFAULT
+
+class ConfStart:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_START
+
+class ConfStop:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_STOP
+
+class ConfDelete:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_DELETE
+
+class ConfLeaf:
+    def __init__(self):
+        pass
+
+    def to_eobject(self) -> EObject:
+        return E_LEAF
+
+V_NOEXISTS: ?value = None # TODO: object() # 'not_found'
+V_DEFAULT = ConfDefault() # TODO: object() # 'default'
+V_START = ConfStart()
+V_STOP = ConfStop()
+V_DELETE = ConfDelete()
+V_LEAF = ConfLeaf()
+
+#
+
+class EKeypath:
+    def __init__(self, elems: list[EObject]):
+        self.elems = elems
+
+    def __str__(self) -> str:
+        return "EKeypath(" + list_str(self.elems) + ")"
+
+    def to_eobject(self) -> EObject:
+        return EList(self.elems, True)
+
+# class ETag:
+#     def to_eobject(self) -> EObject:
+#         return EAtom('')
+
+class ETagVal:
+    @staticmethod
+    def xml_begin(qtag: EObject):
+        return ETuple([qtag, E_START])
+
+    @staticmethod
+    def xml_begin_index(qtag: EObject, index: int): # CDB only, not for MAAPI :/
+        return ETuple([qtag, ETuple([E_START, EInt(index)])])
+
+    @staticmethod
+    def xml_end(qtag: EObject):
+        return ETuple([qtag, E_STOP])
+
+    @staticmethod
+    def xml_empty_leaf(qtag: EObject):
+        return ETuple([qtag, E_LEAF])
+
+    @staticmethod
+    def xml_non_empty_leaf(qtag: EObject, value: EObject):
+        return ETuple([qtag, value])
+
+    @staticmethod
+    def xml_begin_del(qtag: EObject): # Delete list-entries only :/
+        return ETuple([qtag, E_DELETE])
+
+    @staticmethod
+    def xml_noexists(qtag: EObject):
+        return ETuple([qtag, E_NOEXISTS])
+
+# class ConfObject:
+#     pass
+
+# class HTagDict[T](object):
+#     @property
+#     names: dict[int, value]
+
+#     def __init__(self):
+#         self.names = {}
+
+#     def try_get_tag(self, k: HTag) -> ?T:
+#         e: ?value = try_get(self.names, k.name_hash)
+#         if e is not None:
+#             if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+#                 if e.a == k.ns_hash:
+#                     return e.b
+#             elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+#                 return try_get(e, k.ns_hash)
+#         return None
+
+#     def try_get_unique_name(self, name_hash: int, hint_ns_hash: int) -> ?T:
+#         e: ?value = try_get(self.names, name_hash)
+#         if e is not None:
+#             if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+#                 # Accept unique name
+#                 return e.b
+#             elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+#                 # Require hinted ns_hash if name is not unique
+#                 return try_get(e, hint_ns_hash)
+#         return None
+
+# extension HTagDict[T](Indexed[HTag, T]):
+#     def __getitem__(self, k: HTag):
+#         raise Exception("Not Implemented")
+
+#     def __setitem__(self, k: HTag, v: T):
+#         e: ?value = try_get(self.names, k.name_hash)
+#         if e is not None:
+#             if isinstance(e, Pair): #if isinstance(e, Pair[int, T]):
+#                 self.names[k.name_hash] = {e.a: e.b, k.ns_hash: v}
+#             elif isinstance(e, dict): #elif isinstance(e, dict[int, T]):
+#                     e[k.ns_hash] = v
+#         else:
+#             #self.names[k.name_hash] = (k.ns_hash, v) # tuple is not subtype of value
+#             self.names[k.name_hash] = Pair(k.ns_hash, v)
+
+#     def __delitem__(self, k: HTag):
+#         raise Exception("Not Implemented")
+
+extension ITag(ToEObject):
+    def to_eobject(self) -> EObject:
+        _ns = self.ns
+        if _ns is not None:
+            return EList([EAtom(_ns), EAtom(self.name)], False)
+        else:
+            return EAtom(self.name)
+
+extension HTag(ToEObject):
+    def to_eobject(self) -> EObject:
+        if self.ns_hash == 0:
+            return EInt(self.name_hash)
+        else:
+            return EList([EInt(self.ns_hash), EInt(self.name_hash)], False)

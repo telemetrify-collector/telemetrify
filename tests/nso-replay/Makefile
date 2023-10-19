@@ -16,9 +16,9 @@ stop:
 	-@pkill -f "^nc -l 4569$$"
 
 test:
-	$(BUILD_PATH)/bin/acton_streamer.test $(ARGS)
+	$(BUILD_PATH)/bin/telemetrify.test $(ARGS)
 
 test-debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/acton_streamer.test --rts-wthreads 1 $(ARGS)
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BUILD_PATH)/bin/telemetrify.test --rts-wthreads 1 $(ARGS)
 
 .PHONY: start stop test test-debug

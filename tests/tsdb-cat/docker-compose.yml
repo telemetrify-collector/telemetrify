@@ -47,7 +47,7 @@ services:
         command: [ "--p2p", "cat1/1--cat2/1" ]
 
     nso:
-        image: streaming-nso/nso:6.1.4
+        image: telemetrify-nso/nso:6.1.4
 #        build:
 #            dockerfile: ./nso.Dockerfile
         volumes:
@@ -56,7 +56,7 @@ services:
           - 4569:4569
 
     nso-config:
-        image: streaming-nso/nso-configurator:6.1.4
+        image: telemetrify-nso/nso-configurator:6.1.4
         volumes:
           - .:/mnt
         environment:
