@@ -8,6 +8,9 @@ import testing
 
 from acton_streamer.common.mod import *
 
+class NoConnError(Exception):
+    pass
+
 def approute_to_xnode(data):
     children = []
     for entry in data:
@@ -23,12 +26,12 @@ def approute_entry_to_xnode(data):
     children = []
     children.append(XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", "name"), None, name))
     for k, v in data.items():
-        children.append(XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", k), None, v))
+        children.append(XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", k), None, str(v)))
 
     xn_approute = XTree(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", "approute"), None, children)
     return xn_approute
 
-actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username: str, password: str, on_connect: action(VManageHTTPClient) -> None, log_handler: logging.Handler):
+actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username: str, password: str, on_connect: action(VManageHTTPClient) -> None, log_handler: ?logging.Handler):
     jsessionid: ?str = None
     token: ?str = None
     conn: ?http.Client = None
@@ -43,6 +46,9 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
 
 
     def get(path: str, cb: action(VManageHTTPClient, http.Response) -> None):
+#        if jsessionid is None:
+#            raise NoConnError("No auth cookie")
+
         def _on_http_receive(c: http.Client, data: http.Response) -> None:
             # TODO: check if we had a login problem or not
             cb(self, data)
@@ -78,6 +84,12 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
         if token is None:
             log.info("ERROR: Not logged in (no token)", None)
 
+    def close():
+        pass
+#        if conn is not None:
+#            conn.close()
+
+    print("VManageHTTPClient", host, port, username)
     conn = http.Client(cap, "https", host, port, False, _on_http_connect, _on_http_error, log_handler)
 
 

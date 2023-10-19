@@ -1,7 +1,9 @@
 import logging
+import http
 import net
 import time
 import xml
+
 import acton_streamer.net.netconf as netconf
 import acton_streamer.nso.subscriber
 import acton_streamer.nso.writer
@@ -10,6 +12,7 @@ import acton_streamer.nsoapi.maapi
 import acton_streamer.nsoapi.schema as schema
 import acton_streamer.tsdb.writer
 import tsdb.m3
+
 from acton_streamer.common.mod import *
 from acton_streamer.common.utils import *
 from acton_streamer.nso.subscriber import *
@@ -20,11 +23,13 @@ from acton_streamer.nsoapi.cdb import *
 from acton_streamer.nsoapi.maapi import *
 from acton_streamer.nsoapi.schema import QName, SchemaPath
 from acton_streamer.main.config import *
+import acton_streamer.vmanage.vmanage as vmanage
 
 # class Poll(object):
 #     pass
 
 _SUBSCRIPTION_TYPE_ACTION_POLLER = PTag('tlm', 'netconf-rpc-poll')
+_SUBSCRIPTION_TYPE_VMANAGE_POLLER = PTag('tlm', 'vmanage-poll')
 
 def tnode_empty() -> TNode:
     return TNode(OP_NONE, PTag.root())
@@ -584,6 +589,242 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
     def close():
         stop()
 
+actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
+    var config: TNode = tnode_empty()
+    var client: ?vmanage.VManageHTTPClient = None
+    var client_seqno: int = 0
+    var subscribers: dict[Keypath, Subscriber] = {}
+
+    print("SOURCE vmanage CREATED")
+
+    def _on_client_connect(seqno: int):
+        if seqno != client_seqno:
+            return
+        _start_subscribers()
+
+    def _on_client_error(error_msg: str, seqno: int):
+        if seqno != client_seqno:
+            return
+        # TODO:
+        # _stop_subscribers()
+        pass
+
+    def _on_client_notif(node: xml.Node, seqno: int):
+        # if seqno != client_seqno:
+        #     return
+        pass
+
+    def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
+        print("SOURCE vmanage CONFIG update", optional_str(source_update, "None"))
+        print("SOURCE vmanage SUBSCRIPTION update", mapping_str(subscription_updates))
+
+        restart = False
+
+        if source_update is not None:
+            old_client = client
+            if old_client is not None:
+                _stop_subscribers()
+                # TODO: Gather stop replies from subscribers before closing netconf client
+                old_client.close()
+                restart = True
+                client = None
+
+            config = source_update
+
+            _connect_client()
+
+        for dev_sub_key, sub_update in subscription_updates.items():
+            if sub_update is not None:
+                sub = try_get(subscribers, dev_sub_key)
+                if sub is not None:
+                    sub.update_config(sub_update)
+                else:
+                    new_sub = _create_subscriber(dev_sub_key, sub_update)
+                    new_sub.update_config(sub_update)
+                    if not restart and client is not None:
+                        new_sub.start()
+                    subscribers[dev_sub_key] = new_sub
+            else:
+                sub = try_pop(subscribers, dev_sub_key)
+                if sub is not None:
+                    sub.close()
+
+        if restart:
+            _start_subscribers()
+
+    def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
+        sub_config = sub_update.config
+        if sub_config is not None:
+            if sub_config[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
+                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema)
+                return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
+
+        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
+
+    def _connect_client():
+        address = config[PTag('tlm', 'address')].try_str()
+        port = config[PTag('tlm', 'port')].try_int()
+        username = config[PTag('tlm', 'username')].try_str()
+        password = config[PTag('tlm', 'password')].try_str()
+
+        if address is not None and port is not None and \
+                username is not None and password is not None:
+
+            client_seqno += 1
+
+            def __on_client_connect(_c):
+                _on_client_connect(client_seqno)
+            #def __on_client_error(_c, e):
+            #    _on_client_error(e, client_seqno)
+
+            tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(auth)))
+            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, None)
+            client = new_client
+
+        # # <TEST>
+        # after 0: _start_subscribers()
+        # # </TEST>
+
+    def _start_subscribers():
+        for subscriber in subscribers.values():
+            subscriber.start()
+
+    def _stop_subscribers():
+        for subscriber in subscribers.values():
+            subscriber.stop()
+
+    def get(path: str, cb: action(?http.Response) -> None) -> None:
+        if client is not None:
+            def __callback(_c, n):
+                cb(n)
+            client.get(path, __callback)
+
+    def close():
+        _client = client
+        if _client is not None:
+            _client.close()
+            client = None
+        for subscriber in subscribers.values():
+            subscriber.close()
+        #subscribers.clear()
+        subscribers = {}
+
+
+actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
+    sinks = SubscriptionSinkCollection()
+
+    var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
+
+    var poller_seqno: int = 0
+    var poll_path: ?str = None
+    var schema_path: ?SchemaPath = None
+    var period: time.Duration = time.Duration(60, 0, time.MonotonicClock(0, 0, 0))
+
+    var is_running: bool = False
+
+    print("SUBSCRIBER vmanage CREATED")
+
+    def _do_poll(seqno: int, poll_ts: time.Instant):
+        if seqno != poller_seqno:
+            return
+
+        if poll_path is not None:
+            request_ts = time.time()
+            url = "/dataservice" + poll_path
+            source.get("/dataservice" + poll_path, lambda r: _on_poll_reply(seqno, poll_ts, request_ts, r))
+            #try:
+            #    source.get("/dataservice" + poll_path, lambda r: _on_poll_reply(seqno, poll_ts, request_ts, r))
+            #except vmanage.NoConnError:
+            #    after 1.0: _do_poll(seqno, next_ts)
+
+
+    def _on_poll_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, reply: ?http.Response):
+        if reply is not None:
+            try:
+                ar = reply.decode_json()
+                ar_data = ar["data"]
+                if isinstance(ar_data, list):
+                    xnode = vmanage.approute_to_xnode(ar_data)
+                    source_params = tnode_root()
+                    source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
+                    if schema_path is not None:
+                        source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
+                    sinks.write(xnode, source_params)
+            except Exception as exc:
+                print(exc)
+                print(reply.body)
+
+        curr_ts = time.monotonic()
+        next_ts = last_ts.add(period)
+
+        if next_ts < curr_ts:
+            # Allow drift when reply arrived later than next period
+            # TODO: Quantize to period?
+            next_ts = curr_ts
+
+        # print("  last_ts:", last_ts)
+        # print("  curr_ts:", curr_ts)
+        # print("  next_ts:", next_ts)
+
+        delay = next_ts.since(curr_ts)
+        after delay.to_float(): _do_poll(seqno, next_ts)
+
+    def update_config(update: SubscriptionUpdate):
+        sinks.update(update.sinks)
+
+        _config = update.config
+        if _config is not None:
+            _stop_poller()
+
+            poll = _config[PTag('tlm', 'vmanage-poll')]
+            path = poll[PTag('tlm', 'path')].try_str()
+            period_ms = poll[PTag('tlm', 'period')].try_int()
+
+            if path is not None:
+                poll_path = path
+                # TODO: Proper parsing into ptag-/key-path
+                #_tag = schema.QName.netconf_to_value(path, None)
+                _tag = QName.netconf_to_value(path, None)
+                if _tag is not None:
+                    _update_schema_cursor(Keypath([_tag]))
+
+            if period_ms is not None and poll_path is not None:
+                period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
+                if is_running:
+                    _try_start_poller()
+
+    def _update_schema_cursor(kpath: Keypath):
+        cursor = schema.Cursor(_schema)
+        if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
+            if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
+                schema_path = cursor.get_schema_path()
+
+    def _try_start_poller():
+        if poll_path is not None:
+            curr_ts = time.monotonic()
+            after 0: _do_poll(poller_seqno, curr_ts)
+
+    def _stop_poller():
+        poller_seqno += 1
+
+    def start():
+        if not is_running:
+            print("SUBSCRIBER vmanage-poll STARTED")
+            is_running = True
+            _try_start_poller()
+
+    def stop():
+        if is_running:
+            print("SUBSCRIBER vmanage-poll STOPPED")
+            is_running = False
+            _stop_poller()
+
+    def close():
+        pass
+
+
+
 class SubscriptionUpdate(object):
     @property
     config: ?TNode
@@ -685,6 +926,8 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
     def _get_subscription_source_key(state: TNode) -> Keypath:
         if state[_SUBSCRIPTION_TYPE_ACTION_POLLER].exists():
             return SOURCE_KEY_NETCONF
+        if state[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
+            return SOURCE_KEY_VMANAGE_HTTP
 
         raise Exception("Unknown subscription type: " + str(state))
 
@@ -695,6 +938,12 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
 
         if source_key == SOURCE_KEY_NETCONF:
             source_act = NetconfSource(auth, shared_schema)
+            source = Source(source_key, source_act.update_config, source_act.close)
+            sources[source_key] = source
+            return source
+
+        if source_key == SOURCE_KEY_VMANAGE_HTTP:
+            source_act = VManageSource(auth, shared_schema)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
@@ -761,6 +1010,7 @@ actor main(env):
             [
                 DeviceSettingsRefiner,
                 DeviceSourceNetconfRefiner,
+                DeviceSourceVmanageRefiner,
                 DeviceSourceRefiner,
                 DeviceStreamerRefiner,
                 DeviceSubscriptionSourceRefiner,
@@ -773,6 +1023,7 @@ actor main(env):
                 #DeviceSettingsRefiner.id(), # For DEBUG printouts only
                 DeviceStreamerRefiner.id(),
                 DeviceSourceNetconfRefiner.id(), # For DEBUG printouts only
+                DeviceSourceVmanageRefiner.id(), # For DEBUG printouts only
                 DeviceSourceRefiner.id(),
                 DeviceSubscriptionSourceRefiner.id(),
                 #DeviceSubscriptionSinkBaseRefiner.id(), # For DEBUG printouts purposes
