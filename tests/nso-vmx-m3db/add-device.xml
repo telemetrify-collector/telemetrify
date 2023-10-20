@@ -7,8 +7,11 @@
       <port>830</port>
       <authgroup>vrnetlab</authgroup>
       <device-type>
-        <netconf>
+        <!--<netconf>
           <ned-id xmlns:juniper-junos-nc-4.11="http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11">juniper-junos-nc-4.11:juniper-junos-nc-4.11</ned-id>
+        </netconf>-->
+        <netconf>
+          <ned-id xmlns:ned-junos-23.1-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-junos-23.1-yang-nc-1.0">ned-junos-23.1-yang-nc-1.0:ned-junos-23.1-yang-nc-1.0</ned-id>
         </netconf>
       </device-type>
       <out-of-sync-commit-behaviour>accept</out-of-sync-commit-behaviour>

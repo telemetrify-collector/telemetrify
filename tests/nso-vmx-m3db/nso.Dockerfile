@@ -1,6 +1,5 @@
 FROM telemetrify-nso/nso:6.1.4
 
-RUN rm /var/opt/ncs/packages/juniper-junos-nc-4.11/load-dir/junos.fxs && \
-    rm -rf /var/opt/ncs/packages/ned-* && \
+RUN rm -rf /var/opt/ncs/packages/ned-ios-* && \
     apt update && \
     apt install -y sshpass gdb
