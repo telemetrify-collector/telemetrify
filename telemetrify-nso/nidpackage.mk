@@ -1,4 +1,4 @@
-# Common Makefile for NSO in Docker NED standard form.
+# Common Makefile for NSO in Docker package standard form.
 #
 # A repository that follows the standard form for a NID (NSO in Docker) package
 # repository contains one or more NSO packages in the `/packages` directory.
@@ -21,9 +21,6 @@
 # environment for the developer.
 
 include nidcommon.mk
-
-NED_DIRS:=$(shell for ned_dir in $$(ls $(PROJECT_DIR)/packages/*/src/package-meta-data.xml*); do basename $$(dirname $$(dirname $${ned_dir})); done)
-LATEST_NED_DIR:=$(shell echo $(NED_DIRS) | tr " " "\n" | sort -V | tail -n1)
 
 all:
 	$(MAKE) build
@@ -57,83 +54,34 @@ CREATE_MM_TAG?=$(if $(CI),$(NSO_VERSION_IS_TOT),true)
 # caching of it through the DOCKER_BUILD_CACHE_ARG.
 build: export DOCKER_BUILDKIT=1
 build: ensure-fresh-nid-available Dockerfile
-	docker build --target build   -t $(IMAGE_BASENAME)/build:$(DOCKER_TAG)   $(DOCKER_BUILD_ARGS) $(DOCKER_BUILD_CACHE_ARG) .
+	docker build --target build   -t $(IMAGE_BASENAME)/build:$(DOCKER_TAG)   $(DOCKER_BUILD_ARGS)  $(DOCKER_BUILD_CACHE_ARG) .
 	docker build --target nso-configurator -t $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
 	docker build --target nso -t $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
-# We build the "package" image without providing the NED_DIR build-arg. The
-# resulting image includes all packages found in the packages directory.
 	docker build --target package -t $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
 ifeq ($(CREATE_MM_TAG),true)
 	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:MM_$(DOCKER_TAG_MM)
 endif
-	$(MAKE) $(addprefix build-ned-,$(NED_DIRS))
-# Tag the latest netsim image without including the ned-id, just "netsim"
-	docker tag $(IMAGE_BASENAME)/netsim-$(LATEST_NED_DIR):$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim:$(DOCKER_TAG)
-ifeq ($(CREATE_MM_TAG),true)
-	docker tag $(IMAGE_BASENAME)/netsim-$(LATEST_NED_DIR):$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim:MM_$(DOCKER_TAG_MM)
-endif
-
-build-ned-%:
-	docker build --target netsim  -t $(IMAGE_BASENAME)/netsim-$*:$(DOCKER_TAG)  $(DOCKER_BUILD_ARGS) --build-arg NED_DIR=$* .
-	docker build --target package -t $(IMAGE_BASENAME)/package-$*:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) --build-arg NED_DIR=$* .
-ifeq ($(CREATE_MM_TAG),true)
-	docker tag $(IMAGE_BASENAME)/package-$*:$(DOCKER_TAG) $(IMAGE_BASENAME)/package-$*:MM_$(DOCKER_TAG_MM)
-	docker tag $(IMAGE_BASENAME)/netsim-$*:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim-$*:MM_$(DOCKER_TAG_MM)
-endif
-
-push-ned-%:
-	docker push $(IMAGE_BASENAME)/package-$*:$(DOCKER_TAG)
-	docker push $(IMAGE_BASENAME)/netsim-$*:$(DOCKER_TAG)
-ifeq ($(CREATE_MM_TAG),true)
-	docker push $(IMAGE_BASENAME)/package-$*:MM_$(DOCKER_TAG_MM)
-	docker push $(IMAGE_BASENAME)/netsim-$*:MM_$(DOCKER_TAG_MM)
-endif
 
 push:
 	docker push $(IMAGE_BASENAME)/package:$(DOCKER_TAG)
-	docker push $(IMAGE_BASENAME)/netsim:$(DOCKER_TAG)
 ifeq ($(CREATE_MM_TAG),true)
 	docker push $(IMAGE_BASENAME)/package:MM_$(DOCKER_TAG_MM)
-	docker push $(IMAGE_BASENAME)/netsim:MM_$(DOCKER_TAG_MM)
-endif
-	$(MAKE) $(addprefix push-ned-,$(NED_DIRS))
-
-tag-release-ned-%:
-	docker tag $(IMAGE_BASENAME)/package-$*:$(DOCKER_TAG) $(IMAGE_BASENAME)/package-$*:$(NSO_VERSION)
-	docker tag $(IMAGE_BASENAME)/netsim-$*:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim-$*:$(NSO_VERSION)
-ifeq ($(CREATE_MM_TAG),true)
-	docker tag $(IMAGE_BASENAME)/package-$*:$(DOCKER_TAG) $(IMAGE_BASENAME)/package-$*:MM_$(NSO_VERSION_MM)
-	docker tag $(IMAGE_BASENAME)/netsim-$*:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim-$*:MM_$(NSO_VERSION_MM)
 endif
 
 tag-release:
+	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:$(NSO_VERSION)
 	docker tag $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso:$(NSO_VERSION)
 	docker tag $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso-configurator:$(NSO_VERSION)
-	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:$(NSO_VERSION)
-	docker tag $(IMAGE_BASENAME)/netsim:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim:$(NSO_VERSION)
 ifeq ($(CREATE_MM_TAG),true)
-	docker tag $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso:MM_$(NSO_VERSION_MM)
-	docker tag $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso-configurator:MM_$(NSO_VERSION_MM)
-	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:MM_$(NSO_VERSION_MM)
-	docker tag $(IMAGE_BASENAME)/netsim:$(DOCKER_TAG) $(IMAGE_BASENAME)/netsim:MM_$(NSO_VERSION_MM)
-endif
-	$(MAKE) $(addprefix tag-release-ned-,$(NED_DIRS))
-
-push-release-ned-%:
-	docker push $(IMAGE_BASENAME)/package-$*:$(NSO_VERSION)
-	docker push $(IMAGE_BASENAME)/netsim-$*:$(NSO_VERSION)
-ifeq ($(CREATE_MM_TAG),true)
-	docker push $(IMAGE_BASENAME)/package-$*:MM_$(NSO_VERSION_MM)
-	docker push $(IMAGE_BASENAME)/netsim-$*:MM_$(NSO_VERSION_MM)
+	docker tag $(IMAGE_BASENAME)/package:MM_$(DOCKER_TAG_MM) $(IMAGE_BASENAME)/package:MM_$(NSO_VERSION_MM)
+	docker tag $(IMAGE_BASENAME)/nso:MM_$(DOCKER_TAG_MM) $(IMAGE_BASENAME)/nso:MM_$(NSO_VERSION_MM)
+	docker tag $(IMAGE_BASENAME)/nso-configurator:MM_$(DOCKER_TAG_MM) $(IMAGE_BASENAME)/nso-configurator:MM_$(NSO_VERSION_MM)
 endif
 
 push-release:
 	docker push $(IMAGE_BASENAME)/package:$(NSO_VERSION)
-	docker push $(IMAGE_BASENAME)/netsim:$(NSO_VERSION)
-	$(MAKE) $(addprefix push-release-ned-,$(NED_DIRS))
 ifeq ($(CREATE_MM_TAG),true)
 	docker push $(IMAGE_BASENAME)/package:MM_$(NSO_VERSION_MM)
-	docker push $(IMAGE_BASENAME)/netsim:MM_$(NSO_VERSION_MM)
 endif
 
 dev-shell:

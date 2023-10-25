@@ -6,7 +6,7 @@ DEFAULT_TESTENV?=quick
 
 # Include standard NID (NSO in Docker) package Makefile that defines all
 # standard make targets
-include nidned.mk
+include nidpackage.mk
 
 ifeq ($(DEV),true)
 	OUTPUT=out/dev

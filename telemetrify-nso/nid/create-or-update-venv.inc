@@ -20,9 +20,6 @@ create_or_update_venv () {
             # to install it in our venv
             python3 -m venv --symlinks --system-site-packages $([ "${clear}" == "true" ] && echo "--clear") "${venv}"
             . "${venv}"/bin/activate
-            # upgrade pip to latest version (in the venv) to deal with correct
-            # downloading of wheel packages
-            pip3 install --upgrade pip
         else
             echo "Activating existing '${venv}' venv and installing packages from ${req_txt}"
             pwd
