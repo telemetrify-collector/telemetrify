@@ -18,6 +18,7 @@ Dockerfile: prepare-telemetrify-bin
 
 prepare-telemetrify-bin:
 	$(MAKE) -C .. build
-	rsync -E ../$(OUTPUT)/bin/telemetrify.main.main packages/telemetrify/bin
+	mkdir -p packages/telemetrify/bin
+	cp -p ../$(OUTPUT)/bin/telemetrify.main.main packages/telemetrify/bin/
 
 .PHONY: prepare-telemetrify-bin
