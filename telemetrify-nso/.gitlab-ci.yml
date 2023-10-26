@@ -52,6 +52,7 @@ before_script:
   - *helper_mark_section
   - mark_section_start initialize Initializing
   - which curl docker expect gpg2 sshpass xmlstarlet >/dev/null || (echo "Installing prerequisites..." && apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get install -qy apt-transport-https ca-certificates curl expect gnupg2 software-properties-common sshpass xmlstarlet; which docker || (echo "Installing docker..." && curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add - && apt-key fingerprint 0EBFCD88 && add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable" && apt-get -y update && apt-get -qy install -qy docker-ce docker-ce-cli containerd.io))
+  - which actonc >/dev/null || (echo "Installing acton..." && curl -fsSL -O https://github.com/actonlang/acton/releases/download/tip/acton_tip_amd64.deb && apt-get install -qy ./acton_tip_amd64.deb && rm acton_tip_amd64.deb)
   - mark_section_end initialize
 
 
@@ -62,6 +63,8 @@ before_script:
     variables:
       - $CI_MODE == "mirror"
   script:
+    # The NID project skeleton is in the telemetrify-nso directory
+    - cd telemetrify-nso
     - if [ -n "${CI_DOCKER_USER}" ]; then echo "Using provided credentials for authentication with docker registry"; docker login -u ${CI_DOCKER_USER} -p ${CI_DOCKER_PASSWORD} ${CI_REGISTRY}; else docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}; fi
     - echo "Building for NSO version ${NSO_VERSION}"
     - mark_section_start build Building
@@ -84,6 +87,8 @@ before_script:
     - if [ "${CI_COMMIT_REF_NAME}" = "${CI_DEFAULT_BRANCH}" ] && [ "${DOCKER_PUSH}" != "false" ]; then make push-release; fi
     - mark_section_end image-push
   after_script:
+    # The NID project skeleton is in the telemetrify-nso directory
+    - cd telemetrify-nso
     - *helper_mark_section
     - mark_section_start test-check-logs "Checking logs"
     - make testenv-check-logs || true

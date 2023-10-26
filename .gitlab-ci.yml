@@ -1,0 +1,1 @@
+include: 'telemetrify-nso/.gitlab-ci.yml'
