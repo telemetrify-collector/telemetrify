@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config xmlns="http://tail-f.com/ns/config/1.0">
+  <devices xmlns="http://tail-f.com/ns/ncs">
+    <device>
+      <name>vmanage-netsim1</name>
+      <telemetrify xmlns="urn:telekom:abs:telemetrify">
+        <subscription>
+          <name>sub1</name>
+          <source>
+            <vmanage-poll>
+              <path>/statistics/approute</path>
+              <period>5000</period>
+            </vmanage-poll>
+          </source>
+          <sink>
+            <name>cdb</name>
+            <transform>
+              <name>vmanage</name>
+            </transform>
+          </sink>
+          <!-- <sink>
+            <name>m3db</name>
+          </sink> -->
+        </subscription>
+        <sources>
+          <vmanage-http>
+            <address>vmanage-netsim1</address>
+            <port>443</port>
+            <username>vrnetlab</username>
+            <password>VR-netlab9</password>
+          </vmanage-http>
+        </sources>
+      </telemetrify>
+    </device>
+  </devices>
+  <telemetrify xmlns="urn:telekom:abs:telemetrify">
+    <sink>
+      <name>cdb</name>
+      <nso-cdb>
+      </nso-cdb>
+    </sink>
+    <sink>
+      <name>m3db</name>
+      <m3db>
+        <address>m3db</address>
+        <port>7201</port>
+      </m3db>
+    </sink>
+  </telemetrify>
+</config>

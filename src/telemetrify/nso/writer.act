@@ -72,7 +72,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
         print("writer: begin poll")
         while True:
             if state == _STATE_IDLE:
-                print("writer:   STATE_IDLE")
+                #print("writer:   STATE_IDLE")
                 if write_tasks:
                     print("writer:     Setup write task")
                     _setup_next_task()
@@ -80,22 +80,22 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                     print("writer:     No tasks")
                     break
             elif state == _STATE_PREPARE_EPARAMS:
-                print("writer:   STATE_PREPARE_EPARAMS")
+                #print("writer:   STATE_PREPARE_EPARAMS")
                 _handle_state_prepare_eparams()
             elif state == _STATE_AWAITING_PREPARATORY_SET_ELEM:
-                print("writer:   STATE_AWAITING_PREPARATORY_SET_ELEM")
+                #print("writer:   STATE_AWAITING_PREPARATORY_SET_ELEM")
                 break
             elif state == _STATE_AWAITING_PREPARATORY_DELETE:
-                print("writer:   STATE_AWAITING_PREPARATORY_DELETE")
+                #print("writer:   STATE_AWAITING_PREPARATORY_DELETE")
                 break
             elif state == _STATE_AWAITING_PREPARATORY_CREATE:
-                print("writer:   STATE_AWAITING_PREPARATORY_CREATE")
+                #print("writer:   STATE_AWAITING_PREPARATORY_CREATE")
                 break
             elif state == _STATE_AWAITING_MOUNT_ID:
-                print("writer:   STATE_AWAITING_MOUNT_ID")
+                #print("writer:   STATE_AWAITING_MOUNT_ID")
                 break
             elif state == _STATE_AWAITING_SET_VALUES:
-                print("writer:   STATE_AWAITING_SET_VALUES")
+                #print("writer:   STATE_AWAITING_SET_VALUES")
                 break
         print("writer: end poll")
 
@@ -116,7 +116,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
         state = _STATE_PREPARE_EPARAMS
 
     def _handle_state_prepare_eparams():
-        print("writer:       work_stack len:", len(work_stack))
+        #print("writer:       work_stack len:", len(work_stack))
         if len(work_stack) >= 1: #if work_stack:
             _item: value, _parent_state: int = list_pop(work_stack)
             if isinstance(_item, Node):
@@ -125,13 +125,20 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                 if tag is not None:
                     if pending_mount_id is None and not cursor.push(tag):
                         _task_error("Unable to find child node with tag: " + str(tag))
+                        return
                     else:
                         s_node = cursor.node()
-                        _e_htag = s_node.tag.to_eobject()
+                        _htag = s_node.tag
+                        _itag: ?ITag = None
+                        if use_ikp:
+                            _itag = cursor.lookup_itag(_htag)
+                            if _itag is None:
+                                print("WARNING: Unable to find ITag of ", _htag)
+                        _e_tag = _itag.to_eobject() if _itag is not None else _htag.to_eobject()
 
                         # Leaf
                         if s_node.is_leaf():
-                            print("writer:       LEAF")
+                            #print("writer:       LEAF")
                             if node.op() in [OP_MERGE, OP_REPLACE]:
                                 if _parent_state == _PARENT_STATE_PREFIX_NOCREATE:
                                     # TODO: Report error details
@@ -141,39 +148,49 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     _e_val = _node_value_to_eobject(cursor, node)
                                     if _e_val is not None:
                                         if _parent_state == _PARENT_STATE_NONE:
-                                            epath.append(_e_htag)
+                                            epath.append(_e_tag)
+                                            work_stack.append((_EndParam(None, 1), _parent_state))
                                             _call_set_elem(_e_val)
                                             return
                                         else:
-                                            eparams.append(ETagVal.xml_non_empty_leaf(_e_htag, _e_val))
+                                            eparams.append(ETagVal.xml_non_empty_leaf(_e_tag, _e_val))
+                                            cursor.pop()
                                     else:
                                         if _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
-                                            eparams.append(ETagVal.xml_noexists(_e_htag))
+                                            eparams.append(ETagVal.xml_noexists(_e_tag))
+                                            cursor.pop()
                                         else:
+                                            epath.append(_e_tag)
+                                            work_stack.append((_EndParam(None, 1), _parent_state))
                                             _call_delete()
                                             return
                                 elif s_node.is_empty_leaf():
                                     if _parent_state == _PARENT_STATE_NONE:
-                                        epath.append(_e_htag)
+                                        epath.append(_e_tag)
+                                        work_stack.append((_EndParam(None, 1), _parent_state))
                                         _call_create()
                                         return
                                     else:
-                                        eparams.append(ETagVal.xml_empty_leaf(_e_htag))
+                                        eparams.append(ETagVal.xml_empty_leaf(_e_tag))
+                                        cursor.pop()
                             elif node.op() == OP_DELETE:
                                 if _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
-                                    eparams.append(ETagVal.xml_noexists(_e_htag))
+                                    eparams.append(ETagVal.xml_noexists(_e_tag))
+                                    cursor.pop()
                                 else:
+                                    epath.append(_e_tag)
+                                    work_stack.append((_EndParam(None, 1), _parent_state))
                                     _call_delete()
                                     return
                         # Container
                         elif s_node.is_container():
-                            print("writer:       CONTAINER")
+                            #print("writer:       CONTAINER")
                             _pending_mount_id: ?HTag = pending_mount_id
                             if _pending_mount_id is not None:
                                 cursor.set_mount_id(_pending_mount_id)
                                 pending_mount_id = None
                             else:
-                                epath.append(_e_htag)
+                                epath.append(_e_tag)
 
                                 if s_node.is_mount_point():
                                     work_stack.append((node, _parent_state)) # Revisit this node when we get the mount_id
@@ -190,8 +207,8 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     _call_create()
                                     return
                                 elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_PREFIX_CREATE]:
-                                    eparams.append(ETagVal.xml_begin(_e_htag))
-                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 1), _parent_state))
+                                    eparams.append(ETagVal.xml_begin(_e_tag))
+                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_tag), 1), _parent_state))
                                     _extend_work_stack(children, _PARENT_STATE_PARAM)
                                 elif _parent_state in [_PARENT_STATE_PREFIX_NOCREATE, _PARENT_STATE_POSTFIX_NOCREATE]:
                                     # TODO: Report error details
@@ -202,9 +219,9 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     _extend_work_stack(node.children(), _PARENT_STATE_PREFIX_NOCREATE)
                                 elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_POSTFIX_NOCREATE]:
                                     _extend_work_stack(node.children(), _PARENT_STATE_POSTFIX_NOCREATE)
-                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 1), _parent_state))
+                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_tag), 1), _parent_state))
                             if node.op() == OP_DELETE and s_node.is_p_container() and _parent_state in [_PARENT_STATE_PREFIX_CREATE, _PARENT_STATE_PARAM]:
-                                eparams.append(ETagVal.xml_noexists(_e_htag))
+                                eparams.append(ETagVal.xml_noexists(_e_tag))
                                 work_stack.append((_EndParam(None, 1), _parent_state))
                             elif node.op() in [OP_DELETE, OP_REPLACE]:
                                 if node.op() != OP_REPLACE:
@@ -214,12 +231,12 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
 
                         # Leaf-list (element)
                         elif s_node.is_leaf_list():
-                            print("writer:       LEAF-LIST")
+                            #print("writer:       LEAF-LIST")
                             if node.op() in [OP_MERGE, OP_REPLACE]:
                                 if _parent_state == _PARENT_STATE_NONE:
                                     _e_val = _node_value_to_eobject(cursor, node)
                                     if _e_val is not None:
-                                        epath.append(_e_htag)
+                                        epath.append(_e_tag)
                                         epath.append(ETuple([_e_val]))
                                         _call_create()
                                         return
@@ -233,7 +250,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                         # TODO: Check that the 'list-like' pattern works in confxmlparams
                                         #       otherwise we need to either do invidiual creates
                                         #       OR use C_LIST which isn't very netconf-order friendly
-                                        eparams.append(ETagVal.xml_non_empty_leaf(_e_htag, _e_val))
+                                        eparams.append(ETagVal.xml_non_empty_leaf(_e_tag, _e_val))
                                     else:
                                         # TODO: Report error details
                                         _task_error("Attempted to set leaf-list element as 'None'")
@@ -243,7 +260,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     _task_error("Attempted to set leaf under NOCREATE path")
                                     return
                             if node.op() in [OP_DELETE, OP_REPLACE]:
-                                epath.append(_e_htag)
+                                epath.append(_e_tag)
                                 _e_val = _node_value_to_eobject(cursor, node)
                                 if _e_val is not None:
                                     epath.append(ETuple([_e_val]))
@@ -254,29 +271,23 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                 return
                         # List (element)
                         elif s_node.is_list():
-                            print("writer:       LIST")
+                           # print("writer:       LIST")
                             _pending_mount_id: ?HTag = pending_mount_id
                             if _pending_mount_id is None:
-                                epath.append(_e_htag)
+                                epath.append(_e_tag)
 
-                            key_leafs, other_children = _prepare_list_children(cursor, node)
+                            key_e_leafs, other_children = _prepare_list_children(cursor, node)
 
                             path_keys = []
-                            for key_leaf in key_leafs:
-                                key_tag = key_leaf.0
-                                key_val = key_leaf.1
-                                path_keys.append(key_val)
+                            for key_e_leaf in key_e_leafs:
+                                key_e_val = key_e_leaf.1
+                                path_keys.append(key_e_val)
                             has_path_keys = len(path_keys) > 0
 
                             eparam_keys = []
                             # actonc: Acton/Transform.hs:(222,1)-(223,57): Non-exhaustive patterns in function positem
                             # def _get_eparam_keys():
-                            #     if len(key_leafs) != len(eparam_keys):
-                            #         for key_leaf in key_leafs:
-                            #             key_tag = key_leaf.0
-                            #             key_val = key_leaf.1
-                            #             eparam_keys.append(ETagVal.xml_non_empty_leaf(key_tag.to_eobject(), key_val))
-                            #     return eparam_keys
+                            #     ...
                             def _get_eparam_keys(key_leafs: list[(HTag, EObject)], eparam_keys: list[EObject]) -> list[EObject]:
                                 if len(key_leafs) != len(eparam_keys):
                                     for key_leaf in key_leafs:
@@ -306,10 +317,10 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     _call_create()
                                     return
                                 elif _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_PREFIX_CREATE]:
-                                    eparams.append(ETagVal.xml_begin(_e_htag))
+                                    eparams.append(ETagVal.xml_begin(_e_tag))
                                     #list_extend(eparams, _get_eparam_keys())
-                                    list_extend(eparams, _get_eparam_keys(key_leafs, eparam_keys))
-                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 2 if has_path_keys else 1), _parent_state))
+                                    list_extend(eparams, _get_eparam_keys(key_e_leafs, eparam_keys))
+                                    work_stack.append((_EndParam(ETagVal.xml_end(_e_tag), 2 if has_path_keys else 1), _parent_state))
                                     _extend_work_stack(other_children, _PARENT_STATE_PARAM)
                                 elif _parent_state in [_PARENT_STATE_PREFIX_NOCREATE, _PARENT_STATE_POSTFIX_NOCREATE]:
                                     # TODO: Report error details
@@ -323,10 +334,10 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     work_stack.append((_EndParam(None, 2 if has_path_keys else 1), _parent_state))
 
                             if node.op() == OP_DELETE and _parent_state == _PARENT_STATE_PARAM and has_path_keys:
-                                eparams.append(ETagVal.xml_begin_del(_e_htag))
+                                eparams.append(ETagVal.xml_begin_del(_e_tag))
                                 #list_extend(eparams, _get_eparam_keys())
-                                list_extend(eparams, _get_eparam_keys(key_leafs, eparam_keys))
-                                work_stack.append((_EndParam(ETagVal.xml_end(_e_htag), 2), _parent_state))
+                                list_extend(eparams, _get_eparam_keys(key_e_leafs, eparam_keys))
+                                work_stack.append((_EndParam(ETagVal.xml_end(_e_tag), 2), _parent_state))
                             elif node.op() in [OP_DELETE, OP_REPLACE]:
                                 if node.op() == OP_DELETE and _parent_state in [_PARENT_STATE_PARAM, _PARENT_STATE_POSTFIX_NOCREATE]:
                                     work_stack.append((_EndParam(None, 2 if has_path_keys else 1), _parent_state))
@@ -336,6 +347,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                             print("WARNING: Unhandled schema node type.")
                 else:
                     _task_error("Encountered child node with missing tag")
+                    return
             elif isinstance(_item, _EndParam):
                 _eparam = _item.eparam
                 if _eparam is not None:
@@ -357,55 +369,61 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
         v: ?value = node.value()
         if v is not None and _type is not None:
             _v: ?value = v
-            if isinstance(_v, str):
-                v = _type.netconf_to_value(_v, cursor, node.namespaces())
+            if isinstance(v, str):
+                _v: ?value = _type.netconf_to_value(v, cursor, node.namespaces())
             # TODO: Validate / report error details
-            return _type.value_to_eobject(v, cursor, use_ikp)
+            return _type.value_to_eobject(_v, cursor, use_ikp)
         return None
 
     def _prepare_list_children(cursor: schema.Cursor, node: Node) -> (list[(HTag, EObject)], list[Node]):
-        keys: list[(HTag, EObject)] = []
+        e_keys: list[(HTag, EObject)] = []
 
-        child_nodes: dict[HTag, Node] = {}
+        key_nodes: list[Node] = []
+        other_nodes: list[Node] = []
+
+        s_node = cursor.node()
+
+        key_htags: set[HTag] = set([])
+
+        key_value_nodes: dict[HTag, Node] = {}
+
+        key_ord_nodes = node.keys()
+        key_ord_nodes_len = len(key_ord_nodes)
+        i = 0
+        for key_s_node in s_node.keys:
+            key_htag = key_s_node.tag
+            key_htags.add(key_htag)
+            if i < key_ord_nodes_len:
+                key_value_nodes[key_htag] = key_ord_nodes[i]
+            i += 1
+
         for c in node.children():
             tag = c.tag()
             if tag is not None:
                 htag = cursor.lookup_htag(tag, True)
                 if htag is not None:
-                    child_nodes[htag] = c
+                    if htag in key_htags:
+                        #if htag not in key_value_nodes and c.value() is not None:
+                        if htag not in key_value_nodes:
+                            _val: ?value = c.value()
+                            if _val is not None:
+                                key_value_nodes[htag] = c
+                    else:
+                        other_nodes.append(c)
 
-        key_nodes = node.keys()
-        s_node = cursor.node()
-        if len(key_nodes) > 0: #if key_nodes:
-            key_s_nodes = s_node.keys
-            if len(key_s_nodes) != len(key_nodes):
-                return ([], node.children())
-            for i in range(0, len(key_s_nodes), 1):
-                key_tag: HTag = key_s_nodes[i].tag
-                child_key_node = try_pop(child_nodes, key_tag)
-                key_node: Node = child_key_node if child_key_node is not None else key_nodes[i]
-                if key_node is not None and cursor.push(key_tag):
+        for key_s_node in s_node.keys:
+            key_htag = key_s_node.tag
+            key_node = try_get(key_value_nodes, key_htag)
+            if key_node is not None:
+                if key_node is not None and cursor.push(key_htag):
                     key_val: ?EObject = _node_value_to_eobject(cursor, key_node)
                     cursor.pop()
                     if key_val is not None:
-                        keys.append((key_tag, key_val))
+                        e_keys.append((key_htag, key_val))
                         continue
-                # TODO: Report error details
-                return ([], node.children())
-            return (keys, list(child_nodes.values()))
-        else:
-            for key_s_node in s_node.keys:
-                key_tag = key_s_node.tag
-                key_node = try_pop(child_nodes, key_tag)
-                if key_node is not None and cursor.push(key_tag):
-                    key_val: ?EObject = _node_value_to_eobject(cursor, key_node)
-                    cursor.pop()
-                    if key_val is not None:
-                        keys.append((key_tag, key_val))
-                        continue
-                # TODO: Report error details
-                return ([], node.children())
-            return (keys, list(child_nodes.values()))
+            return ([], node.children())
+
+        return (e_keys, other_nodes)
 
     def _task_error(msg: str):
         # TODO: Add path to error
@@ -422,7 +440,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
         if err is not None:
             # TODO: Report error details
             # _task_error("Error deleting " + str(epath) + ": " + str(err))
-            _task_error("Error deleting: " + str(err))
+            _task_error("Error setting: " + str(err))
         else:
             state = _STATE_PREPARE_EPARAMS
         _poll()
@@ -494,12 +512,13 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
     def _on_set_values(_mc: MaapiConnection, err: ?Exception) -> None:
         if err is not None:
             # TODO: Report error details
-            # _task_error("Error using set_value " + str(epath) + ": " + str(err))
-            _task_error("Error using set_value: " + str(err))
+            # _task_error("Error using set_values " + str(epath) + ": " + str(err))
+            _task_error("Error using set_values: " + str(err))
         else:
             if result_cb is not None:
                 result_cb(None)
-            state = _STATE_IDLE
+            _reset()
+            print("Done set_values")
         _poll()
 
     # def write_at(keypath, node: Node, result_cb: action(?Exception) -> None):
@@ -514,3 +533,6 @@ class _EndParam:
     def __init__(self: _EndParam, eparam: ?EObject, epath_pop_count: int):
         self.eparam = eparam
         self.epath_pop_count = epath_pop_count
+
+    def __str__(self: _EndParam) -> str:
+        return "_EndParam(" + optional_str(self.eparam, "None") + ", " + str(self.epath_pop_count) + ")"

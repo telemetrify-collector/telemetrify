@@ -73,6 +73,12 @@ class TypeId:
     def __str__(self: TypeId) -> str:
         return str(self.ns_hash) + ":" + self.name
 
+    def str_pretty(self: TypeId, hash_to_name: dict[int, str]) -> str:
+        cns = try_get(hash_to_name, self.ns_hash)
+        if cns is not None:
+            return cns + ":" + self.name
+        return self.__str__()
+
 extension TypeId(Hashable):
     def __eq__(self, other: TypeId) -> bool:
         return self.name == other.name and self.ns_hash == other.ns_hash
@@ -1006,7 +1012,7 @@ class EnumType(Type):
         self.ordinal_to_name = _ordinal_to_name
 
     def __str__(self: EnumType) -> str:
-        return "EnumType(" + self.__str_common() + "," + str(self.name_to_ordinal) + ")"
+        return "EnumType(" + self.__str_common() + ", " + str(self.name_to_ordinal) + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1068,7 +1074,7 @@ class UnionType(Type):
         self.types = types
 
     def __str__(self: UnionType) -> str:
-        return "UnionType(" + self.__str_common() + "," + list_str(self.types) + ")"
+        return "UnionType(" + self.__str_common() + ", " + list_str(self.types) + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
@@ -1122,6 +1128,9 @@ class RestrictedNumberType(Type):
         self.conf_type = conf_type
         self.ranges = ranges
 
+    def __str__(self) -> str:
+        return "RestrictedNumberType(" + self.__str_common() + ")"
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1143,6 +1152,9 @@ class BitsType(Type):
         for pos, name in pos_to_name.items():
             _name_to_pos[name] = pos
         self.name_to_pos = _name_to_pos
+
+    def __str__(self) -> str:
+        return "BitsType(" + self.__str_common() + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1256,6 +1268,9 @@ class Decimal64Type(Type):
         self.fraction_digits = fraction_digits
         self.ranges = ranges
 
+    def __str__(self) -> str:
+        return "Decimal64Type(" + self.__str_common() + ")"
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
@@ -1284,6 +1299,9 @@ class ListType(Type):
         self.parent_type = parent_type
         self.conf_type = None
         self.elem_type = elem_type
+
+    def __str__(self) -> str:
+        return "ListType(" + self.__str_common() + ", " + str(self.elem_type) + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
@@ -1349,6 +1367,9 @@ class ListRestrictionType(Type):
         self.conf_type = None
         self.ranges = ranges
 
+    def __str__(self) -> str:
+        return "ListRestrictionType(" + self.__str_common() + ")"
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1363,6 +1384,9 @@ class DisplayHintType(Type):
         self.type_id = type_id
         self.parent_type = parent_type
         self.conf_type = None
+
+    def __str__(self) -> str:
+        return "DisplayHintType(" + self.__str_common() + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1383,6 +1407,9 @@ class StringType(Type):
         self.ranges = ranges
         self.pattern = None
 
+    def __str__(self) -> str:
+        return "StringType(" + self.__str_common() + ")"
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1402,6 +1429,9 @@ class IdentityType(Type):
         self.parent_type = parent_type
         self.conf_type = C_IDENTITYREF
         self.identities = identities
+
+    def __str__(self) -> str:
+        return "IdentityType(" + self.__str_common() + ")"
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1491,7 +1521,10 @@ actor SchemaBuilder():
                         #print(elem)
                         type_descr = Type.from_ns_tuple(t, curr_ns, types)
                         if type_descr is not None:
-                            types[type_descr.type_id] = type_descr
+                            # TODO: Find out why we may receive types that have same names a builtins
+                            #       but with other properties... E.g: 0:string as ListType ...
+                            if type_descr.type_id not in types:
+                                types[type_descr.type_id] = type_descr
                             return
                     elif etype == 'keys':
                         keys = RawKeys.from_ns_tuple(t)
@@ -1617,7 +1650,9 @@ actor SchemaBuilder():
                     type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
                     type_descr = try_get(types, type_id)
                     if type_descr is None:
-                        print("WARNING: missing type descriptor for: " + str(type_id))
+                        print("WARNING: missing type descriptor for: " + str(type_id) + " -> " + type_id.str_pretty(hash_to_name))
+                        # Fallback to primitive type
+                        type_descr = Type(type_id, None, raw_node.conf_type)
                 node = Node(
                     tag,
                     raw_node.min_occurs,
@@ -1718,7 +1753,10 @@ actor SchemaBuilder():
             type_descr = node.value_type
             if type_descr is not None:
                 type_str = " : " + str(type_descr)
-            print(indent + hash_to_name[node.tag.name_hash] + keys + flags + type_str)
+            elif node.is_leaf():
+                type_str = " : CONF_" + str(node.conf_type)
+            qname = hash_to_name[node.tag.ns_hash] + " " + hash_to_name[node.tag.name_hash]
+            print(indent + qname + keys + flags + type_str)
             _pretty_print_nodes(node.children, indent + "  ")
 
     def _pretty_print_types(types: dict[TypeId, Type], indent: str):

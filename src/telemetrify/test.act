@@ -795,7 +795,7 @@ actor test_subscriber(env: Env, opts: Opts):
 
     def _on_cdb_cmd_connect(sc, cc, s):
         print("CDB (cmd) connected!!!!")
-        cache = telemetrify.nso.subscriber.ConfigCache(sc, cc, s,
+        cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [DeviceSettingsRefiner],
             [([DeviceSettingsRefiner.id()], _on_config_update)], _on_config_cache_error)
         #await async env.exit(0)
@@ -807,7 +807,7 @@ actor test_subscriber(env: Env, opts: Opts):
                 print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
 
     def _on_config_cache_error(e):
-        print("ConfigCache failed:", optional_str(e.error_message, ""))
+        print("CdbCache failed:", optional_str(e.error_message, ""))
         await async env.exit(1)
 
     print("Starting up...")

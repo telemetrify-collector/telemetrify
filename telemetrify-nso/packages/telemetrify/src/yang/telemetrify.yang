@@ -98,6 +98,9 @@ module telemetrify {
               // TODO: Input parameters?
             }
           }
+
+          // TODO: Transform at source
+          // uses transform-g;
         }
 
         list sink {
@@ -132,6 +135,18 @@ module telemetrify {
               type string;
             }
           }
+
+          // leaf replace-path {
+          //   when "deref(../tlm:name)/../tlm:target/tlm:nso-cdb" {
+          //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
+          //   }
+          //   description "Output to a mutable datatree sink target will replace content under
+          //                the specified path. I.e. old content we be deleted before each new write.";
+          //   type string;
+          // }
+
+          // Per sink transform
+          uses transform-g;
 
           // Moar params? Translations, default namespaces etc...
         }
@@ -198,6 +213,18 @@ module telemetrify {
     }
   }
 
+  grouping transform-g {
+    list transform {
+      ordered-by user;
+      key "name";
+
+      leaf name {
+        type string;
+      }
+      // TODO: Transformation language?
+    }
+  }
+
   container telemetrify {
     list sink {
       key "name";
@@ -214,6 +241,24 @@ module telemetrify {
           leaf base-path {
             type string;
           }
+        }
+
+        container nso-cdb {
+          presence true;
+
+          // leaf address {
+          //   mandatory true;
+          //   type string;
+          // }
+
+          // leaf port {
+          //   mandatory true;
+          //   type uint16;
+          // }
+
+          // leaf base-path {
+          //   type string;
+          // }
         }
 
         container m3db {

@@ -423,6 +423,40 @@ class MinHeap_Ord2[T(Ord2)](object):
 # extension HashableTuple2(Hashable):
 #     __eq__(self, other) -> bool:
 
+class Wardrobe[T](object):
+    @property
+    next_ticket: int
+    @property
+    items: dict[int, T]
+
+    def __init__(self):
+        self.next_ticket = 0
+        self.items = {}
+
+    def put(self, item: T) -> int:
+        ticket = self.next_ticket
+        self.next_ticket = ticket + 1
+        self.items[ticket] = item
+        return ticket
+
+    def borrow(self, ticket: int) -> T:
+        return self.items[ticket]
+
+    def pop(self, ticket: int) -> T:
+        #item = self.items.pop(ticket)
+        item = self.items[ticket]
+        del self.items[ticket]
+        return item
+
+    def discard(self, ticket):
+        try:
+            del self.items[ticket]
+        except KeyError:
+            pass
+
+    def clear(self):
+        #self.items.clear()
+        self.items = {}
 
 def try_parse_int(s: str) -> ?int:
     s = s.strip(" \t\n")

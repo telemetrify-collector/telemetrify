@@ -453,6 +453,26 @@ class Node(object):
     def prsrc(self, indent: int) -> str:
         raise NotImplementedError("Can't print source for Node")
 
+    def pretty_format_node_tree(self) -> str:
+        parts: list[str] = []
+        self._pretty_format_node_tree(parts, "")
+        return "".join(parts)
+
+    def _pretty_format_node_tree(self, parts: list[str], indent: str):
+        _tag = self.tag()
+        s_tag = ", " + str(_tag) if _tag is not None else ""
+
+        _keys = self.keys()
+        s_keys = ", keys=" + list_str(_keys) if _keys else ""
+
+        _value = self.value()
+        s_value = ", val=" + str(_value) if _value is not None else ""
+
+        parts.append(indent + "Node(" + op_str(self.op()) + s_tag + s_keys + s_value + ")\n")
+
+        for child in self.children():
+            child._pretty_format_node_tree(parts, indent + "  ")
+
 class XNode(Node):
     @property
     _op: int
@@ -599,6 +619,9 @@ class TNode(Node):
         return self
 
     def cont(self, op: ?int, tag: Tag) -> TNode:
+        return self.tree(op, tag)
+
+    def list(self, op: ?int, tag: Tag) -> TNode:
         return self.tree(op, tag)
 
     def elem(self, op: ?int, keys: list[value]) -> TNode:
