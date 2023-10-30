@@ -59,7 +59,9 @@ build: ensure-fresh-nid-available Dockerfile
 	docker build --target nso -t $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
 	docker build --target package -t $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(DOCKER_BUILD_ARGS) .
 ifeq ($(CREATE_MM_TAG),true)
+	docker tag $(IMAGE_BASENAME)/nso:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso:MM_$(DOCKER_TAG_MM)
 	docker tag $(IMAGE_BASENAME)/package:$(DOCKER_TAG) $(IMAGE_BASENAME)/package:MM_$(DOCKER_TAG_MM)
+	docker tag $(IMAGE_BASENAME)/nso-configurator:$(DOCKER_TAG) $(IMAGE_BASENAME)/nso-configurator:MM_$(DOCKER_TAG_MM)
 endif
 
 push:
