@@ -665,7 +665,7 @@ actor test_cdb_wait_start(env: Env, opts: Opts):
             print("CDB wait start failed:", e)
             await async env.exit(1)
 
-    sess = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer", _on_connect, _on_connect_error, opts.record_to)
+    sess = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify", _on_connect, _on_connect_error, opts.record_to)
 
 actor test_tnode(env: Env, opts: Opts):
     root = TTree(OP_NONE, PTag.root(), None, {})
@@ -778,7 +778,7 @@ actor test_subscriber(env: Env, opts: Opts):
     def _on_load_schema(c, e, shared_schema):
         if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!!")
-            cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
+            cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, opts.record_to)
         else:
             print("MAAPI load schema failed:", optional_str(e, "None"))
@@ -790,7 +790,7 @@ actor test_subscriber(env: Env, opts: Opts):
 
     def _on_cdb_sub_connect(sc, s):
         print("CDB (sub) connected!!!!")
-        cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "acton-streamer",
+        cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
             action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, opts.record_to)
 
     def _on_cdb_cmd_connect(sc, cc, s):

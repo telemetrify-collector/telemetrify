@@ -2494,7 +2494,7 @@ class Any:
 
     @staticmethod
     def eobject_to_conf_type_and_value(v: ?EObject, cursor: Cursor) -> (int, ?value):
-        """Schema-less mapping of Conf objects acton-streamer values"""
+        """Schema-less mapping of Conf objects Telemetrify values"""
         if isinstance(v, ETuple):
             _elems = v.elems
             _elems_len = len(_elems)
