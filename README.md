@@ -50,21 +50,26 @@ reading YANG models and exposing an interface for configuration.
 ### Telemetrify as an NSO package (using container w/ NSO in Docker)
 
 1. [Install Acton](https://www.acton-lang.org/install/)
+   - TLDR: `./actup` for quick install locally in project
 2. Build base NSO in Docker images, using NSO version in `telemetrify-nso/nidvars.mk` (currently 6.1.4)
-  - `git clone https://gitlab.com/nso-developer/nso-docker.git`
-  - place NSO installer in `nso-docker/nso-installer-files`
-  - `make -C nso-docker build tag-release NSO_VERSION=6.1.4`
+   - `git clone https://gitlab.com/nso-developer/nso-docker.git`
+   - place NSO installer in `nso-docker/nso-installer-files`
+   - `make -C nso-docker build-all tag-release-all`
 3. Build `telemetrify-nso`
-  - `make -C telemetrify-nso build tag-release`
-4. Start a test environment that uses these images, like `tsdb-vmx`
-  - `cd tests/tsdb-vmx`
-5. TODO: describe how to configure etc
+   - `make nso`
+4. Start the `nso-tsdb` test environment
+   - `cd tests/nso-tsdb`
+   - `make start configure`
+   - ``
+5. Check out Grafana for pretty graphs
+   - `make show-address`
+6. TODO: describe how to configure etc
 
 ### Telemetrify as an NSO package (without containers)
 
 1. Install NSO whichever way you like
 2. Compile the package(s) in telemetrify-nso/packages
-  - `telemetrify` is required
+   - `telemetrify` is required
 3. Load `telemetrify` package in NSO
 4. ...
 5. profit!

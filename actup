@@ -1,0 +1,234 @@
+#!/bin/bash
+#
+# Automatically download and install Acton
+#
+
+display_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo
+    echo "Options:"
+    echo "  --deb                Install using .deb (system-wide installation)"
+    echo "  --local              Install locally in ./acton directory using .tar.xz (default)"
+    echo "  --user               Install in the user's home directory under .acton"
+    echo "  --path=<path>        Install in the specified path"
+    echo "  --update-rc-path     Update shell configuration file to include Acton in PATH"
+    echo "  --no-prompt          Do not prompt for confirmation"
+    echo "  tip                  Install the 'tip' version"
+    echo "  vX.Y.Z               Specify a particular version to install (e.g., v0.17.0)"
+    echo "  --help               Display this help and exit"
+}
+
+# Function to prompt user before proceeding
+prompt_confirmation() {
+    if [ "$NO_PROMPT" = true ]; then
+        return 0
+    fi
+    read -p "Do you want to proceed with downloading and installing Acton $1 from $2 [Y/n]? " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]] && [ ! -z $REPLY ]
+    then
+        echo "Installation cancelled."
+        exit 1
+    fi
+}
+
+# Function to update shell configuration file for PATH
+update_rc_path() {
+    local install_path="$1"
+    local profile_files=("$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc" "$HOME/.profile")
+
+    for file in "${profile_files[@]}"; do
+        if [[ -f $file ]]; then
+            echo "export PATH=\"$install_path:\$PATH\"" >> "$file"
+            echo "Updated $file to include Acton in PATH."
+        fi
+    done
+}
+
+# Function to determine platform
+get_platform() {
+    case "$(uname -s)" in
+        Linux*)     echo "linux";;
+        Darwin*)    echo "darwin";;
+        *)          echo "unsupported";;
+    esac
+}
+
+# Function to determine architecture
+get_arch() {
+    case "$(uname -m)" in
+        x86_64)     echo "x86_64";;
+        *)          echo "unsupported";;
+    esac
+}
+
+# Function to download and install using .tar.xz
+install_local() {
+    local version=$1
+    local install_path=$2
+    local platform=$(get_platform)
+    local arch=$(get_arch)
+    # tip
+    # https://github.com/actonlang/acton/releases/download/tip/acton-linux-x86_64.tar.xz
+    # v0.17.0
+    # https://github.com/actonlang/acton/releases/download/v0.17.0/acton-linux-x86_64-0.17.0.tar.xz
+    if [ "$version" == "tip" ]; then
+        version_number=${version}
+    else
+        version_number=${version:1}
+    fi
+    local url="https://github.com/actonlang/acton/releases/download/$version/acton-${platform}-$arch-$version_number.tar.xz"
+    local filename="acton-${platform}-$arch-$version_number.tar.xz"
+
+    prompt_confirmation "$version" "$url"
+
+# Maybe one day we use version in the install dir name
+#    if [ "$install_path" == "" ]; then
+#        local install_dir="acton-$version"
+#    else
+#        local install_dir="$install_path"
+#    fi
+    local install_dir="acton"
+    if [ "$USER_INSTALL" = true ]; then
+        install_dir="$HOME/.acton/$install_dir"
+    else
+        install_dir="$(pwd)/$install_dir"
+    fi
+    
+    mkdir -p "$install_dir" && cd "$install_dir"
+    curl -fsSL -O "$url"
+    tar --strip-components=1 -xf "$filename"
+    rm "$filename"
+
+    echo "Acton $version installed in $install_dir"
+
+    if [ "$UPDATE_RC_PATH" = true ]; then
+        update_rc_path "$install_dir/bin"
+    fi
+
+    echo ""
+    echo "Add the following to your shell configuration file to use Acton, or run it in your local shell:"
+    echo "export PATH=\"$install_dir/bin:\$PATH\""
+    echo ""
+
+}
+
+# Function to download and install using .deb
+install_deb() {
+    local version=$1
+
+    # https://github.com/actonlang/acton/releases/download/tip/acton_tip_amd64.deb
+    # https://github.com/actonlang/acton/releases/download/v0.17.0/acton_0.17.0_amd64.deb
+    local url="https://github.com/actonlang/acton/releases/download/$version/acton_${version#v}_amd64.deb"
+
+    prompt_confirmation "$version" "$url"
+    
+    curl -fsSL -O "$url"
+    apt-get install -qy "./acton_${version#v}_amd64.deb"
+    rm "./acton_${version#v}_amd64.deb"
+
+    echo "Acton $version installed system-wide"
+}
+
+# Default values
+INSTALL_METHOD="--local"
+INSTALL_VERSION=""
+UPDATE_RC_PATH=false
+USER_INSTALL=false
+DEB_INSTALL=false
+NO_PROMPT=false
+
+# Argument parsing
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --deb)
+            DEB_INSTALL=true
+            INSTALL_METHOD="--deb"
+            shift
+            ;;
+        --local)
+            if [ "$USER_INSTALL" = true ]; then
+                echo "Cannot use --local and --user together."
+                display_help
+                exit 1
+            fi
+            INSTALL_METHOD="--local"
+            shift
+            ;;
+        --user)
+            if [ "$DEB_INSTALL" = true ]; then
+                echo "Cannot use --user with --deb."
+                display_help
+                exit 1
+            fi
+            USER_INSTALL=true
+            INSTALL_METHOD="--local"
+            shift
+            ;;
+        --path=*)
+            if [ "$DEB_INSTALL" = true ]; then
+                echo "Cannot use --path with --deb."
+                display_help
+                exit 1
+            fi
+            if [ "$USER_INSTALL" = true ]; then
+                echo "Cannot use --path with --user."
+                display_help
+                exit 1
+            fi
+            INSTALL_METHOD="--local"
+            INSTALL_PATH="${1#*=}"
+            shift
+            ;;
+        --update-rc-path)
+            UPDATE_RC_PATH=true
+            shift
+            ;;
+        --no-prompt)
+            NO_PROMPT=true
+            shift
+            ;;
+        tip)
+            INSTALL_VERSION="tip"
+            shift
+            ;;
+        v*)
+            INSTALL_VERSION="$1"
+            shift
+            ;;
+        --help)
+            display_help
+            exit 0
+            ;;
+        *)
+            echo "Invalid argument: $1"
+            display_help
+            exit 1
+            ;;
+    esac
+done
+
+# Determine version if not specified
+if [ "$INSTALL_VERSION" = "" ]; then
+    latest_release=$(curl -fsSL https://api.github.com/repos/actonlang/acton/releases/latest | grep -Po '"tag_name": "\K.*?(?=")')
+    if [ -z "$latest_release" ]; then
+        echo "Unable to determine the latest version of Acton."
+        exit 1
+    fi
+    INSTALL_VERSION=$latest_release
+    echo "No specific Acton version specified, using latest version ($INSTALL_VERSION)."
+fi
+
+# Perform installation based on method
+case $INSTALL_METHOD in
+    --deb)
+        install_deb "$INSTALL_VERSION"
+        ;;
+    --local)
+        install_local "$INSTALL_VERSION" "$INSTALL_PATH"
+        ;;
+    *)
+        echo "Invalid installation method. Use --local / --user or --deb."
+        exit 1
+        ;;
+esac
