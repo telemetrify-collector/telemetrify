@@ -34,6 +34,10 @@ build:
 	$(ACTONC) build $(BUILD_ARGS)
 .PHONY: build-bin
 
+nso:
+	$(MAKE) -C telemetrify-nso build
+.PHONY: nso
+
 clean: clean-packages
 	rm -rf out
 .PHONY: clean
