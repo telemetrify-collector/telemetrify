@@ -80,6 +80,9 @@ configure-nso-config: add-device-config
 	-$(MAKE) loadconf FILE=unshit-interface.xml NSO=-config-1
 	$(MAKE) loadconf FILE=configure-sla.xml NSO=-config-1
 
+configure-telemetrify:
+	$(MAKE) loadconf FILE=add-telemetrify-config.xml
+
 stop:
 	docker compose down -v
 
