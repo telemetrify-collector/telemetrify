@@ -1133,6 +1133,8 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
     def _get_subscription_source_key(state: TNode) -> Keypath:
         if state[_SUBSCRIPTION_TYPE_ACTION_POLLER].exists():
             return SOURCE_KEY_NETCONF
+        if state[_SUBSCRIPTION_TYPE_GET_POLLER].exists():
+            return SOURCE_KEY_NETCONF
         if state[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
             return SOURCE_KEY_VMANAGE_HTTP
 
