@@ -303,13 +303,17 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
 
         for dev_sub_key, sub_update in subscription_updates.items():
             if sub_update is not None:
+                print("SOURCE netconf SUBSCRIPTION update", sub_update)
                 sub = try_get(subscribers, dev_sub_key)
                 if sub is not None:
+                    print("SOURCE netconf SUBSCRIPTION update", sub_update, "exists")
                     sub.update_config(sub_update)
                 else:
+                    print("SOURCE netconf SUBSCRIPTION update", sub_update, "is new")
                     new_sub = _create_subscriber(dev_sub_key, sub_update)
                     new_sub.update_config(sub_update)
                     if not restart and client is not None:
+                        print("SOURCE netconf SUBSCRIPTION update", sub_update, "to start")
                         new_sub.start()
                     subscribers[dev_sub_key] = new_sub
             else:
