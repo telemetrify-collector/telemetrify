@@ -312,6 +312,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
                     print("SOURCE netconf SUBSCRIPTION update", sub_update, "is new")
                     new_sub = _create_subscriber(dev_sub_key, sub_update)
                     new_sub.update_config(sub_update)
+                    print("SOURCE netconf SUBSCRIPTION update 'restart' is", restart, "'client' is", optional_str(client, "None"))
                     if not restart and client is not None:
                         print("SOURCE netconf SUBSCRIPTION update", sub_update, "to start")
                         new_sub.start()
@@ -342,6 +343,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         username = config[PTag('tlm', 'username')].try_str()
         password = config[PTag('tlm', 'password')].try_str()
         key: ?str = None # TODO
+        print("SOURCE netconf CONNECT", optional_str(address, "None"), optional_str(port, "None"), optional_str(username, "None"), optional_str(password, "None"))
 
         if address is not None and port is not None and \
                 username is not None and (password is not None or key is not None):
@@ -866,7 +868,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     var is_running: bool = False
 
-    log.info("SUBSCRIBER netconf-get-poll CREATED", None)
+    print("SUBSCRIBER netconf-get-poll CREATED")
 
     def _do_get_request(seqno: int, poll_ts: time.Instant):
         if seqno != poller_seqno:
@@ -912,7 +914,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             pass
             log.error("SUBSCRIBER netconf-get-poll POLL interrupted", None)
 
-        #log.info("POLLED...", None)
+        #print("POLLED...")
         curr_ts = time.monotonic()
         next_ts = last_ts.add(period)
         #log.info("  period:", period.to_float(), None)
@@ -927,7 +929,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # log.info("  next_ts:", next_ts, None)
 
         delay = next_ts.since(curr_ts)
-        log.info("  ... delay " + str(delay.to_float()) + "s", None)
+        print("  ... delay " + str(delay.to_float()) + "s")
         after delay.to_float(): _do_get_request(seqno, next_ts)
 
     #def update_sinks(sink_updates: list[(Keypath, ?SubscriptionSink)]):
@@ -952,7 +954,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
             if period_ms is not None and get_xml is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
-                log.info("period: " + str(period.to_float()) + "s", None)
+                print("period: " + str(period.to_float()) + "s")
                 if is_running:
                     _try_start_poller()
             else:
@@ -1023,13 +1025,13 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     def start():
         if not is_running:
-            log.info("SUBSCRIBER netconf-get-poll STARTED", None)
+            print("SUBSCRIBER netconf-get-poll STARTED")
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            log.info("SUBSCRIBER netconf-get-poll STOPPED", None)
+            print("SUBSCRIBER netconf-get-poll STOPPED")
             is_running = False
             _stop_poller()
 
