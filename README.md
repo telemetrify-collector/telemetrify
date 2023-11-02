@@ -1,5 +1,7 @@
 # Telemetrify
 
+![Telemetrify Logo](./logo.png)
+
 A YANG driven network telemetry collector.
 
 One of the core design principles, if not _the_ core design principle is that
