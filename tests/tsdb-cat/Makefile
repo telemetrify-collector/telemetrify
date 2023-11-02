@@ -83,6 +83,9 @@ configure-nso-config: add-device-config
 configure-telemetrify:
 	$(MAKE) loadconf FILE=add-telemetrify-config.xml
 
+configure-telemetrify-sub:
+	$(MAKE) loadconf FILE=add-telemetrify-sub.xml
+
 stop:
 	docker compose down -v
 
