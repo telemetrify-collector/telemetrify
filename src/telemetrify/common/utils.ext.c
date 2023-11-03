@@ -34,9 +34,10 @@ telemetrifyQ_commonQ_utilsQ_IPv4Address telemetrifyQ_commonQ_utilsQ_IPv4AddressD
     struct in_addr addr;
 
     int r = inet_pton(AF_INET, fromB_str(s), &addr);
-    if (r == 0) {
+    if (r == 1) {
+        uint32_t val = ntohl(addr.s_addr);
         return telemetrifyQ_commonQ_utilsQ_IPv4AddressG_new($NEWTUPLE(4,
-            to$int(addr.s_addr >> 24 & 0xff), to$int(addr.s_addr >> 16 & 0xff), to$int(addr.s_addr >> 8 & 0xff), to$int(addr.s_addr & 0xff)));
+            to$int(val >> 24 & 0xff), to$int(val >> 16 & 0xff), to$int(val >> 8 & 0xff), to$int(val & 0xff)));
     }
     return B_None;
 }
@@ -45,7 +46,7 @@ telemetrifyQ_commonQ_utilsQ_IPv6Address telemetrifyQ_commonQ_utilsQ_IPv6AddressD
     struct in6_addr addr;
 
     int r = inet_pton(AF_INET6, fromB_str(s), &addr);
-    if (r == 0) {
+    if (r == 1) {
         return telemetrifyQ_commonQ_utilsQ_IPv6AddressG_new($NEWTUPLE(8,
             to$int(ntohs(addr.s6_addr16[0])),
             to$int(ntohs(addr.s6_addr16[1])),
