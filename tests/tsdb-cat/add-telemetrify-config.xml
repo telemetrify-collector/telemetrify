@@ -3,7 +3,7 @@
     <name>m3db</name>
     <m3db>
       <address>m3db</address>
-      <port>830</port>
+      <port>7201</port>
     </m3db>
   </sink>
 </telemetrify>
