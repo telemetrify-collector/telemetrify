@@ -859,7 +859,8 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
 
-    var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
+    #var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
+    var ned_id: ?HTag = HTag(1503593780, 92759342) # ('http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11', 'ned-ios-xe-yang-nc-17.11')  # TODO: Receive NED-ID config
 
     var poller_seqno: int = 0
     var get_xml: ?xml.Node = None
