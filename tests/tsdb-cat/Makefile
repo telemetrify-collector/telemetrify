@@ -95,10 +95,7 @@ nso-test:
 	$(MAKE) runcmdJ CMD="show devices device cat1 live-status ip-sla-stats"
 
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
-
-test-debug:
-	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./telemetrify.main.main"
 
 log:
 	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"
