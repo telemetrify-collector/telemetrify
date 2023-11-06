@@ -383,7 +383,7 @@ class Cursor:
         elif isinstance(tag, HTag):
             name = self._schema.hash_to_name(tag.name_hash)
             if name is not None:
-                if tag.ns_hash != 0:
+                if tag.ns_hash == 0:
                     return ITag(None, name)
                 elif True: # else: # Workaround: https://github.com/actonlang/acton/issues/1161
                     ns = self.nshash_to_ns(tag.ns_hash)
