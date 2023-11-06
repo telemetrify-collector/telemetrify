@@ -993,11 +993,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                             _nsdef: (?str,str) = (None, _ns)
                             _get_path.append((get_itag.name, [_nsdef]))
                         else:
-                            # TODO: remove hard-coding of ip-sla-stats, but why is it missing its namespace?
-                            if get_itag.name == "ip-sla-stats":
-                                _get_path.append((get_itag.name, [(None, "http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper")]))
-                            else:
-                                _get_path.append((get_itag.name, []))
+                            _get_path.append((get_itag.name, []))
 
             if is_cursor_ok:
                 get_itag = cursor.lookup_itag(cursor.node().tag)
