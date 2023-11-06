@@ -16,9 +16,12 @@ start: build-nso
 	docker compose build
 	docker compose up -d
 	sleep 5
-	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
+	$(MAKE) add-user
 	#make init-m3db
 	make init-grafana
+
+add-user:
+	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
 
 init-m3db:
 	curl -X POST http://localhost:7201/api/v1/database/create -d '{ "type": "local", "namespaceName": "default", "retentionTime": "12h" }' | jq .
@@ -80,6 +83,15 @@ configure-nso-config: add-device-config
 	-$(MAKE) loadconf FILE=unshit-interface.xml NSO=-config-1
 	$(MAKE) loadconf FILE=configure-sla.xml NSO=-config-1
 
+configure-telemetrify:
+	$(MAKE) loadconf FILE=add-telemetrify-config.xml
+
+configure-telemetrify-sub:
+	$(MAKE) loadconf FILE=add-telemetrify-sub.xml
+
+deconfigure-telemetrify-sub:
+	$(MAKE) loadconf FILE=remove-telemetrify-sub.xml
+
 stop:
 	docker compose down -v
 
@@ -89,10 +101,7 @@ nso-test:
 	$(MAKE) runcmdJ CMD="show devices device cat1 live-status ip-sla-stats"
 
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
-
-test-debug:
-	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./telemetrify.main.main"
 
 log:
 	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"

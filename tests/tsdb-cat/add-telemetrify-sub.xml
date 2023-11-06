@@ -1,0 +1,27 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <device>
+    <name>cat1</name>
+    <telemetrify xmlns="urn:telekom:abs:telemetrify">
+      <sources>
+        <netconf>
+          <address>cat1</address>
+          <port>830</port>
+          <username>vrnetlab</username>
+          <password>VR-netlab9</password>
+        </netconf>
+      </sources>
+      <subscription>
+        <name>ip-sla</name>
+        <source>
+          <netconf-get-poll>
+            <path>ip-sla-ios-xe-oper:ip-sla-stats</path>
+            <period>5000</period>
+          </netconf-get-poll>
+        </source>
+        <sink>
+          <name>m3db</name>
+        </sink>
+      </subscription>
+    </telemetrify>
+  </device>
+</devices>

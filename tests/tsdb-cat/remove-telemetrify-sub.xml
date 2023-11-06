@@ -1,0 +1,10 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <device>
+    <name>cat1</name>
+    <telemetrify xmlns="urn:telekom:abs:telemetrify">
+      <subscription operation="delete">
+        <name>ip-sla</name>
+      </subscription>
+    </telemetrify>
+  </device>
+</devices>
