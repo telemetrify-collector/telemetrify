@@ -1034,7 +1034,10 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         print("SUBSCRIBER netconf-get-poll GET_XML", optional_str(get_xml, "None"))
         if get_xml is not None:
             curr_ts = time.monotonic()
-            after 0: _do_get_request(poller_seqno, curr_ts)
+            # TODO: reduce to after 0. But we're currently getting an error, the
+            # SSH client process is closed with exit code 7 with a delay 0
+            # SSH process exited with code: 7  and termination signal: 0
+            after 5: _do_get_request(poller_seqno, curr_ts)
 
     def _stop_poller():
         poller_seqno += 1
