@@ -16,9 +16,12 @@ start: build-nso
 	docker compose build
 	docker compose up -d
 	sleep 5
-	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
+	$(MAKE) add-user
 	#make init-m3db
 	make init-grafana
+
+add-user:
+	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
 
 init-m3db:
 	curl -X POST http://localhost:7201/api/v1/database/create -d '{ "type": "local", "namespaceName": "default", "retentionTime": "12h" }' | jq .
