@@ -11,16 +11,16 @@
         </netconf>
       </sources>
       <subscription>
-	<name>ip-sla</name>
+        <name>ip-sla</name>
         <source>
-           <netconf-get-poll>
-             <path>ip-sla-ios-xe-oper:ip-sla-stats</path>
-	     <period>5000</period>
-	   </netconf-get-poll>
+          <netconf-get-poll>
+            <path>ip-sla-ios-xe-oper:ip-sla-stats</path>
+            <period>5000</period>
+          </netconf-get-poll>
         </source>
-	<sink>
+        <sink>
           <name>m3db</name>
-	</sink>
+        </sink>
       </subscription>
     </telemetrify>
   </device>

@@ -86,6 +86,9 @@ configure-telemetrify:
 configure-telemetrify-sub:
 	$(MAKE) loadconf FILE=add-telemetrify-sub.xml
 
+deconfigure-telemetrify-sub:
+	$(MAKE) loadconf FILE=remove-telemetrify-sub.xml
+
 stop:
 	docker compose down -v
 
