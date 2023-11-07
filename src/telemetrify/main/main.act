@@ -37,6 +37,7 @@ from telemetrify.nsoapi.maapi import *
 from telemetrify.nsoapi.schema import QName, SchemaPath
 from telemetrify.main.config import *
 import telemetrify.vmanage.vmanage as vmanage
+import telemetrify.vmanage.transform
 
 # class Poll(object):
 #     pass
@@ -141,21 +142,53 @@ class Subscriber(object):
     def close(self):
         self.close_fn()
 
+class Transform(object):
+    @property
+    post_fn: action(Node, TNode) -> None
+    @property
+    close_fn: action() -> None
+
+    def __init__(
+            self,
+            post_fn: action(Node, TNode) -> None,
+            close_fn: action() -> None,
+            ):
+        self.post_fn = post_fn
+        self.close_fn = close_fn
+
+    def post(self, node: Node, source_params: TNode) -> None:
+        self.post_fn(node, source_params)
+
+    def close(self):
+        self.close_fn()
+
 class SubscriptionSink(object):
     @property
-    config: TNode
+    config: TNode # TODO: Not really needed here
     @property
-    sink: Sink
+    sink: Sink # TODO: Not really needed here
+    @property
+    transforms: list[Transform]
+    @property
+    head_cb: action(Node, TNode) -> None
 
-    def __init__(self, config: TNode, sink: Sink):
+    def __init__(self, config: TNode, sink: Sink, transforms: list[Transform], head_cb: action(Node, TNode) -> None):
         self.config = config
         self.sink = sink
+        self.transforms = transforms
+        self.head_cb = head_cb
 
     def __str__(self) -> str:
         return "SubscriptionSink(" + str(self.config) + ", " + str(self.sink) + ")"
 
     def write(self, node: Node, source_params: TNode) -> None:
-        self.sink.write(node, source_params, self.config)
+        self.head_cb(node, source_params)
+
+    def close(self):
+        # Close transforms but NOT sink as it's owned by DeviceStreamer
+        for transform in self.transforms:
+            transform.close()
+        self.transforms.clear()
 
 class SubscriptionSinkCollection(object):
     @property
@@ -175,6 +208,99 @@ class SubscriptionSinkCollection(object):
     def write(self, node: Node, source_params: TNode) -> None:
         for sub_sink in self.sub_sinks.values():
             sub_sink.write(node, source_params)
+
+    def close(self):
+        for sub_sink in self.sub_sinks.values():
+            sub_sink.close()
+        #self.sub_sinks.clear()
+        self.sub_sinks = {}
+
+actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema):
+    var maapi_connection: ?telemetrify.nsoapi.maapi.MaapiConnection = None
+    var writer: ?telemetrify.nso.writer.MaapiWriter = None
+
+    var tasks: Wardrobe[(Node, TNode, TNode)] = Wardrobe() # (node, source_params, sink_config)
+
+    print("SINK nso-cdb CREATED")
+
+    def write(node: Node, source_params: TNode, sink_config: TNode) -> None:
+        m = maapi_connection
+        w = writer
+        if m is not None and w is not None:
+            task_id = tasks.put((node, source_params, sink_config))
+            m.start_trans(DB_OPERATIONAL, MODE_READ_WRITE, UserIdentity(None, None, None, None), lambda c, t: _on_start_trans(c, t, task_id))
+        else:
+            # TODO:
+            # Buffer until (re-)connected or signal connection upwards for possible source subscription sync?
+            pass
+
+    def _on_start_trans(_m, txn_handle, task_id):
+        if isinstance(txn_handle, int):
+            print("SINK nso-cdb MAAPI started transaction txn_handle:", txn_handle)
+            w = writer
+            if w is not None:
+                try:
+                    node, source_params, sink_config = tasks.borrow(task_id)
+                except Exception:
+                    pass
+                else:
+                    w.write(node, txn_handle, False, lambda e: _on_write(e, txn_handle, task_id))
+        else:
+            print("SINK nso-cdb MAAPI start transaction failed:", txn_handle)
+
+    def _on_write(e: ?Exception, txn_handle: int, task_id: int):
+        if e is not None:
+            print("SINK nso-cdb MAAPI write txn_handle:", txn_handle, "failed:", e)
+        m = maapi_connection
+        if m is not None:
+            m.apply_trans(txn_handle, False, 0, lambda _c, e: _on_apply_trans(e, txn_handle, task_id))
+
+    def _on_apply_trans(e: ?Exception, txn_handle: int, task_id: int):
+        if e is not None:
+            print("SINK nso-cdb MAAPI apply transaction txn_handle:", txn_handle, "failed:", e)
+        m = maapi_connection
+        if m is not None:
+            m.finish_trans(txn_handle, lambda _c, e: _on_finish_trans(e, txn_handle, task_id))
+
+    def _on_finish_trans(e: ?Exception, txn_handle: int, task_id: int):
+        if e is not None:
+            print("SINK nso-cdb MAAPI finish transaction txn_handle:", txn_handle, "failed:", e)
+        else:
+            print("SINK nso-cdb WRITE DONE")
+        try:
+            tasks.discard(task_id)
+        except Exception:
+            pass
+
+    def _on_maapi_connect(_m: MaapiConnection):
+        print("SINK nso-cdb MAAPI connect complete")
+        m = maapi_connection
+        if m is not None:
+            m.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        m = maapi_connection
+        if m is not None:
+            writer = telemetrify.nso.writer.MaapiWriter(m, shared_schema)
+
+    def _on_maapi_connect_error(e):
+        print("SINK nso-cdb MAAPI connect failed:", e)
+        # TODO: retry? We should probably panic/exit/crash if we don't have a local NSO
+
+    def close():
+        _writer = writer
+        if _writer is not None:
+            # TODO
+            # _writer.close()
+            _writer = None
+        _maapi_connection = maapi_connection
+        if _maapi_connection is not None:
+            _maapi_connection.close()
+            maapi_connection = None
+        tasks.clear()
+        print("SINK nso-cdb CLOSED")
+
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
 
 actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema):
     config_m3db = config[PTag('tlm', 'm3db')]
@@ -629,9 +755,9 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
     def _on_client_error(error_msg: str, seqno: int):
         if seqno != client_seqno:
             return
-        # TODO:
-        # _stop_subscribers()
-        pass
+        _close_client()
+        # TODO: Configurable retry timer/backoff?
+        after 1: _connect_client()
 
     def _on_client_notif(node: xml.Node, seqno: int):
         # if seqno != client_seqno:
@@ -645,13 +771,8 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         restart = False
 
         if source_update is not None:
-            old_client = client
-            if old_client is not None:
-                _stop_subscribers()
-                # TODO: Gather stop replies from subscribers before closing netconf client
-                old_client.close()
+            if _close_client():
                 restart = True
-                client = None
 
             config = source_update
 
@@ -706,8 +827,19 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
             client = new_client
 
         # # <TEST>
-        # after 0: _start_subscribers()
+        # client_seqno += 1
+        # after 0: _on_client_connect(client_seqno)
         # # </TEST>
+
+    def _close_client() -> bool:
+        _client = client
+        if _client is not None:
+            _stop_subscribers()
+            # TODO: Gather stop replies from subscribers before closing netconf client?
+            _client.close()
+            client = None
+            return True
+        return False
 
     def _start_subscribers():
         for subscriber in subscribers.values():
@@ -738,8 +870,6 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
 
-    var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
-
     var poller_seqno: int = 0
     var poll_path: ?str = None
     var schema_path: ?SchemaPath = None
@@ -762,8 +892,45 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
             #except vmanage.NoConnError:
             #    after 1.0: _do_poll(seqno, next_ts)
 
+            # # <TEST>
+            # body = """{
+            # "header": {
+            #     "generatedOn": 1695290859047
+            # },
+            # "total_records": 2,
+            # "data": [
+            #     {
+            #       "latency": 5,
+            #       "dst_ip": "10.1.3.1",
+            #       "src_ip": "10.1.1.1",
+            #       "siteid": 228,
+            #       "loss_percentage": 0,
+            #       "jitter": 8,
+            #       "name": "10.100.1.1:public-internet-10.100.3.1:public-internet",
+            #       "host_name": "de-bsp-aachen-ce-3"
+            #     },
+            #     {
+            #       "latency": 6,
+            #       "dst_ip": "10.1.1.1",
+            #       "src_ip": "10.1.3.1",
+            #       "siteid": 230,
+            #       "loss_percentage": 1,
+            #       "jitter": 9,
+            #       "name": "10.100.3.1:public-internet-10.100.1.1:public-internet",
+            #       "host_name": "de-bsp-chemni-ce-2"
+            #     }
+            # ]
+            # }""".encode()
+
+            # response = http.Response(bytes([]), 200, {}, body)
+            # after 0: _on_poll_reply(seqno, poll_ts, request_ts, response)
+            # # </TEST>
+
 
     def _on_poll_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, reply: ?http.Response):
+        if seqno != poller_seqno:
+            return
+
         if reply is not None:
             try:
                 ar = reply.decode_json()
@@ -779,6 +946,9 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                 print(exc)
                 print(reply.body)
 
+        _schedule_next_poll(seqno, last_ts)
+
+    def _schedule_next_poll(seqno: int, last_ts: time.Instant):
         curr_ts = time.monotonic()
         next_ts = last_ts.add(period)
 
@@ -845,9 +1015,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
             _stop_poller()
 
     def close():
-        pass
-
-
+        stop()
 
 actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
     var logh = logging.Handler("netconf-get-poll")
@@ -1069,7 +1237,7 @@ class SubscriptionUpdate(object):
             unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink, "None") + ")")
         return "SubscriptionUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
 
-actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSchema):
+actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources):
     var sources: dict[Keypath, Source] = {}
     var subscription_sources: dict[Keypath, Keypath] = {}
     var sinks: dict[Keypath, Sink] = {}
@@ -1132,9 +1300,7 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
                     sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
                     sub_sink: ?SubscriptionSink = None
                     if state is not None and isinstance(state, TNode):
-                        sink = try_get(sinks, sink_key)
-                        if sink is not None:
-                            sub_sink = SubscriptionSink(state, sink)
+                        sub_sink = _create_subscription_sink(sink_key, state)
                     sub_update.sinks.append((sink_key, sub_sink))
 
         for dev_sub_key in deleted_dev_sub_keys:
@@ -1167,13 +1333,13 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
             return _source
 
         if source_key == SOURCE_KEY_NETCONF:
-            source_act = NetconfSource(auth, shared_schema)
+            source_act = NetconfSource(env.cap, shared_schema)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
 
         if source_key == SOURCE_KEY_VMANAGE_HTTP:
-            source_act = VManageSource(auth, shared_schema)
+            source_act = VManageSource(env.cap, shared_schema)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
@@ -1187,14 +1353,50 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
 
         if config is not None and isinstance(config, TNode):
             if config[PTag('tlm', 'm3db')].exists():
-                sink_act = M3dbSink(auth, config, shared_schema)
-                sink = Sink(sink_act.write, sink_act.close)
-                sinks[sink_key] = sink
+                sink_act = M3dbSink(env.cap, config, shared_schema)
+                sinks[sink_key] = Sink(sink_act.write, sink_act.close)
                 return
-            # if config[PTag('tlm', 'nso-data-provider')].exists():
+            # elif config[PTag('tlm', 'nso-data-provider')].exists():
             #     ...
             #     sinks[sink_key] = sink
             #     return
+            elif config[PTag('tlm', 'nso-cdb')].exists():
+                sink_act = NsoCdbSink(env, config, shared_schema)
+                sinks[sink_key] = Sink(sink_act.write, sink_act.close)
+                return
+
+    def _create_subscription_sink(sink_key: Keypath, config: TNode) -> ?SubscriptionSink:
+        sink: ?Sink = try_get(sinks, sink_key)
+
+        if sink is not None:
+            head_cb: action(Node, TNode) -> None = action lambda n, p: sink.write(n, p, config)
+
+            transforms: list[Transform] = []
+            # TODO: Make sure we get elements as 'ordered-by user' from CdbCache/TNode.
+            for _transform_elem in reversed(list(config[PTag('tlm', 'transform')])):
+                transform = _create_transform(_transform_elem, head_cb)
+                if transform is not None:
+                    transforms.append(transform)
+                    head_cb = transform.post # head_cb = transform.post_fn
+                else:
+                    pass
+                    # TODO
+                    # raise Exception("Unknown transform type: " + str(_transform_elem))
+
+            return SubscriptionSink(config, sink, transforms, head_cb)
+
+        return None
+
+    def _create_transform(config: TNode, next_cb: action(Node, TNode) -> None) -> ?Transform:
+        # Magic name string for hardcoded transform for now... i.e. demo.
+        if eq_optional(config[PTag('tlm', 'name')].try_str(), "vmanage"):
+            transform_act = telemetrify.vmanage.transform.Transform(
+                next_cb,
+                action lambda cb: shared_resources.request_l3vpn_svc_tracker(cb),
+                action lambda _l: shared_resources.release_l3vpn_svc_tracker())
+            return Transform(transform_act.transform, transform_act.close)
+        # elif ...
+        return None
 
     def close() -> None:
         for source in sources.values():
@@ -1206,8 +1408,25 @@ actor DeviceStreamer(auth: WorldCap, name: str, shared_schema: schema.SharedSche
         #sinks.clear()
         sinks = {}
 
+actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
+    var l3vpn_svc_tracker: ?telemetrify.vmanage.transform.L3vpnSvcTracker = None
+
+    def request_l3vpn_svc_tracker(cb: action(telemetrify.vmanage.transform.L3vpnSvcTracker) -> None):
+        r = l3vpn_svc_tracker
+        if r is not None:
+            cb(r)
+        else:
+            n = telemetrify.vmanage.transform.L3vpnSvcTracker(env, shared_schema)
+            l3vpn_svc_tracker = n
+            cb(n)
+
+    def release_l3vpn_svc_tracker():
+        pass # TODO: Could keep refcount and release when not used
+
 actor main(env):
     var device_streamers: dict[Keypath, DeviceStreamer] = {}
+    var cache: ?telemetrify.nso.subscriber.CdbCache = None
+    var shared_resources: ?SharedResources = None
 
     def _on_maapi_connect_error(e):
         print("MAAPI connect failed:", e)
@@ -1219,6 +1438,7 @@ actor main(env):
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!!")
+            shared_resources = SharedResources(env, shared_schema)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
         else:
@@ -1236,7 +1456,7 @@ actor main(env):
 
     def _on_cdb_cmd_connect(sc, cc, s):
         print("CDB (cmd) connected!!!!")
-        cache = telemetrify.nso.subscriber.ConfigCache(sc, cc, s,
+        cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
                 DeviceSettingsRefiner,
                 DeviceSourceNetconfRefiner,
@@ -1304,8 +1524,9 @@ actor main(env):
                     _device_name_key = device_key.try_get_key(0)
                     if _device_name_key is not None:
                         device_name = _device_name_key[0]
-                        if isinstance(device_name, str):
-                            device_streamers[device_key] = DeviceStreamer(env.cap, device_name, shared_schema)
+                        _shared_resources = shared_resources
+                        if isinstance(device_name, str) and _shared_resources is not None:
+                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources)
                 updated_device_keys.add(device_key)
                 updated_device_configs[device_key] = state
             else:
@@ -1342,7 +1563,7 @@ actor main(env):
             entry.close()
 
     def _on_config_cache_error(e):
-        print("ConfigCache failed:", optional_str(e.error_message, ""))
+        print("CdbCache failed:", optional_str(e.error_message, ""))
         await async env.exit(1)
 
     print("Starting up...")

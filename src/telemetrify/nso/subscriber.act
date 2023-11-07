@@ -19,11 +19,32 @@ from telemetrify.nsoapi.conv import *
 from telemetrify.nsoapi.proto import *
 from telemetrify.nsoapi.schema import *
 
+SUB_TYPE_RUNNING = CDB_SUB_TYPE_RUNNING
+# SUB_TYPE_RUNNING_TWOPHASE = CDB_SUB_TYPE_RUNNING_TWOPHASE
+SUB_TYPE_OPERATIONAL = CDB_SUB_TYPE_OPERATIONAL
+
+class SubscriptionSpec(object):
+    @property
+    path: Keypath
+    @property
+    sub_type: int
+
+    def __init__(self, path: Keypath, sub_type: int):
+        self.path = path
+        self.sub_type = sub_type
+
+extension SubscriptionSpec(Hashable):
+    def __eq__(self, other: SubscriptionSpec) -> bool:
+        return self.path == other.path and self.sub_type == other.sub_type
+
+    def __hash__(self) -> int:
+        return safe_hash(hash(self.path) + hash(self.sub_type))
+
 class Refiner(object):
     @property
     priority: int
     @property
-    subscription_dependencies: list[Keypath]
+    subscription_dependencies: list[SubscriptionSpec]
     @property
     refiner_dependencies: list[int]
 
@@ -34,7 +55,7 @@ class Refiner(object):
     def id() -> int:
         raise Exception("Not Implemented")
 
-    mut def update(self, tree: TNode, input_subs: dict[Keypath, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+    mut def update(self, tree: TNode, input_subs: dict[SubscriptionSpec, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         raise Exception("Not Implemented")
 
     def state(self, keys: Keypath) -> ?value:
@@ -107,17 +128,17 @@ class PassthroughRefiner(Refiner):
     @property
     subtrees: dict[Keypath, TNode]
 
-    def __init__(self, subscription_path: Keypath):
+    def __init__(self, subscription_spec: SubscriptionSpec):
         self.priority = 0
-        self.subscription_dependencies = [subscription_path]
+        self.subscription_dependencies = [subscription_spec]
         self.refiner_dependencies = []
         self.subtrees = {}
 
-    def update(self, root: TNode, input_subs: dict[Keypath, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+    def update(self, root: TNode, input_subs: dict[SubscriptionSpec, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         _subtrees: dict[Keypath, TNode] = {}
 
-        sub_path = self.subscription_dependencies[0]
-        keys = input_subs[sub_path]
+        sub_spec = self.subscription_dependencies[0]
+        keys = input_subs[sub_spec]
 
         ancestor_deleted_keys = []
 
@@ -126,6 +147,7 @@ class PassthroughRefiner(Refiner):
             key_len = len(key)
 
             node = root
+            sub_path = sub_spec.path
             #for _id in sub_path:
             for path_index in range(0, len(sub_path), 1):
                 _id: Id = sub_path[path_index]
@@ -198,7 +220,7 @@ def _get_subtree_keys(node: TNode, max_keys: int) -> list[Keypath]:
                 keys.append(Keypath(list(curr_keys)))
     return keys
 
-actor ConfigCache(cdb_sub_conn: CdbConnection,
+actor CdbCache(cdb_sub_conn: CdbConnection,
             cdb_cmd_conn: CdbConnection,
             shared_schema: SharedSchema,
             refiner_ctors: list[pure() -> Refiner],
@@ -211,7 +233,7 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
     #var _schema = shared_schema.shared_schema()
     var _schema = unsafe_get_shared_schema(shared_schema)
 
-    var _sub_ids: dict[int, (Keypath, int, set[Refiner])] = {}
+    var _sub_ids: dict[int, (SubscriptionSpec, int, set[Refiner])] = {}
     var __refiner_dependents: dict[Refiner, list[Refiner]] = {}
 
     var _pending_sub_ids: list[int] = []
@@ -230,14 +252,14 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
             r.priority = 1 + mp
         return r.priority
 
-    sub_paths: set[Keypath] = set([])
+    sub_specs: set[SubscriptionSpec] = set([])
 
     for c in refiner_ctors:
         r = c()
-        #sub_paths.update(r.subscription_dependencies)
-        set_update(sub_paths, r.subscription_dependencies)
+        #sub_specs.update(r.subscription_dependencies)
+        set_update(sub_specs, r.subscription_dependencies)
         if r.id() in _refiners:
-            raise ValueError("ConfigCache: Attempted to register duplicate refiner-id")
+            raise ValueError("CdbCache: Attempted to register duplicate refiner-id")
         _refiners[r.id()] = r
 
     for r in _refiners.values():
@@ -252,7 +274,7 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
             dict_list_append(_callback_indexes, dependency_id, i)
 
     def update() -> None:
-        updated_sub_paths: dict[Keypath, list[Keypath]] = {}
+        updated_subs: dict[SubscriptionSpec, list[Keypath]] = {}
         updated_refiners: dict[Refiner, list[Keypath]] = {}
         scheduled_refiners: set[Refiner] = set([])
 
@@ -268,11 +290,11 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
 
                 sub_entry = try_get(_sub_ids, sub_id)
                 if sub_entry is not None:
-                    sub_path, max_keys, refiners = sub_entry
+                    sub_spec, max_keys, refiners = sub_entry
                     #print("For: ", sub_path, "max_keys:", max_keys)
                     keys = _get_subtree_keys(merge_root, max_keys)
                     #print("Got keys: " + list_str(keys))
-                    updated_sub_paths[sub_path] = keys
+                    updated_subs[sub_spec] = keys
                     for refiner in refiners:
                         if refiner not in scheduled_refiners:
                             #schedule_heap.insert(refiner)
@@ -288,10 +310,10 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
             #curr_refiner = schedule_heap.try_pop()
             curr_refiner = MinHeap_Ord2.try_pop(schedule_heap) # https://github.com/actonlang/acton/issues/1448
             if curr_refiner is not None:
-                input_subs: dict[Keypath, list[Keypath]] = {}
+                input_subs: dict[SubscriptionSpec, list[Keypath]] = {}
                 input_refiners: dict[int, (Refiner, list[Keypath])] = {}
-                for sub_path in curr_refiner.subscription_dependencies:
-                    input_subs[sub_path] = updated_sub_paths.get(sub_path, [])
+                for sub_spec in curr_refiner.subscription_dependencies:
+                    input_subs[sub_spec] = updated_subs.get(sub_spec, [])
                 for dependency_id in curr_refiner.refiner_dependencies:
                     dependency = _refiners[dependency_id]
                     input_refiners[dependency_id] = (dependency, updated_refiners.get(dependency, []))
@@ -364,55 +386,82 @@ actor ConfigCache(cdb_sub_conn: CdbConnection,
             on_error(Exception("Sub sync error: " + str(v.error_message)))
         update()
 
-    def _on_subscription_success(sub_ids: dict[Keypath, int]) -> None:
-        for sub_path, sub_id in sub_ids.items():
-            _sub_ids[sub_id] = (sub_path, _get_subpath_num_keys(sub_path), set([]))
+    def _on_subscription_success(sub_ids: dict[SubscriptionSpec, int]) -> None:
+        for sub_spec, sub_id in sub_ids.items():
+            _sub_ids[sub_id] = (sub_spec, _get_subpath_num_keys(sub_spec.path), set([]))
         for refiner in _refiners.values():
-            sub_paths = refiner.subscription_dependencies
-            for sub_path in sub_paths:
-                sub_id = try_get(sub_ids, sub_path)
+            sub_specs = refiner.subscription_dependencies
+            for sub_spec in sub_specs:
+                sub_id = try_get(sub_ids, sub_spec)
                 if sub_id is not None:
                     _sub_ids[sub_id].2.add(refiner)
 
-        cdb_cmd_conn.trigger_subscriptions(list(_sub_ids.keys()), _on_trigger_subscriptions)
+        if not _trigger_subscriptions():
+            _trigger_oper_subscriptions()
+
+    def _trigger_subscriptions() -> bool:
+        trigger_ids: set[int] = set([])
+        for sub_id, (sub_spec, _1, _2) in _sub_ids.items():
+            if sub_spec.sub_type != SUB_TYPE_OPERATIONAL:
+                trigger_ids.add(sub_id)
+
+        if trigger_ids:
+            cdb_cmd_conn.trigger_subscriptions(list(trigger_ids), _on_trigger_subscriptions)
+            return True
+        return False
 
     def _on_trigger_subscriptions(c: CdbConnection, v: ?Exception):
         if v is not None:
             on_error(Exception("Initial trigger_subscriptions error: " + str(v.error_message)))
+        else:
+            _trigger_oper_subscriptions()
 
-    _SubscriptionSetup(cdb_sub_conn, sub_paths, shared_schema, _on_sub_event, _on_subscription_success, on_error)
+    def _trigger_oper_subscriptions():
+        trigger_ids: list[int] = []
+        for sub_id, (sub_spec, _1, _2) in _sub_ids.items():
+            if sub_spec.sub_type == SUB_TYPE_OPERATIONAL:
+                trigger_ids.append(sub_id)
 
-actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_paths: set[Keypath], shared_schema: SharedSchema,
+        if trigger_ids:
+            cdb_cmd_conn.trigger_oper_subscriptions(trigger_ids, LOCK_WAIT, _on_trigger_oper_subscriptions)
+
+    def _on_trigger_oper_subscriptions(c: CdbConnection, v: ?Exception):
+        if v is not None:
+            on_error(Exception("Initial trigger_oper_subscriptions error: " + str(v.error_message)))
+
+    _SubscriptionSetup(cdb_sub_conn, sub_specs, shared_schema, _on_sub_event, _on_subscription_success, on_error)
+
+actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_specs: set[SubscriptionSpec], shared_schema: SharedSchema,
                             sub_event_cb: action(CdbConnection, value) -> None,
-                            on_success: action(dict[Keypath, int]) -> None, on_error: action(Exception) -> None):
+                            on_success: action(dict[SubscriptionSpec, int]) -> None, on_error: action(Exception) -> None):
 
     #var _schema = shared_schema.shared_schema()
     var _schema = unsafe_get_shared_schema(shared_schema)
 
-    var _subscription_points: dict[Keypath, int] = {}
+    var _subscription_points: dict[SubscriptionSpec, int] = {}
 
     def _do_subscribe():
         #if paths:
-        if len(subscription_paths) != 0:
-            path = subscription_paths.pop()
+        if len(subscription_specs) != 0:
+            spec = subscription_specs.pop()
             #ekp = keypath_to_ekeypath(path, Cursor(_schema), False)
             # Luckily IKP works for subscriptions as HKP paths with namespace transitions fail
             # during subscribe_done with error i ncserr.log where it tries to lookup a tag with the parent
             # namespace rather then the one actually specified!
-            ekp = keypath_to_ekeypath(path, Cursor(_schema), True)
+            ekp = keypath_to_ekeypath(spec.path, Cursor(_schema), True)
             if ekp is not None:
-                cdb_sub_conn.subscribe(CDB_SUB_TYPE_RUNNING, 0, 0, ekp, lambda c, v: _on_subscribe(c, v, path))
+                cdb_sub_conn.subscribe(spec.sub_type, 0, 0, ekp, lambda c, v: _on_subscribe(c, v, spec))
             else:
-                on_error(ValueError("Invalid subscription path: " + str(path)))
+                on_error(ValueError("Invalid subscription path: " + str(spec.path)))
         else:
             cdb_sub_conn.subscribe_done(_on_subscribe_done, sub_event_cb)
 
-    def _on_subscribe(c, v, kp):
+    def _on_subscribe(c, v, spec):
         if isinstance(v, int):
-            _subscription_points[kp] = v
+            _subscription_points[spec] = v
             _do_subscribe()
         else:
-            on_error(ValueError("Invalid subscription path: " + str(kp)))
+            on_error(ValueError("Invalid subscription path: " + str(spec.path)))
 
     def _on_subscribe_done(c, e):
         if e is not None:
