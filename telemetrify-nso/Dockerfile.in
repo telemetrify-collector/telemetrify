@@ -1,18 +1,17 @@
 ARG NSO_IMAGE_PATH
 ARG NSO_VERSION
 
-# DEP_START
 FROM gitlab.dev.terastrm.net:4567/abs/dt-sdwan/nso:${NSO_VERSION} AS dt-sdwan
+# DEP_START
 # DEP_END
-
 
 # Compile local packages in the build stage
 FROM ${NSO_IMAGE_PATH}cisco-nso-dev:${NSO_VERSION} AS build
 ARG PKG_FILE
 
-# DEP_INC_START
 COPY --from=dt-sdwan /var/opt/ncs/packages/ietf-network-topology/ /includes/ietf-network-topology/
 COPY --from=dt-sdwan /var/opt/ncs/packages/ietf-l3vpn-svc/ /includes/ietf-l3vpn-svc/
+# DEP_INC_START
 # DEP_INC_END
 
 COPY / /src
