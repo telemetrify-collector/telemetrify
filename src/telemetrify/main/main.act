@@ -1075,13 +1075,17 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
         # TODO: Process node
         if node is not None:
-            xnode = netconf.netconf_to_xnode(node, [], 0)
-            print("SUBSCRIBER netconf-get-poll POLL:", xnode)
-            source_params = tnode_root()
-            source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
-            if schema_path is not None:
-                source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
-            sinks.write(xnode, source_params)
+            if node.tag == "rpc-reply":
+                 node = node.children[0]
+                 if node.tag == "data":
+                     node = node.children[0]
+                     xnode = netconf.netconf_to_xnode(node, [], 0)
+                     print("SUBSCRIBER netconf-get-poll POLL:", xnode)
+                     source_params = tnode_root()
+                     source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
+                     if schema_path is not None:
+                         source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
+                     sinks.write(xnode, source_params)
         else:
             pass
             log.error("SUBSCRIBER netconf-get-poll POLL interrupted", None)
