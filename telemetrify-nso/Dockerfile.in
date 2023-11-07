@@ -9,8 +9,12 @@ FROM gitlab.dev.terastrm.net:4567/abs/dt-sdwan/nso:${NSO_VERSION} AS dt-sdwan
 FROM ${NSO_IMAGE_PATH}cisco-nso-dev:${NSO_VERSION} AS build
 ARG PKG_FILE
 
+# We just need a few packages and in particular the YANG models from these sources
 COPY --from=dt-sdwan /var/opt/ncs/packages/ietf-network-topology/ /includes/ietf-network-topology/
 COPY --from=dt-sdwan /var/opt/ncs/packages/ietf-l3vpn-svc/ /includes/ietf-l3vpn-svc/
+# Remove XML templates since they fail to load without their deps packages / models
+RUN rm /includes/ietf-l3vpn-svc/templates/*.xml
+
 # DEP_INC_START
 # DEP_INC_END
 
