@@ -1,0 +1,45 @@
+version: "3.3"
+services:
+    m3db:
+        image: quay.io/m3db/m3dbnode:v1.1.0
+          #user: ${DOCKER_USER}
+        ports:
+            - 7201:7201
+            - 7203:7203
+        volumes:
+            - m3db_data:/var/lib/m3db
+        labels:
+            - "com.cisco.nso.testenv.name=${CNT_PREFIX}"
+
+    grafana:
+        image: grafana/grafana
+          #user: ${DOCKER_USER}
+        depends_on:
+            - m3db
+        ports:
+            - 3000:3000
+        environment:
+            GF_AUTH_ANONYMOUS_ENABLED: "true"
+            GF_AUTH_ANONYMOUS_ORG_NAME: "NSO"
+            GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+            #GF_AUTH_DISABLE_LOGIN_FORM: "true"
+            #GF_AUTH_DISABLE_SIGNOUT_MENU: "true"
+            GF_DASHBOARDS_JSON_ENABLED: "true"
+
+        volumes:
+            - grafana_data:/var/lib/grafana
+
+    nso:
+        image: pruned-telemetrify-nso/nso:6.1.4
+        build:
+            dockerfile: ./nso.Dockerfile
+        volumes:
+          - ../../:/mnt
+        ports:
+          - 4569:4569
+        labels:
+            - "com.cisco.nso.testenv.name=${CNT_PREFIX}"
+
+volumes:
+    m3db_data:
+    grafana_data:

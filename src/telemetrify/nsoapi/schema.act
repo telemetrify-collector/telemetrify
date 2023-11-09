@@ -1297,8 +1297,8 @@ class Decimal64Type(Type):
         return None
 
     def netconf_to_value(self: Decimal64Type, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
-        d: ?Decimal64 = Decimal64.try_parse(s)
-        return d.try_lossless_realignment(-self.fraction_digits) if d is not None else None
+        d: ?Decimal64 = Decimal64.try_parse(s.strip(" \t\r\n"))
+        return d.try_lossless_realign(-self.fraction_digits) if d is not None else None
 
     def validate_value(self: Decimal64Type, cursor: Cursor, v: ?value) -> bool:
         # TODO
@@ -1926,7 +1926,7 @@ class Boolean:
 class IPv4:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv4Address:
-        return IPv4Address.try_parse(s)
+        return IPv4Address.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1942,7 +1942,7 @@ class IPv4:
 class IPv6:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv6Address:
-        return IPv6Address.try_parse(s)
+        return IPv6Address.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1960,7 +1960,7 @@ class IPv6:
 class IPv4Prefix:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv4Network:
-        return IPv4Network.try_parse(s) # TODO: Verify that host bits are all zero
+        return IPv4Network.try_parse(s.strip(" \t\r\n")) # TODO: Verify that host bits are all zero
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1978,7 +1978,7 @@ class IPv4Prefix:
 class IPv6Prefix:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv6Network:
-        return IPv6Network.try_parse(s) # TODO: Verify that host bits are all zero
+        return IPv6Network.try_parse(s.strip(" \t\r\n")) # TODO: Verify that host bits are all zero
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -1997,7 +1997,7 @@ class IPv6Prefix:
 class IPv4AndPrefixLen:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv4Network:
-        return IPv4Network.try_parse(s)
+        return IPv4Network.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2015,7 +2015,7 @@ class IPv4AndPrefixLen:
 class IPv6AndPrefixLen:
     @staticmethod
     def netconf_to_value(s: str) -> ?IPv6Network:
-        return IPv6Network.try_parse(s)
+        return IPv6Network.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2034,7 +2034,7 @@ class IPv6AndPrefixLen:
 class DateTime_:
     @staticmethod
     def netconf_to_value(s: str) -> ?DateTime:
-        return DateTime.try_parse(s)
+        return DateTime.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2067,7 +2067,7 @@ class DateTime_:
 class Date_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Date:
-        return Date.try_parse(s)
+        return Date.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2096,7 +2096,7 @@ class Date_:
 class Time_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Time:
-        return Time.try_parse(s)
+        return Time.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2126,7 +2126,7 @@ class Time_:
 class Duration_:
     @staticmethod
     def netconf_to_value(s: str) -> ?Duration:
-        return Duration.try_parse(s)
+        return Duration.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:
@@ -2318,7 +2318,7 @@ class Decimal64_:
     def netconf_to_value(s: str) -> ?Decimal64:
         # Normally we won't get here as the type class converter has done the conversion
         # in order to align the fraction_digits / exponent
-        return Decimal64.try_parse(s)
+        return Decimal64.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
     def value_to_netconf(v: ?value) -> ?str:

@@ -1,0 +1,11 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>ietf-l3vpn-svc-mock</name>
+  <package-version>1.0</package-version>
+  <description>DT/IETF L3VPN service mock</description>
+  <ncs-min-version>6.1</ncs-min-version>
+
+  <required-package>
+    <name>ietf-network-topology</name>
+  </required-package>
+
+</ncs-package>

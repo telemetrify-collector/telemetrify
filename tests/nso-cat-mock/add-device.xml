@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <authgroups>
+    <group>
+      <name>vrnetlab</name>
+      <default-map>
+        <remote-name>vrnetlab</remote-name>
+        <remote-password>VR-netlab9</remote-password>
+      </default-map>
+    </group>
+  </authgroups>
+  <device>
+    <name>de-bsp-aachen-ce-3</name>
+    <address>de-bsp-aachen-ce-3</address>
+    <authgroup>vrnetlab</authgroup>
+    <device-type>
+      <netconf>
+        <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
+      </netconf>
+    </device-type>
+    <state>
+      <admin-state>southbound-locked</admin-state>
+    </state>
+  </device>
+  <device>
+    <name>de-bsp-berlin-cpe-1</name>
+    <address>de-bsp-berlin-cpe-1</address>
+    <authgroup>vrnetlab</authgroup>
+    <device-type>
+      <netconf>
+        <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
+      </netconf>
+    </device-type>
+    <state>
+      <admin-state>southbound-locked</admin-state>
+    </state>
+  </device>
+  <device>
+    <name>de-bsp-chemni-ce-2</name>
+    <address>de-bsp-chemni-ce-2</address>
+    <authgroup>vrnetlab</authgroup>
+    <device-type>
+      <netconf>
+        <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
+      </netconf>
+    </device-type>
+    <state>
+      <admin-state>southbound-locked</admin-state>
+    </state>
+  </device>
+</devices>
+
