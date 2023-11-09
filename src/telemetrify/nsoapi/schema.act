@@ -1540,7 +1540,6 @@ actor SchemaBuilder():
                         #print(elem)
                         type_descr = Type.from_ns_tuple(t, curr_ns, pending_type_resolves)
                         if type_descr is not None:
-                            print(elem)
                             if type_descr.type_id not in types:
                                 types[type_descr.type_id] = type_descr
                             else:
