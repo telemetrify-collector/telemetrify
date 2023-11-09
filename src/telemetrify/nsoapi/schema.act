@@ -86,6 +86,8 @@ extension TypeId(Hashable):
     def __hash__(self) -> int:
         return safe_hash(self.ns_hash + hash(self.name))
 
+EMPTY_TYPE_ID = TypeId(0, "")
+
 pass
 
 class SchemaPath(object):
@@ -688,7 +690,7 @@ class RawKeys:
                         keys.append(e.val)
                 return RawKeys(_node_id.val, keys)
 
-class Node:
+class Node(object):
     # @property:
     # node_type: int
     @property
@@ -832,7 +834,7 @@ class Type(object):
         append(Type(TypeId(0, "inetAddressIPv6"), None, C_IPV6))
         append(Type(TypeId(0, "Counter32"), None, C_UINT32))
         append(Type(TypeId(0, "Counter64"), None, C_UINT64))
-        append(Type(TypeId(0, "Guage32"), None, C_UINT32))
+        append(Type(TypeId(0, "Gauge32"), None, C_UINT32))
         append(Type(TypeId(0, "inetPortNumber"), None, C_UINT16))
         append(Type(TypeId(0, "inetAddressDNS"), None, C_BUF))
         append(Type(TypeId(0, "oid"), None, C_OID)) # TODO: First identified must be 0,1,2)
@@ -898,7 +900,12 @@ class Type(object):
         return types
 
     @staticmethod
-    def from_ns_tuple(elems: list[EObject], ns_descr: NamespaceDescription, types: dict[TypeId, Type]) -> ?Type:
+    def unknown_type() -> Type:
+        # TODO: Workaround compiler constraints to return a shared constant?
+        return Type(EMPTY_TYPE_ID, None, C_UNKNOWN)
+
+    @staticmethod
+    def from_ns_tuple(elems: list[EObject], ns_descr: NamespaceDescription, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
         if len(elems) >= 6:
             _derivation = elems[1]
             _name = elems[2]
@@ -915,33 +922,43 @@ class Type(object):
                 type_id = TypeId(ns_descr.ns_hash, str(_name))
 
                 parent_type_id = TypeId(_parent_ns_hash.val, str(_parent_name))
-                parent_type: ?Type = try_get(types, parent_type_id)
+
+                result_type: ?Type = None
 
                 if derivation == "none":
-                    pass
+                    result_type = Type(type_id, None, None)
                 elif derivation == "enum":
-                    return EnumType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = EnumType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "idref":
-                    return IdentityType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = IdentityType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "bits":
-                    return BitsType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = BitsType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "decimal64":
-                    return Decimal64Type.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = Decimal64Type.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "union":
-                    return UnionType.from_ns_opaque(type_id, parent_type, _opaque, types)
+                    result_type = UnionType.from_ns_opaque(type_id, None, _opaque, pending_type_resolves)
                 elif derivation == "list":
-                    return ListType.from_ns_opaque(type_id, parent_type, _opaque, types)
+                    result_type = ListType.from_ns_opaque(type_id, None, _opaque, pending_type_resolves)
                 elif derivation == "number":
-                    return RestrictedNumberType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = RestrictedNumberType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "string":
-                    return StringType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = StringType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "list_restr":
-                    return ListRestrictionType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = ListRestrictionType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "display_hint":
-                    return DisplayHintType.from_ns_opaque(type_id, parent_type, _opaque)
+                    result_type = DisplayHintType.from_ns_opaque(type_id, None, _opaque)
                 elif derivation == "identity":
-                    pass
-                return Type(type_id, parent_type, None)
+                    result_type = Type(type_id, None, None)
+                else:
+                    result_type = Type(type_id, None, None)
+
+                if result_type is not None and parent_type_id != EMPTY_TYPE_ID:
+                    def _resolve_cb(t: Type) -> None:
+                        result_type.parent_type = t
+                    pending_type_resolves.append((parent_type_id, _resolve_cb))
+
+                return result_type
+
         return None
 
     def netconf_to_value(self: Type, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
@@ -1077,7 +1094,7 @@ class UnionType(Type):
         return "UnionType(" + self.__str_common() + ", " + list_str(self.types) + ")"
 
     @staticmethod
-    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
         if isinstance(opaque, EList):
             utypes = []
             for _elem in list_reversed(opaque.elems):
@@ -1088,11 +1105,9 @@ class UnionType(Type):
                         _name = _elems[1]
                         if isinstance(_ns_hash, EInt) and isinstance(_name, EAtom):
                             utype_id = TypeId(_ns_hash.val, str(_name))
-                            t = try_get(types, utype_id)
-                            if t is not None:
+                            def _resolve_cb(t: Type):
                                 utypes.append(t)
-                            else:
-                                print("WARNING: Invalid schema union member type_id ref:", utype_id)
+                            pending_type_resolves.append((utype_id, _resolve_cb))
             return UnionType(type_id, parent_type, utypes)
         return None
 
@@ -1282,7 +1297,7 @@ class Decimal64Type(Type):
         return None
 
     def netconf_to_value(self: Decimal64Type, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
-        d = Decimal64.try_parse(s)
+        d: ?Decimal64 = Decimal64.try_parse(s)
         return d.try_lossless_realignment(-self.fraction_digits) if d is not None else None
 
     def validate_value(self: Decimal64Type, cursor: Cursor, v: ?value) -> bool:
@@ -1304,18 +1319,20 @@ class ListType(Type):
         return "ListType(" + self.__str_common() + ", " + str(self.elem_type) + ")"
 
     @staticmethod
-    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, types: dict[TypeId, Type]) -> ?Type:
+    def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
         if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
             elems = opaque.elems
             _ns_hash = elems[0]
             _name = elems[1]
             if isinstance(_ns_hash, EInt) and isinstance(_name, EAtom):
-                type_id = TypeId(_ns_hash.val, str(_name))
-                t = try_get(types, type_id)
-                if t is not None:
-                    return ListType(type_id, parent_type, t)
-                else:
-                    print("WARNING: Invalid schema list elem type_id ref:", type_id)
+                result_type = ListType(type_id, parent_type, Type.unknown_type())
+
+                elem_type_id = TypeId(_ns_hash.val, str(_name))
+                def _resolve_cb(t: Type) -> None:
+                    result_type.elem_type = t
+                pending_type_resolves.append((elem_type_id, _resolve_cb))
+
+                return result_type
         return None
 
     def netconf_to_value(self: ListType, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
@@ -1476,6 +1493,8 @@ actor SchemaBuilder():
     var curr_ns: NamespaceDescription = NamespaceDescription("", "", "", 0, "", "")
     var curr_mount_id: HTag = ROOT_MOUNT_ID
 
+    var pending_type_resolves: list[(TypeId, mut(Type) -> None)] = []
+
     var hash_to_name: dict[int, str] = {}
     var name_to_hash: dict[str, int] = {}
     var namespaces: dict[int, NamespaceDescription] = {}
@@ -1519,12 +1538,13 @@ actor SchemaBuilder():
                             return
                     elif etype == 'type':
                         #print(elem)
-                        type_descr = Type.from_ns_tuple(t, curr_ns, types)
+                        type_descr = Type.from_ns_tuple(t, curr_ns, pending_type_resolves)
                         if type_descr is not None:
-                            # TODO: Find out why we may receive types that have same names a builtins
-                            #       but with other properties... E.g: 0:string as ListType ...
+                            print(elem)
                             if type_descr.type_id not in types:
                                 types[type_descr.type_id] = type_descr
+                            else:
+                                print("WARNING: Discarding duplicate type_id:", type_descr.type_id)
                             return
                     elif etype == 'keys':
                         keys = RawKeys.from_ns_tuple(t)
@@ -1536,6 +1556,10 @@ actor SchemaBuilder():
                         if node is not None:
                             raw_nodes[node.node_id] = node
                             return
+                    elif etype == 'case':
+                        return
+                    elif etype == 'choice':
+                        return
                     elif etype == 'root' and len(t) == 2:
                         _node_id = t[1]
                         if isinstance(_node_id, EInt):
@@ -1545,7 +1569,7 @@ actor SchemaBuilder():
                     elif etype == 'parent':
                         _assemble_node_trees()
                         return
-        #print("WARNING: Unexpected schema ns elem:", elem)
+        print("WARNING: Unexpected schema ns elem:", elem)
 
     def _on_hash_elem(elem: EObject) -> None:
         #print(elem)
@@ -1645,14 +1669,12 @@ actor SchemaBuilder():
                     else:
                         print("WARNING: Invalid key node id for schema node_id:", node_id)
                 tag = _make_tag(raw_node.ns_hash, raw_node.tag_hash)
+                type_id: ?TypeId = None
                 type_descr: ?Type = None
                 if raw_node.type_name:
-                    type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
-                    type_descr = try_get(types, type_id)
-                    if type_descr is None:
-                        print("WARNING: missing type descriptor for: " + str(type_id) + " -> " + type_id.str_pretty(hash_to_name))
-                        # Fallback to primitive type
-                        type_descr = Type(type_id, None, raw_node.conf_type)
+                    _type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
+                    type_descr = try_get(types, _type_id)
+                    type_id = _type_id
                 node = Node(
                     tag,
                     raw_node.min_occurs,
@@ -1663,6 +1685,11 @@ actor SchemaBuilder():
                     keys,
                     children)
                 result[tag] = node
+
+                if type_id is not None and type_descr is None:
+                    def _resolve_cb(t: Type):
+                        node.value_type = t
+                    pending_type_resolves.append((type_id, _resolve_cb))
 
                 node_id = raw_node.next_node_id
             else:
@@ -1675,7 +1702,24 @@ actor SchemaBuilder():
         return tag
         # TODO: Store tag for reuse
 
+    def _htag_to_itag(htag: ?HTag) -> ?ITag:
+        if htag is not None:
+            name = try_get(hash_to_name, htag.name_hash)
+            if name is not None:
+                return ITag(try_get(hash_to_name, htag.ns_hash), name)
+        return None
+
+    def _resolve_pending_types():
+        for type_id: TypeId, resolve_cb: mut(Type) -> None in pending_type_resolves:
+            _type = try_get(types, type_id)
+            if _type is not None:
+                resolve_cb(_type)
+            else:
+                print("WARNING: Failed to resolve reference to type " + type_id.str_pretty(hash_to_name))
+
     def build() -> Schema:
+        _resolve_pending_types()
+
         #_pretty_print_nodes(roots, "")
         #_pretty_print_types(types, "")
 
