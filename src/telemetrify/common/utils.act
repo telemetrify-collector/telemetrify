@@ -489,6 +489,13 @@ def try_parse_int(s: str) -> ?int:
     return sign * v
 
 def try_parse_float(s: str) -> ?float:
+    parts = try_parse_float_parts(s)
+    if parts is not None:
+        significand, exponent = parts
+        return float(significand) * float(10)**float(exponent)
+    return None
+
+def try_parse_float_parts(s: str) -> ?(int, int):
     s = s.strip(" \t\n")
 
     p = s.split('e', -1)
@@ -528,7 +535,7 @@ def try_parse_float(s: str) -> ?float:
     else:
         return None
 
-    return float(significand) * float(10)**float(exp) # TODO: Numerical correctness?
+    return (significand, exp)
 
 def try_parse_hex(s: str) -> ?int:
     s = s.strip(" \t\r\n")
@@ -655,41 +662,18 @@ class Decimal64:
         #return str(self.significand) + "e" + str(self.exponent)
         s = str(self.integral_part())
         if self.exponent < 0:
+            s += "."
             f = self.fractional_part()
             s += to_n_dec_str(f.significand, -f.exponent)
         return s
 
     @staticmethod
     def try_parse(s: str) -> ?Decimal64:
-        s = s.strip(" \t")
-
-        f = s.split(".", -1)
-        flen = len(f)
-
-        significand: int = 0
-        exp: int = 0
-
-        if flen == 1:
-            _s = try_parse_int(f[0])
-            if _s is not None:
-                significand = _s
-            else:
-                return None
-        elif flen == 2:
-            ip = f[0]
-            fp = f[1]
-            if not fp.isdecimal():
-                return None
-            _s = try_parse_int(ip + fp)
-            if _s is not None:
-                significand = _s
-            else:
-                return None
-            exp += len(fp)
-        else:
-            return None
-
-        return Decimal64(significand, exp)
+        parts = try_parse_float_parts(s)
+        if parts is not None:
+            _significand, _exponent = parts
+            return Decimal64(_significand, _exponent)
+        return None
 
     def try_lossless_realignment(self, new_exponent: int) -> ?Decimal64:
         exponent_diff = self.exponent - new_exponent
