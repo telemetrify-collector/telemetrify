@@ -169,7 +169,10 @@ actor Transform(
                     if approute is not None:
                         latency = try_get(approute, 'latency')
                         jitter = try_get(approute, 'jitter')
-                        loss_percentage = try_get(approute, 'loss_percentage')
+                        loss_percentage = None
+                        loss_percentage_raw = try_get(approute, 'loss_percentage')
+                        if loss_percentage_raw is not None:
+                            loss_percentage = str(round(float(loss_percentage_raw), 2))
 
                         _link_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'sla-status'), 'in-compliance') # ?
                         _link_elem.leaf(OP_MERGE if latency is not None else OP_DELETE, ITag(ns_dt_topo, 'latency'), latency)
