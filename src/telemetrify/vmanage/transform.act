@@ -142,6 +142,7 @@ actor Transform(
             _termination_point_elem.leaf(OP_MERGE, ITag(ns_topo, 'tp-id'), tp_id)
 
             # <network-name>
+            # TODO: read config /l3vpn-svc/vpn-services/vpn-service[name='2000000002']/customer-name = Beispiel Standard-VPN
             _network_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'network-name'), "Beispiel Standard-VPN (SLA)")
 
             #
@@ -172,7 +173,7 @@ actor Transform(
 
                         _link_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'sla-status'), 'in-compliance') # ?
                         _link_elem.leaf(OP_MERGE if latency is not None else OP_DELETE, ITag(ns_dt_topo, 'latency'), latency)
-                        _link_elem.leaf(OP_MERGE if jitter is not None else OP_DELETE, ITag(ns_dt_topo, 'latency'), jitter)
+                        _link_elem.leaf(OP_MERGE if jitter is not None else OP_DELETE, ITag(ns_dt_topo, 'jitter'), jitter)
                         _link_elem.leaf(OP_MERGE if loss_percentage is not None else OP_DELETE, ITag(ns_dt_topo, 'packet-loss'), loss_percentage)
 
     def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: L3vpnSvcTracker):
