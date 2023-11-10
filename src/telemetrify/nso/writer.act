@@ -464,7 +464,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
 
     def _call_create():
         state = _STATE_AWAITING_PREPARATORY_CREATE
-        mc.delete(thandle, EKeypath(epath), _on_create)
+        mc.create(thandle, EKeypath(epath), _on_create)
 
     def _on_create(_mc: MaapiConnection, err: ?Exception):
         if err is not None:
@@ -481,8 +481,8 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                 state = _STATE_PREPARE_EPARAMS
             else:
                 # TODO: Report error details
-                # _task_error("Error deleting " + str(epath) + ": " + str(err))
-                _task_error("Error deleting: " + str(err))
+                # _task_error("Error creating " + str(epath) + ": " + str(err))
+                _task_error("Error creating: " + str(err))
         else:
             state = _STATE_PREPARE_EPARAMS
         _poll()
