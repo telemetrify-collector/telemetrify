@@ -1547,34 +1547,37 @@ actor main(env):
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
     var shared_resources: ?SharedResources = None
 
+    var logh = logging.Handler("telemetrify")
+    var log = logging.Logger(logh)
+
     def _on_maapi_connect_error(e):
-        print("MAAPI connect failed:", e)
+        log.error("MAAPI connect failed:" + str(e), None)
 
     def _on_maapi_connect(c):
-        print("MAAPI connected!!!!")
+        log.info("MAAPI connected!!!!", None)
         c.load_schema(_on_load_schema)
 
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
-            print("MAAPI loaded schema!!!!")
+            log.info("MAAPI loaded schema!!!!", None)
             shared_resources = SharedResources(env, shared_schema)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
         else:
-            print("MAAPI load schema failed:", optional_str(e, ""))
+            log.error("MAAPI load schema failed:" + optional_str(e, ""), None)
             await async env.exit(1)
 
     def _on_cdb_connect_error(e):
-        print("CDB connect failed:", e)
+        log.error("CDB connect failed:" + str(e), None)
         await async env.exit(1)
 
     def _on_cdb_sub_connect(sc, s):
-        print("CDB (sub) connected!!!!")
+        log.info("CDB (sub) connected!!!!", None)
         cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
             action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None)
 
     def _on_cdb_cmd_connect(sc, cc, s):
-        print("CDB (cmd) connected!!!!")
+        log.info("CDB (cmd) connected!!!!", None)
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
                 DeviceSettingsRefiner,
@@ -1682,8 +1685,8 @@ actor main(env):
             entry.close()
 
     def _on_config_cache_error(e):
-        print("CdbCache failed:", optional_str(e.error_message, ""))
+        log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
         await async env.exit(1)
 
-    print("Starting up...")
+    log.info("Starting up...", None)
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
