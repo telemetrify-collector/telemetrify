@@ -282,5 +282,16 @@ module telemetrify {
         }
       }
     }
+    tailf:action restart {
+      tailf:actionpoint restart-telemetrify;
+    }
+
+    tailf:action start {
+      tailf:actionpoint restart-telemetrify;
+    }
+
+    tailf:action stop {
+      tailf:actionpoint restart-telemetrify;
+    }
   }
 }
