@@ -24,6 +24,8 @@ import telemetrify.nsoapi.cdb
 import telemetrify.nsoapi.maapi
 import telemetrify.nsoapi.schema as schema
 import telemetrify.tsdb.writer
+import telemetrify.ietf.l3vpn_svc
+import telemetrify.ietf.cat8k
 import tsdb.m3
 
 from telemetrify.common.mod import *
@@ -549,6 +551,16 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         #subscribers.clear()
         subscribers = {}
 
+def _source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath):
+    _device_name_key = dev_sub_key.try_get_key(0)
+    if _device_name_key is not None:
+        device_name = _device_name_key[0]
+        source_params.leaf(None, PTag(None, 'device-name'), device_name)
+    _sub_name_key = dev_sub_key.try_get_key(1)
+    if _sub_name_key is not None:
+        sub_name = _sub_name_key[0]
+        source_params.leaf(None, PTag(None, 'subscription-name'), sub_name)
+
 #actor NetconfRpcPollSubscription(source: NetconfSource, path: str, period_ms: int):
 #actor NetconfRpcPollSubscription(source: NetconfSource, config: TNode, sinks: SubscriptionSinkCollection):
 actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
@@ -609,6 +621,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             xnode = netconf.netconf_to_xnode(node, [], 0)
             print("SUBSCRIBER netconf-rpc-poll POLL:", xnode)
             source_params = tnode_root()
+            _source_params_try_append_dev_sub(source_params, dev_sub_key)
             source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
             if schema_path is not None:
                 source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
@@ -942,6 +955,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                 if isinstance(ar_data, list):
                     xnode = vmanage.approute_to_xnode(ar_data)
                     source_params = tnode_root()
+                    _source_params_try_append_dev_sub(source_params, dev_sub_key)
                     source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
                     if schema_path is not None:
                         source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
@@ -1054,38 +1068,122 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
             source.rpc(get_xml, [], lambda r: _on_get_reply(seqno, poll_ts, request_ts, r))
 
-        #after 0.1: _on_get_reply(seqno, poll_ts, None)
+            # # <TEST>
+            # node = xml.decode("""
+            #     <rpc-reply message-id="1" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+            #       <data>
+            #         <ip-sla-stats xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper">
+            #           <sla-oper-entry>
+            #             <oper-id>167837954</oper-id>
+            #             <stats>
+            #               <oneway-latency>
+            #                 <sample-count>100</sample-count>
+            #                 <sd>
+            #                   <min>7</min>
+            #                   <avg>8</avg>
+            #                   <max>11</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </sd>
+            #                 <ds>
+            #                   <min>2</min>
+            #                   <avg>13</avg>
+            #                   <max>35</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </ds>
+            #               </oneway-latency>
+            #               <jitter>
+            #                 <sd-sample-count>100</sd-sample-count>
+            #                 <ds-sample-count>100</ds-sample-count>
+            #                 <sd>
+            #                   <min>2</min>
+            #                   <avg>3</avg>
+            #                   <max>4</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </sd>
+            #                 <ds>
+            #                   <min>3</min>
+            #                   <avg>4</avg>
+            #                   <max>5</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </ds>
+            #               </jitter>
+            #               <packet-loss>
+            #                 <sd-count>1</sd-count>
+            #                 <ds-count>2</ds-count>
+            #               </packet-loss>
+            #             </stats>
+            #           </sla-oper-entry>
+            #           <sla-oper-entry>
+            #             <oper-id>167838210</oper-id>
+            #             <stats>
+            #               <oneway-latency>
+            #                 <sample-count>200</sample-count>
+            #                 <sd>
+            #                   <min>4</min>
+            #                   <avg>5</avg>
+            #                   <max>6</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </sd>
+            #                 <ds>
+            #                   <min>5</min>
+            #                   <avg>6</avg>
+            #                   <max>7</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </ds>
+            #               </oneway-latency>
+            #               <jitter>
+            #                 <sd-sample-count>200</sd-sample-count>
+            #                 <ds-sample-count>200</ds-sample-count>
+            #                 <sd>
+            #                   <min>1</min>
+            #                   <avg>2</avg>
+            #                   <max>3</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </sd>
+            #                 <ds>
+            #                   <min>2</min>
+            #                   <avg>3</avg>
+            #                   <max>4</max>
+            #                   <accuracy>accuracy-milliseconds</accuracy>
+            #                 </ds>
+            #               </jitter>
+            #               <packet-loss>
+            #                 <sd-count>5</sd-count>
+            #                 <ds-count>7</ds-count>
+            #               </packet-loss>
+            #             </stats>
+            #           </sla-oper-entry>
+            #           <sla-oper-error-statistics>
+            #             <oper-id>167837954</oper-id>
+            #             <target-address>10.1.1.2</target-address>
+            #           </sla-oper-error-statistics>
+            #           <sla-oper-error-statistics>
+            #             <oper-id>167838210</oper-id>
+            #             <target-address>10.1.2.2</target-address>
+            #           </sla-oper-error-statistics>
+            #         </ip-sla-stats>
+            #       </data>
+            #     </rpc-reply>
+            #     """)
+
+            # after 0: _on_get_reply(seqno, poll_ts, request_ts, node)
+            # # </TEST>
 
     def _on_get_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, node: ?xml.Node):
         print("SUBSCRIBER netconf-get-poll GET_REPLY")
         if seqno != poller_seqno:
             return
 
-        # # <TEST>
-        # if node is None:
-        #     node = \
-        #         xml.Node("interface-information", [(None, "urn:juniper-get")], None, [], [
-        #             xml.Node("physical-interface", [], None, [], [
-        #                 xml.Node("name", [], None, [], [], "ge-0/0/0", None),
-        #                 xml.Node("traffic-statistics", [], None, [], [
-        #                     xml.Node("input-bytes", [], None, [], [], "12300", None),
-        #                     xml.Node("output-bytes", [], None, [], [], "45600", None),
-        #                     xml.Node("input-packets", [], None, [], [], "123", None),
-        #                     xml.Node("output-packets", [], None, [], [], "456", None)
-        #                 ], None, None)
-        #             ], None, None)
-        #         ], None, None)
-        # # </TEST>
-
         # TODO: Process node
         if node is not None:
             if node.tag == "rpc-reply":
                  node = node.children[0]
-                 if node.tag == "data":
+                 if node.tag == "data" and len(node.children) >= 1:
                      node = node.children[0]
                      xnode = netconf.netconf_to_xnode(node, [], 0)
                      print("SUBSCRIBER netconf-get-poll POLL:", xnode)
                      source_params = tnode_root()
+                     _source_params_try_append_dev_sub(source_params, dev_sub_key)
                      source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
                      if schema_path is not None:
                          source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
@@ -1400,10 +1498,15 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         if eq_optional(config[PTag('tlm', 'name')].try_str(), "vmanage"):
             transform_act = telemetrify.vmanage.transform.Transform(
                 next_cb,
-                action lambda cb: shared_resources.request_l3vpn_svc_tracker(cb),
-                action lambda _l: shared_resources.release_l3vpn_svc_tracker())
+                shared_resources.request_l3vpn_svc_tracker,
+                shared_resources.release_l3vpn_svc_tracker)
             return Transform(transform_act.transform, transform_act.close)
-        # elif ...
+        elif eq_optional(config[PTag('tlm', 'name')].try_str(), "cat8k-ip-sla"):
+            transform_act = telemetrify.ietf.cat8k.IpSlaTransform(
+                next_cb,
+                shared_resources.request_l3vpn_svc_tracker,
+                shared_resources.release_l3vpn_svc_tracker)
+            return Transform(transform_act.transform, transform_act.close)
         return None
 
     def close() -> None:
@@ -1417,18 +1520,26 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         sinks = {}
 
 actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
-    var l3vpn_svc_tracker: ?telemetrify.vmanage.transform.L3vpnSvcTracker = None
+    var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
 
-    def request_l3vpn_svc_tracker(cb: action(telemetrify.vmanage.transform.L3vpnSvcTracker) -> None):
+    # def request_l3vpn_svc_tracker(cb: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
+    # TODO: Why do we get this error when there is MORE than one reference to the method, but NOT if there is ONLY one?
+    # ERROR: Error when compiling telemetrify.main.main module: Type error
+    #  1425:9-33
+    #      |
+    # 1425 |    def request_l3vpn_svc_tracker(cb: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
+    #      |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+    # NoInfo (Loc 58253 58278) 63
+    def request_l3vpn_svc_tracker(cb):
         r = l3vpn_svc_tracker
         if r is not None:
             cb(r)
         else:
-            n = telemetrify.vmanage.transform.L3vpnSvcTracker(env, shared_schema)
+            n = telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker(env, shared_schema)
             l3vpn_svc_tracker = n
             cb(n)
 
-    def release_l3vpn_svc_tracker():
+    def release_l3vpn_svc_tracker(tracker: telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
         pass # TODO: Could keep refcount and release when not used
 
 actor main(env):

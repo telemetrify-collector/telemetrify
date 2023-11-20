@@ -675,7 +675,7 @@ class Decimal64:
             return Decimal64(_significand, _exponent)
         return None
 
-    def try_lossless_realignment(self, new_exponent: int) -> ?Decimal64:
+    def try_lossless_realign(self, new_exponent: int) -> ?Decimal64:
         exponent_diff = self.exponent - new_exponent
         if exponent_diff == 0:
             return self
@@ -686,6 +686,17 @@ class Decimal64:
                 return Decimal64(self.significand // divider, new_exponent)
             else:
                 return None # Loss of precision
+        else: # alignment > 0:
+            # TODO: Validate IEEE 754 Decimal64 limits
+            return Decimal64(self.significand * 10**exponent_diff, new_exponent)
+
+    def lossy_realign(self, new_exponent: int) -> Decimal64:
+        exponent_diff = self.exponent - new_exponent
+        if exponent_diff == 0:
+            return self
+        elif exponent_diff < 0:
+            # TODO: Validate IEEE 754 Decimal64 limits
+            return Decimal64(self.significand // 10**-exponent_diff, new_exponent)
         else: # alignment > 0:
             # TODO: Validate IEEE 754 Decimal64 limits
             return Decimal64(self.significand * 10**exponent_diff, new_exponent)
@@ -973,7 +984,7 @@ class DateTime:
 
         if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int) \
                 and isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
-            _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
+            _microseconds = _seconds.fractional_part().try_lossless_realign(-6)
             if _microseconds is not None:
                 return DateTime(_year, _month, _day, _hour, _minute, _seconds.integral_part(), _microseconds.significand, _tz_h, _tz_m)
 
@@ -1231,7 +1242,7 @@ class Time:
                             _tz_m = -_tz_m
 
         if isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
-            _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
+            _microseconds = _seconds.fractional_part().try_lossless_realign(-6)
             if _microseconds is not None:
                 return Time(_hour, _minute, _seconds.integral_part(), _microseconds.significand, _tz_h, _tz_m)
 
@@ -1364,7 +1375,7 @@ class Duration:
 
         if isinstance(_year, int) and isinstance(_month, int) and isinstance(_day, int) \
                 and isinstance(_hour, int) and isinstance(_minute, int) and isinstance(_seconds, Decimal64):
-            _microseconds = _seconds.fractional_part().try_lossless_realignment(-6)
+            _microseconds = _seconds.fractional_part().try_lossless_realign(-6)
             if _microseconds is not None:
                 return Duration(_year, _month, _day, _hour, _minute, _seconds.integral_part(), _microseconds.significand)
 

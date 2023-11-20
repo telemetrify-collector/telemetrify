@@ -1,0 +1,317 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import telemetrify.ietf.l3vpn_svc
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.ietf.l3vpn_svc import L3vpnSvcParams
+
+class IpSlaStats(object):
+    @property
+    hostname: str
+    @property
+    links: dict[IPv4Address, (OnewayStats, OnewayStats)]
+
+    def __init__(self, hostname: str, links: dict[IPv4Address, (OnewayStats, OnewayStats)]):
+        self.hostname = hostname
+        self.links = links
+
+class OnewayStats(object):
+    @property
+    latency: ?int
+    @property
+    jitter: ?int
+    @property
+    packet_loss: ?Decimal64
+
+    def __init__(self, latency: ?int, jitter: ?int, packet_loss: ?Decimal64):
+        self.latency = latency
+        self.jitter = jitter
+        self.packet_loss = packet_loss
+
+actor IpSlaTransform(
+        output_cb: action(Node, TNode) -> None,
+        fetch_l3vpn_svc_tracker: action(action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None) -> None,
+        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
+
+    tasks: Wardrobe[(IpSlaStats, TNode)] = Wardrobe()
+    l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
+    pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
+
+    def transform(node: Node, source_params: TNode):
+        src_ns = "http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper"
+
+        hostname = source_params[PTag(None, 'device-name')].try_str()
+        if hostname is not None:
+            if eq_optional(node.tag(), ITag(src_ns, 'ip-sla-stats')):
+                oper_id_target_addresses: dict[str, IPv4Address] = {}
+                pending_links: list[(str, (OnewayStats, OnewayStats))] = []
+
+                for c1 in node.children():
+                    if eq_optional(c1.tag(), ITag(src_ns, 'sla-oper-entry')):
+                        oper_id: ?str = None
+                        sd_stats = OnewayStats(None, None, None)
+                        ds_stats = OnewayStats(None, None, None)
+                        sd_packet_total_count: ?int = None
+                        ds_packet_total_count: ?int = None
+                        sd_packet_loss_count: ?int = None
+                        ds_packet_loss_count: ?int = None
+
+                        for c2 in c1.children():
+                            if eq_optional(c2.tag(), ITag(src_ns, 'oper-id')):
+                                _oper_id = c2.value()
+                                if _oper_id is not None and isinstance(_oper_id, str):
+                                    #oper_id = _oper_id.strip(" \t\r\n") # actonc: #### findAttr' fails for __builtin__.value . strip
+                                    __oper_id: str = _oper_id
+                                    oper_id = __oper_id.strip(" \t\r\n")
+
+                            elif eq_optional(c2.tag(), ITag(src_ns, 'stats')):
+                                for c3 in c2.children():
+                                    if eq_optional(c3.tag(), ITag(src_ns, 'oneway-latency')):
+                                        sample_count: ?int = None
+                                        sd_latency: ?int = None
+                                        ds_latency: ?int = None
+                                        for c4 in c3.children():
+                                            if eq_optional(c4.tag(), ITag(src_ns, 'sample-count')):
+                                                sample_count = _try_parse_int_leaf(c4)
+                                                if sample_count is not None and sample_count > 0:
+                                                    sd_packet_total_count = sample_count
+                                            elif eq_optional(c4.tag(), ITag(src_ns, 'sd')):
+                                                for c5 in c4.children():
+                                                    if eq_optional(c5.tag(), ITag(src_ns, 'avg')):
+                                                        sd_latency = _try_parse_int_leaf(c5)
+                                            elif eq_optional(c4.tag(), ITag(src_ns, 'ds')):
+                                                for c5 in c4.children():
+                                                    if eq_optional(c5.tag(), ITag(src_ns, 'avg')):
+                                                        ds_latency = _try_parse_int_leaf(c5)
+                                        if sample_count is not None and sample_count > 0:
+                                            sd_stats.latency = sd_latency
+                                            ds_stats.latency = ds_latency
+
+                                    elif eq_optional(c3.tag(), ITag(src_ns, 'jitter')):
+                                        sd_sample_count: ?int = None
+                                        ds_sample_count: ?int = None
+                                        sd_jitter: ?int = None
+                                        ds_jitter: ?int = None
+                                        for c4 in c3.children():
+                                            if eq_optional(c4.tag(), ITag(src_ns, 'sd-sample-count')):
+                                                sd_sample_count = _try_parse_int_leaf(c4)
+                                                if sd_packet_total_count is None and sd_sample_count is not None and sd_sample_count > 0:
+                                                    sd_packet_total_count = sd_sample_count
+                                            elif eq_optional(c4.tag(), ITag(src_ns, 'ds-sample-count')):
+                                                ds_sample_count = _try_parse_int_leaf(c4)
+                                                if ds_sample_count is not None and ds_sample_count > 0:
+                                                    ds_packet_total_count = sd_sample_count
+                                            elif eq_optional(c4.tag(), ITag(src_ns, 'sd')):
+                                                for c5 in c4.children():
+                                                    if eq_optional(c5.tag(), ITag(src_ns, 'avg')):
+                                                        sd_jitter = _try_parse_int_leaf(c5)
+                                            elif eq_optional(c4.tag(), ITag(src_ns, 'ds')):
+                                                for c5 in c4.children():
+                                                    if eq_optional(c5.tag(), ITag(src_ns, 'avg')):
+                                                        ds_jitter = _try_parse_int_leaf(c5)
+                                        if sd_sample_count is not None and sd_sample_count > 0:
+                                            sd_stats.jitter = sd_jitter
+                                        if ds_sample_count is not None and ds_sample_count > 0:
+                                            ds_stats.jitter = ds_jitter
+
+                                    elif eq_optional(c3.tag(), ITag(src_ns, 'packet-loss')):
+                                        for c4 in c3.children():
+                                            if eq_optional(c4.tag(), ITag(src_ns, 'sd-count')):
+                                                sd_packet_loss_count = _try_parse_int_leaf(c4)
+                                            elif eq_optional(c4.tag(), ITag(src_ns, 'ds-count')):
+                                                ds_packet_loss_count = _try_parse_int_leaf(c4)
+
+                        if sd_packet_total_count is not None and sd_packet_loss_count is not None:
+                            sd_stats.packet_loss = Decimal64(sd_packet_loss_count * 10000 // sd_packet_total_count, -2)
+                        if ds_packet_total_count is not None and ds_packet_loss_count is not None:
+                            ds_stats.packet_loss = Decimal64(ds_packet_loss_count * 10000 // ds_packet_total_count, -2)
+
+                        if oper_id is not None:
+                            pending_links.append((oper_id, (sd_stats, ds_stats)))
+
+                    elif eq_optional(c1.tag(), ITag(src_ns, 'sla-oper-error-statistics')):
+                        oper_id: ?str = None
+                        target_address: ?IPv4Address = None
+                        for c2 in c1.children():
+                            if eq_optional(c2.tag(), ITag(src_ns, 'oper-id')):
+                                _oper_id = c2.value()
+                                if _oper_id is not None and isinstance(_oper_id, str):
+                                    #oper_id = _oper_id.strip(" \t\r\n") # actonc: #### findAttr' fails for __builtin__.value . strip
+                                    __oper_id: str = _oper_id
+                                    oper_id = __oper_id.strip(" \t\r\n")
+
+                            elif eq_optional(c2.tag(), ITag(src_ns, 'target-address')):
+                                _target_address = c2.value()
+                                if _target_address is not None and isinstance(_target_address, str):
+                                    #target_address = IPv4Address.try_parse(_target_address.strip(" \t\r\n")) # actonc: #### findAttr' fails for __builtin__.value . strip
+                                    __target_address: str = _target_address
+                                    target_address = IPv4Address.try_parse(__target_address.strip(" \t\r\n"))
+                        if oper_id is not None and target_address is not None:
+                            oper_id_target_addresses[oper_id] = target_address
+
+                target_addresses: set[IPv4Address] = set([])
+                links: dict[IPv4Address, (OnewayStats, OnewayStats)] = {}
+
+                for oper_id, link_stats in pending_links:
+                    target_address = try_get(oper_id_target_addresses, oper_id)
+                    if target_address is not None:
+                        target_addresses.add(target_address)
+                        links[target_address] = link_stats
+
+                task_id = tasks.put((IpSlaStats(hostname, links), source_params))
+
+                _l3vpn_svc_tracker = l3vpn_svc_tracker
+                if _l3vpn_svc_tracker is not None:
+                    _l3vpn_svc_tracker.lookup_by_hostnames_and_lan_interface_addresses(set([hostname]), target_addresses, action lambda h, i: _on_lookup_result(h, i, task_id))
+                else:
+                    pending_fetch_l3vpn_svc_tracker_task_ids.append(task_id)
+                    fetch_l3vpn_svc_tracker(_on_fetched_l3vpn_svc_tracker)
+
+        else:
+            print("cat8k.ip-sla-transform - WARNING: missing source_params 'device-name'.")
+
+    def _on_lookup_result(hostnames_lookup: dict[str, L3vpnSvcParams], ipv4_addresses_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
+
+        print("cat8k.ip-sla-transform - lookup result:", mapping_str(hostnames_lookup), mapping_str(ipv4_addresses_lookup))
+
+        try:
+            _ip_sla_stats, source_params = tasks.pop(task_id)
+        except KeyError:
+            pass # TODO: debug/trace log?
+        else:
+            ip_sla_stats: IpSlaStats = _ip_sla_stats
+
+            root = TTree(OP_NONE, ITag.root(), None, {})
+
+            # TODO: DELETE/REPLACE based on l3vpn-svc?
+
+            src_svc = try_get(hostnames_lookup, ip_sla_stats.hostname)
+            if src_svc is not None:
+                for dst_ip, (src_stats, dst_stats) in ip_sla_stats.links.items():
+                    dst_svc = try_get(ipv4_addresses_lookup, dst_ip)
+                    _create_network_node(root, src_svc, src_stats, dst_svc)
+                    if dst_svc is not None:
+                        _is_bidirectional = dst_svc.is_bidirectional
+                        is_bidirectional = _is_bidirectional is not None and _is_bidirectional
+                        _create_network_node(root, dst_svc, None if is_bidirectional else dst_stats, src_svc)
+
+            #print("cat8k.ip-sla-transform - output:\n", root.pretty_format_node_tree())
+
+            output_cb(root, source_params)
+
+    def _create_network_node(root, src_svc: L3vpnSvcParams, src_stats: ?OnewayStats, dst_svc: ?L3vpnSvcParams):
+        ns = "urn:ietf:params:xml:ns:yang:ietf-network-state"
+        ns_topo = "urn:ietf:params:xml:ns:yang:ietf-network-topology-state"
+        ns_dt_topo = "https://telekom.com/ns/yang/dt-network-topology-state"
+
+        hostname = src_svc.hostname
+        vpn_id = src_svc.vpn_id
+        site_id = src_svc.site_id
+        device_reference = src_svc.device_reference
+
+        # <network>
+        network_id = vpn_id + "-L3VPN-SLA-IPV4"
+        network_ref = vpn_id + "-SITE"
+
+        _network = root.cont(OP_MERGE, ITag(ns, 'networks')).list(OP_MERGE, ITag(ns, 'network'))
+        _network_elem = _network.elem(OP_MERGE, [network_id])
+        _network_elem.leaf(OP_MERGE, ITag(ns, 'network-id'), network_id)
+
+        # <supporting-network>
+        _supporting_network = _network_elem.list(OP_MERGE, ITag(ns, 'supporting-network'))
+        _supporting_network_elem = _supporting_network.elem(OP_MERGE, [network_ref])
+        _supporting_network_elem.leaf(OP_MERGE, ITag(ns, 'network-ref'), network_ref)
+
+        src_ip = src_svc.lan_interface_ipv4_address
+        if src_ip is not None:
+            # <node>
+            node_id = hostname
+            node_ref = site_id + "-" + device_reference
+            tp_id = str(src_ip)
+
+            _node = _network_elem.list(OP_MERGE, ITag(ns, 'node'))
+            _node_elem = _node.elem(OP_MERGE, [node_id])
+            _node_elem.leaf(OP_MERGE, ITag(ns, 'node-id'), node_id)
+
+            _supporting_node = _node_elem.list(OP_MERGE, ITag(ns, 'supporting-node'))
+            _supporting_node_elem = _supporting_node.elem(OP_MERGE, [network_ref, node_ref])
+            _supporting_node_elem.leaf(OP_MERGE, ITag(ns, 'network-ref'), network_ref)
+            _supporting_node_elem.leaf(OP_MERGE, ITag(ns, 'node-ref'), node_ref)
+
+            _termination_point = _node_elem.list(OP_MERGE, ITag(ns_topo, 'termination-point'))
+            _termination_point_elem = _termination_point.elem(OP_MERGE, [tp_id])
+            _termination_point_elem.leaf(OP_MERGE, ITag(ns_topo, 'tp-id'), tp_id)
+
+        # <network-name>
+        # TODO: read config /l3vpn-svc/vpn-services/vpn-service[name='2000000002']/customer-name = Beispiel Standard-VPN
+        _network_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'network-name'), "Beispiel Standard-VPN (SLA)")
+
+        #
+        if dst_svc is not None and src_ip is not None:
+            destination_hostname = dst_svc.hostname
+            dst_ip = dst_svc.lan_interface_ipv4_address
+            if dst_ip is not None:
+                # <link>
+                link_id = hostname + "--" + destination_hostname
+
+                _link = _network_elem.list(OP_MERGE, ITag(ns_topo, 'link'))
+                _link_elem = _link.elem(OP_MERGE, [link_id])
+                _link_elem.leaf(OP_MERGE, ITag(ns_topo, 'link-id'), link_id)
+
+                _source = _link_elem.cont(OP_MERGE, ITag(ns_topo, 'source'))
+                _source.leaf(OP_MERGE, ITag(ns_topo, 'source-node'), hostname)
+                _source.leaf(OP_MERGE, ITag(ns_topo, 'source-tp'), str(src_ip))
+
+                _destination = _link_elem.cont(OP_MERGE, ITag(ns_topo, 'destination'))
+                _destination.leaf(OP_MERGE, ITag(ns_topo, 'dest-node'), destination_hostname)
+                _destination.leaf(OP_MERGE, ITag(ns_topo, 'dest-tp'), str(dst_ip))
+
+                if src_stats is not None:
+                    latency = src_stats.latency
+                    jitter = src_stats.jitter
+                    packet_loss = src_stats.packet_loss
+
+                    _link_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'sla-status'), 'in-compliance') # ?
+                    _link_elem.leaf(OP_MERGE if latency is not None else OP_DELETE, ITag(ns_dt_topo, 'latency'), latency)
+                    _link_elem.leaf(OP_MERGE if jitter is not None else OP_DELETE, ITag(ns_dt_topo, 'jitter'), jitter)
+                    _link_elem.leaf(OP_MERGE if packet_loss is not None else OP_DELETE, ITag(ns_dt_topo, 'packet-loss'), packet_loss)
+
+    def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
+        l3vpn_svc_tracker = _l3vpn_svc_tracker
+        for task_id in pending_fetch_l3vpn_svc_tracker_task_ids:
+            try:
+                _ip_sla_stats, source_params = tasks.borrow(task_id)
+            except KeyError:
+                pass # TODO: debug/trace log?
+            else:
+                ip_sla_stats: IpSlaStats = _ip_sla_stats
+                hostnames = set([ip_sla_stats.hostname])
+                target_addresses: set[IPv4Address] = set(ip_sla_stats.links.keys())
+                _l3vpn_svc_tracker.lookup_by_hostnames_and_lan_interface_addresses(hostnames, target_addresses, action lambda h, i: _on_lookup_result(h, i, task_id))
+
+        pending_fetch_l3vpn_svc_tracker_task_ids.clear()
+
+    def close():
+        _l3vpn_svc_tracker = l3vpn_svc_tracker
+        if _l3vpn_svc_tracker is not None:
+            release_l3vpn_svc_tracker(_l3vpn_svc_tracker)
+
+def _try_parse_int_leaf(node: Node) -> ?int:
+    _value = node.value()
+    if _value is not None and isinstance(_value, str):
+        #return try_parse_int(_value.strip(" \t\r\n")) # actonc: #### findAttr' fails for __builtin__.value . strip
+        __value: str = _value
+        return try_parse_int(__value.strip(" \t\r\n"))
+    return None

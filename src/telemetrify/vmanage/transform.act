@@ -11,24 +11,19 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-import time
-
-import telemetrify.nso.subscriber
-import telemetrify.nsoapi.cdb
-import telemetrify.nsoapi.schema as schema
+import telemetrify.ietf.l3vpn_svc
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
-from telemetrify.nso.subscriber import *
-from telemetrify.nsoapi.cdb import *
+from telemetrify.ietf.l3vpn_svc import L3vpnSvcParams
 
 actor Transform(
         output_cb: action(Node, TNode) -> None,
-        fetch_l3vpn_svc_tracker: action(action(L3vpnSvcTracker) -> None) -> None,
-        release_l3vpn_svc_tracker: action(L3vpnSvcTracker) -> None):
+        fetch_l3vpn_svc_tracker: action(action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None) -> None,
+        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
 
     tasks: Wardrobe[(list[dict[str, str]], TNode)] = Wardrobe()
-    l3vpn_svc_tracker: ?L3vpnSvcTracker = None
+    l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
     pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
 
     def transform(node: Node, source_params: TNode):
@@ -179,7 +174,7 @@ actor Transform(
                         _link_elem.leaf(OP_MERGE if jitter is not None else OP_DELETE, ITag(ns_dt_topo, 'jitter'), jitter)
                         _link_elem.leaf(OP_MERGE if loss_percentage is not None else OP_DELETE, ITag(ns_dt_topo, 'packet-loss'), loss_percentage)
 
-    def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: L3vpnSvcTracker):
+    def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
         l3vpn_svc_tracker = _l3vpn_svc_tracker
         for task_id in pending_fetch_l3vpn_svc_tracker_task_ids:
             try:
@@ -205,265 +200,7 @@ actor Transform(
         if _l3vpn_svc_tracker is not None:
             release_l3vpn_svc_tracker(_l3vpn_svc_tracker)
 
-actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
-    var cache: ?telemetrify.nso.subscriber.CdbCache = None
-    var wan_interface_ipv4_address_params: dict[IPv4Address, L3vpnSvcParams] = {}
-
-    def lookup_by_wan_interface_ipv4_addresses(ipv4_addresses: set[IPv4Address], result_cb: action(dict[IPv4Address, L3vpnSvcParams]) -> None):
-        result: dict[IPv4Address, L3vpnSvcParams] = {}
-
-        print("vmanage.transform.lookup_by_wan_interface_ipv4_addresses: lookup ", set_str(ipv4_addresses))
-
-        for ipv4_address in ipv4_addresses:
-            params = try_get(wan_interface_ipv4_address_params, ipv4_address)
-            if params is not None:
-                result[ipv4_address] = params
-
-        print("vmanage.transform.lookup_by_wan_interface_ipv4_addresses: found ", mapping_str(result))
-
-        result_cb(result)
-
-    def close():
-        pass # TODO
-
-    def _on_cdb_connect_error(e):
-        print("vmanage.transform - CDB connect failed:", e)
-        # TODO
-        # await async env.exit(1)
-
-    def _on_cdb_sub_connect(sc, s):
-        print("vmanage.transform - CDB (sub) connected!!!!")
-        cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None)
-
-    def _on_cdb_cmd_connect(sc, cc, s):
-        print("vmanage.transform - CDB (cmd) connected!!!!")
-        cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
-            [
-                WanInterfaceIPv4AddressRefiner,
-                HostnameRefiner,
-                VpnIdRefiner,
-                DeviceReferenceRefiner,
-                L3vpnSvcParamsRefiner,
-            ],
-            [([
-                WanInterfaceIPv4AddressRefiner.id(), # For DEBUG printouts only
-                HostnameRefiner.id(), # For DEBUG printouts only
-                VpnIdRefiner.id(), # For DEBUG printouts only
-                DeviceReferenceRefiner.id(), # For DEBUG printouts only
-                L3vpnSvcParamsRefiner.id()
-            ],
-            lambda r: _on_config_update(r, s))], _on_config_cache_error)
-
-    def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
-        for refiner_id, updates in refiner_updates.items():
-            print("vmanage.transform - refiner_id: " + str(refiner_id))
-            for k, v in updates:
-                print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-
-            l3vpn_svc_params: list[(Keypath, ?value)] = refiner_updates[L3vpnSvcParamsRefiner.id()]
-
-            for ipv4_address_key, state in l3vpn_svc_params:
-                ipv4_address_key_0: ?Key = ipv4_address_key.try_get_key(0)
-                if ipv4_address_key_0 is not None:
-                    ipv4_address: value = ipv4_address_key_0[0]
-                    if isinstance(ipv4_address, IPv4Address):
-                        if state is not None and isinstance(state, L3vpnSvcParams):
-                            wan_interface_ipv4_address_params[ipv4_address] = state
-                        else:
-                            try_pop(wan_interface_ipv4_address_params, ipv4_address)
-                            # TODO: Callbacks to cleanup ietf-network-state corresponding to removed ietf-l3vpn-svc
-                            pass
-
-    def _on_config_cache_error(e):
-        print("vmanage.transform - CdbCache failed:", optional_str(e.error_message, ""))
-        # TODO
-
-    cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-        action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
-
-class WanInterfaceIPv4AddressRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vars'),
-            PTag('l3vpn-svc', 'wan-interface'),
-            PTag('l3vpn-svc', 'ipv4-address')
-            ]), SUB_TYPE_OPERATIONAL)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4001
-
-class HostnameRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vars'),
-            PTag('l3vpn-svc', 'hostname')
-            ]), SUB_TYPE_OPERATIONAL)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4002
-
-class VpnIdRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vpn-attachment'),
-            PTag('l3vpn-svc', 'vpn-id')
-            ]), SUB_TYPE_RUNNING)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4003
-
-class DeviceReferenceRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'device-reference'),
-            ]), SUB_TYPE_RUNNING)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4004
-
-class L3vpnSvcParams(object):
-    @property
-    ipv4_address: IPv4Address
-    @property
-    hostname: str
-    @property
-    vpn_id: str
-    @property
-    site_id: str
-    @property
-    device_reference: str
-
-    def __init__(self, ipv4_address: IPv4Address, hostname: str, vpn_id: str, site_id: str, device_reference: str):
-        self.ipv4_address = ipv4_address
-        self.hostname = hostname
-        self.vpn_id = vpn_id
-        self.site_id = site_id
-        self.device_reference = device_reference
-
-    def __str__(self) -> str:
-        return "L3vpnSvcParams(" + str(self.ipv4_address) + ", " + self.hostname + ", " + self.vpn_id + ", " + self.site_id + ", " + self.device_reference + ")"
-
-class L3vpnSvcParamsRefiner(Refiner):
-    @property
-    params_by_ipv4_address: dict[Keypath, L3vpnSvcParams]
-    @property
-    params_by_site_access_path_key: dict[Keypath, L3vpnSvcParams]
-
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [
-            ]
-        self.refiner_dependencies = [
-                WanInterfaceIPv4AddressRefiner.id(),
-                HostnameRefiner.id(),
-                VpnIdRefiner.id(),
-                DeviceReferenceRefiner.id(),
-            ]
-        self.params_by_ipv4_address = {}
-        self.params_by_site_access_path_key = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4010
-
-    def update(self, root: TNode, input_subs: dict[SubscriptionSpec, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        updated: set[Keypath] = set([])
-
-        print("vmanage.transform - root:\n" + str(root))
-
-        _address_refiner, address_keys = input_refiners[WanInterfaceIPv4AddressRefiner.id()]
-        _hostname_refiner, hostname_keys = input_refiners[HostnameRefiner.id()]
-        _vpn_id_refiner, vpn_id_keys = input_refiners[VpnIdRefiner.id()]
-        _device_ref_refiner, device_ref_keys = input_refiners[DeviceReferenceRefiner.id()]
-
-        site_access_path_keys: set[Keypath] = set(address_keys + hostname_keys + vpn_id_keys + device_ref_keys)
-
-        prefix = 'l3vpn-svc'
-
-        for site_access_path_key in site_access_path_keys:
-            params: ?L3vpnSvcParams = None
-
-            site_key: ?Key = site_access_path_key.try_get_key(0)
-            site_network_access_key: ?Key = site_access_path_key.try_get_key(1)
-            if site_key is not None and site_network_access_key is not None:
-                _site_elem = root[PTag(prefix, 'l3vpn-svc')][PTag(prefix, 'sites')][PTag(prefix, 'site')][site_key]
-                _site_network_access_elem = _site_elem[PTag(prefix, 'site-network-accesses')][PTag(prefix, 'site-network-access')][site_network_access_key]
-                if _site_network_access_elem.exists():
-                    site_id = site_key[0]
-                    if isinstance(site_id, str):
-                        _vars = _site_network_access_elem[PTag(prefix, 'vars')]
-                        ipv4_address: ?IPv4Address = _vars[PTag(prefix, 'wan-interface')][PTag(prefix, 'ipv4-address')].try_ipv4address()
-                        hostname: ?str = _vars[PTag(prefix, 'hostname')].try_str()
-                        vpn_id: ?str = _site_network_access_elem[PTag(prefix, 'vpn-attachment')][PTag(prefix, 'vpn-id')].try_str()
-                        device_reference: ?str = _site_network_access_elem[PTag(prefix, 'device-reference')].try_str()
-                        if ipv4_address is not None and hostname is not None and vpn_id is not None and device_reference is not None:
-                            params = L3vpnSvcParams(ipv4_address, hostname, vpn_id, site_id, device_reference)
-
-            if params is not None:
-                ipv4_address_key = Keypath([Key([params.ipv4_address])])
-                self.params_by_ipv4_address[ipv4_address_key] = params
-                self.params_by_site_access_path_key[site_access_path_key] = params
-                updated.add(ipv4_address_key)
-            else:
-                old_params = try_pop(self.params_by_site_access_path_key, site_access_path_key)
-                if old_params is not None:
-                    ipv4_address_key = Keypath([Key([old_params.ipv4_address])])
-                    #if try_pop(self.params_by_ipv4_address, ipv4_address_key) is not None: # actonc: ERROR: internal compiler error: compilation of generated Zig code failed
-                    _old_params = try_pop(self.params_by_ipv4_address, ipv4_address_key)
-                    if _old_params is not None:
-                        updated.add(ipv4_address_key)
-
-        return list(iter(updated))
-
-    def state(self, keys: Keypath) -> ?value:
-        return try_get(self.params_by_ipv4_address, keys)
-
 def try_parse_ipv4_address(s: ?str) -> ?IPv4Address:
     if s is not None:
-        return IPv4Address.try_parse(s)
+        return IPv4Address.try_parse(s.strip(" \t\r\n"))
     return None

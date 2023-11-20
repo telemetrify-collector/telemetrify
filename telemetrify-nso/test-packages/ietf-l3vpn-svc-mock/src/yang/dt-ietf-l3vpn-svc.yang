@@ -1,0 +1,83 @@
+module dt-ietf-l3vpn-svc {
+  yang-version 1.1;
+  namespace "https://telekom.com/ns/yang/dt-ietf-l3vpn-svc";
+  prefix dt-l3vpn-svc;
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-l3vpn-svc {
+    prefix l3vpn-svc;
+  }
+  /* BEGIN ABS Additions */
+  import tailf-ncs {
+    prefix ncs;
+  }
+  import tailf-common {
+    prefix tailf;
+  }
+  /* END ABS Additions */
+  import dt-geo-location {
+    prefix geo;
+  }
+  revision 2022-08-10 {
+    description
+      "Add dt-geo-location";
+  }
+  augment /l3vpn-svc:l3vpn-svc/l3vpn-svc:sites/l3vpn-svc:site/l3vpn-svc:locations/l3vpn-svc:location {
+    uses geo:geo-location-extensions;
+  }
+
+  augment /l3vpn-svc:l3vpn-svc/l3vpn-svc:sites/l3vpn-svc:site {
+    leaf site-name {
+     type string;
+     description
+     "User-friendly name of the site.";
+    }
+  }
+
+  /* BEGIN ABS Additions */
+  container ip-performance {
+    list vpn-service {
+      key vpn-id;
+      leaf vpn-id {
+        type string;
+      }
+      leaf vrf-name {
+        type string;
+      }
+      list monitor-endpoint {
+        key "hostname";
+        leaf hostname {
+          type string;
+        }
+        leaf address {
+          type inet:ip-address;
+          mandatory true;
+        }
+        leaf bidirectional {
+          description "When set to true, create bidirectional data in network links";
+          type boolean;
+          default false;
+        }
+      }
+      list devices {
+        description "List of (devices, vrf) pair deployed in this VPN";
+        key device-id;
+        leaf device-id {
+          type string;
+        }
+        leaf cpe-nso {
+          type string;
+        }
+        leaf address {
+          type inet:ip-address;
+        }
+        leaf ref-node-name {
+          description "Node name in supporting network";
+          type string;
+        }
+      }
+    }
+  }
+  /* END ABS Additions */
+}
