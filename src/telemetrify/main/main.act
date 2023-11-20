@@ -1341,12 +1341,18 @@ class SubscriptionUpdate(object):
             unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink, "None") + ")")
         return "SubscriptionUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
 
-actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources):
+actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources, log_handler: ?logging.Handler):
+    var logh = logging.Handler("netconf-get-poll")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var sources: dict[Keypath, Source] = {}
     var subscription_sources: dict[Keypath, Keypath] = {}
     var sinks: dict[Keypath, Sink] = {}
 
-    print("DEVICE", name, "CREATED")
+    log.info("DEVICE CREATED", {"name": name})
 
     def on_config(
             updated_device_config: ?DeviceStreamerConfig,
@@ -1355,19 +1361,27 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             source_updates: list[(Keypath, ?value)],
             sink_updates: list[(Keypath, ?value)]):
 
-        print("DEVICE", name, "CONFIG", optional_str(updated_device_config, "None"))
-        print("  SUBSCRIPTIONS")
+        log.debug("DEVICE CONFIG", {"name": name, "updated_device_config": optional_str(updated_device_config, "None")})
+
+        _subscription_updates = {}
         for k, v in subscription_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-        print("  SUBSCRIPTION SINKS")
+            _subscription_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SUBSCRIPTIONS", _subscription_updates)
+
+        _subscription_sink_updates = {}
         for k, v in subscription_sink_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-        print("  SOURCES")
+            _subscription_sink_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SUBSCRIPTION SINKS", _subscription_sink_updates )
+
+        _source_updates = {}
         for k, v in source_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-        print("  SINKS")
+            _source_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SOURCES", _source_updates)
+
+        _sink_updates = {}
         for k, v in sink_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+            _sink_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SINKS", _sink_updates)
 
         source_config_updates: dict[Keypath, TNode] = {}
         updated_source_dev_subs: dict[Keypath, dict[Keypath, SubscriptionUpdate]] = {}
@@ -1646,7 +1660,7 @@ actor main(env):
                         device_name = _device_name_key[0]
                         _shared_resources = shared_resources
                         if isinstance(device_name, str) and _shared_resources is not None:
-                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources)
+                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources, None)
                 updated_device_keys.add(device_key)
                 updated_device_configs[device_key] = state
             else:
