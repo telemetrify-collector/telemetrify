@@ -1055,14 +1055,14 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     var is_running: bool = False
 
-    print("SUBSCRIBER netconf-get-poll CREATED")
+    log.info("SUBSCRIBER netconf-get-poll CREATED", None)
 
     def _do_get_request(seqno: int, poll_ts: time.Instant):
-        print("SUBSCRIBER netconf-get-poll GET_REQUEST")
+        log.debug("SUBSCRIBER netconf-get-poll GET_REQUEST", None)
         if seqno != poller_seqno:
             return
 
-        print("SUBSCRIBER netconf-get-poll GET_XML", optional_str(get_xml, "None"))
+        log.trace("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": optional_str(get_xml, "None")})
         if get_xml is not None:
             request_ts = time.time()
 
@@ -1170,7 +1170,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             # # </TEST>
 
     def _on_get_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, node: ?xml.Node):
-        print("SUBSCRIBER netconf-get-poll GET_REPLY")
+        log.debug("SUBSCRIBER netconf-get-poll GET_REPLY", None)
         if seqno != poller_seqno:
             return
 
@@ -1181,7 +1181,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                  if node.tag == "data" and len(node.children) >= 1:
                      node = node.children[0]
                      xnode = netconf.netconf_to_xnode(node, [], 0)
-                     print("SUBSCRIBER netconf-get-poll POLL:", xnode)
+                     log.trace("SUBSCRIBER netconf-get-poll POLL:", {"xnode": xnode})
                      source_params = tnode_root()
                      _source_params_try_append_dev_sub(source_params, dev_sub_key)
                      source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
@@ -1192,10 +1192,8 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             pass
             log.error("SUBSCRIBER netconf-get-poll POLL interrupted", None)
 
-        #print("POLLED...")
         curr_ts = time.monotonic()
         next_ts = last_ts.add(period)
-        #log.info("  period:", period.to_float(), None)
 
         if next_ts < curr_ts:
             # Allow drift when reply arrived later than next period
@@ -1207,7 +1205,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # log.info("  next_ts:", next_ts, None)
 
         delay = next_ts.since(curr_ts)
-        print("  ... delay " + str(delay.to_float()) + "s")
+        log.debug("  ... delay " + str(delay.to_float()) + "s", None)
         after delay.to_float(): _do_get_request(seqno, next_ts)
 
     #def update_sinks(sink_updates: list[(Keypath, ?SubscriptionSink)]):
@@ -1217,7 +1215,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         _config = update.config
         if _config is not None:
             _stop_poller()
-            print("SUBSCRIBER netconf-get-poll CONFIG", _config)
+            log.debug("SUBSCRIBER netconf-get-poll CONFIG", {"_config": _config})
 
             poll = _config[PTag('tlm', 'netconf-get-poll')]
             path = poll[PTag('tlm', 'path')].try_str()
@@ -1232,7 +1230,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
             if period_ms is not None and get_xml is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
-                print("period: " + str(period.to_float()) + "s")
+                log.debug("period: " + str(period.to_float()) + "s", None)
                 if is_running:
                     _try_start_poller()
             else:
@@ -1256,7 +1254,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                 for _id in get_path:
                     if isinstance(_id, Tag) and not cursor.push(_id):
                         # TODO: print some error or something?
-                        print("Invalid subscription path, bad node:", _id)
+                        log.error("Invalid subscription path, bad node:", {"_id": _id})
                         is_cursor_ok = False
                         break
 
@@ -1300,8 +1298,8 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         schema_path = _schema_path
 
     def _try_start_poller():
-        print("SUBSCRIBER netconf-get-poll TRY_START")
-        print("SUBSCRIBER netconf-get-poll GET_XML", optional_str(get_xml, "None"))
+        log.debug("SUBSCRIBER netconf-get-poll TRY_START", None)
+        log.debug("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": optional_str(get_xml, "None")})
         if get_xml is not None:
             curr_ts = time.monotonic()
             # TODO: reduce to after 0. But we're currently getting an error, the
@@ -1314,13 +1312,13 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     def start():
         if not is_running:
-            print("SUBSCRIBER netconf-get-poll STARTED")
+            log.info("SUBSCRIBER netconf-get-poll STARTED", None)
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            print("SUBSCRIBER netconf-get-poll STOPPED")
+            log.info("SUBSCRIBER netconf-get-poll STOPPED", None)
             is_running = False
             _stop_poller()
 
