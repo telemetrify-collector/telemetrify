@@ -220,6 +220,7 @@ actor IpSlaTransform(
         vpn_id = src_svc.vpn_id
         site_id = src_svc.site_id
         device_reference = src_svc.device_reference
+        customer_name = src_svc.customer_name
 
         # <network>
         network_id = vpn_id + "-L3VPN-SLA-IPV4"
@@ -255,8 +256,8 @@ actor IpSlaTransform(
             _termination_point_elem.leaf(OP_MERGE, ITag(ns_topo, 'tp-id'), tp_id)
 
         # <network-name>
-        # TODO: read config /l3vpn-svc/vpn-services/vpn-service[name='2000000002']/customer-name = Beispiel Standard-VPN
-        _network_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'network-name'), "Beispiel Standard-VPN (SLA)")
+        network_name = customer_name + " (SLA)" if customer_name is not None else None
+        _network_elem.leaf(OP_MERGE if network_name is not None else OP_DELETE, ITag(ns_dt_topo, 'network-name'), network_name)
 
         #
         if dst_svc is not None and src_ip is not None:

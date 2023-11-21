@@ -277,7 +277,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             else:
                 sub_specs[identity] = sub_spec
         if r.id() in _refiners:
-            raise ValueError("CdbCache: Attempted to register duplicate refiner-id")
+            raise ValueError("ERROR: CdbCache - Attempted to register duplicate refiner-id")
         _refiners[r.id()] = r
 
     for r in _refiners.values():
