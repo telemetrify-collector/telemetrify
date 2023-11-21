@@ -399,13 +399,19 @@ actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema
     tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(auth))), address, port, _on_tsdb_connect, _on_tsdb_error, logh)
 
 #actor NetconfSource(auth: WorldCap, on_ready: action(), on_error: action(str) -> None, on_closed() -> None):
-actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
+actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("netconf-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var config: TNode = tnode_empty()
     var client: ?netconf.Client = None
     var client_seqno: int = 0
     var subscribers: dict[Keypath, Subscriber] = {}
 
-    print("SOURCE netconf CREATED")
+    log.info("SOURCE netconf CREATED", None)
 
     def _on_client_connect(seqno: int):
         if seqno != client_seqno:
@@ -425,8 +431,8 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         pass
 
     def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
-        print("SOURCE netconf CONFIG update", optional_str(source_update, "None"))
-        print("SOURCE netconf SUBSCRIPTION update", mapping_str(subscription_updates))
+        log.debug("SOURCE netconf CONFIG update", {"source_update": optional_str(source_update, "None")})
+        log.debug("SOURCE netconf SUBSCRIPTION update", {"subscription_updates": mapping_str(subscription_updates)})
 
         restart = False
 
@@ -440,18 +446,19 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
 
         for dev_sub_key, sub_update in subscription_updates.items():
             if sub_update is not None:
-                print("SOURCE netconf SUBSCRIPTION update", sub_update)
+                log.trace("SOURCE netconf SUBSCRIPTION update", {"sub_update": sub_update})
                 sub = try_get(subscribers, dev_sub_key)
                 if sub is not None:
-                    print("SOURCE netconf SUBSCRIPTION update", sub_update, "exists")
+                    log.trace("SOURCE netconf SUBSCRIPTION update exists", {"sub_update": sub_update})
                     sub.update_config(sub_update)
                 else:
-                    print("SOURCE netconf SUBSCRIPTION update", sub_update, "is new")
+                    log.trace("SOURCE netconf SUBSCRIPTION update is new", {"sub_update": sub_update})
                     new_sub = _create_subscriber(dev_sub_key, sub_update)
                     new_sub.update_config(sub_update)
-                    print("SOURCE netconf SUBSCRIPTION update 'restart' is", restart, "'client' is", optional_str(client, "None"))
+                    log.trace("SOURCE netconf SUBSCRIPTION update 'restart'", {"restart": restart})
+                    log.trace("SOURCE netconf SUBSCRIPTION update 'client'", {"client": optional_str(client, "None")})
                     if not restart and client is not None:
-                        print("SOURCE netconf SUBSCRIPTION update", sub_update, "to start")
+                        log.debug("SOURCE netconf SUBSCRIPTION update to start", {"sub_update": sub_update})
                         new_sub.start()
                     subscribers[dev_sub_key] = new_sub
             else:
@@ -480,7 +487,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         username = config[PTag('tlm', 'username')].try_str()
         password = config[PTag('tlm', 'password')].try_str()
         key: ?str = None # TODO
-        print("SOURCE netconf CONNECT", optional_str(address, "None"), optional_str(port, "None"), optional_str(username, "None"), optional_str(password, "None"))
+        log.debug("SOURCE netconf CONNECT", {"address": optional_str(address, "None"), "port": optional_str(port, "None"), "username": optional_str(username, "None"), "password": optional_str(password, "None")})
 
         if address is not None and port is not None and \
                 username is not None and (password is not None or key is not None):
@@ -1456,7 +1463,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             return _source
 
         if source_key == SOURCE_KEY_NETCONF:
-            source_act = NetconfSource(env.cap, shared_schema)
+            source_act = NetconfSource(env.cap, shared_schema, logh)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
