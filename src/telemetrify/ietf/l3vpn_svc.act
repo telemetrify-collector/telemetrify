@@ -86,6 +86,7 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
                 WanInterfaceIPv4AddressRefiner,
                 LanInterfaceIPv4AddressRefiner,
                 IpPerformanceBidirectionalRefiner,
+                CustomerNameRefiner,
                 L3vpnSvcParamsRefiner,
             ],
             [([
@@ -95,6 +96,7 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
                 # WanInterfaceIPv4AddressRefiner.id(), # For DEBUG printouts only
                 # LanInterfaceIPv4AddressRefiner.id(), # For DEBUG printouts only
                 # IpPerformanceBidirectionalRefiner.id(), # For DEBUG printouts only
+                # CustomerNameRefiner.id(), # For DEBUG printouts only
                 L3vpnSvcParamsRefiner.id()
             ],
             lambda r: _on_config_update(r, s))], _on_config_cache_error)
@@ -260,6 +262,23 @@ class IpPerformanceBidirectionalRefiner(PassthroughRefiner):
     def id() -> int:
         return 4008
 
+class CustomerNameRefiner(PassthroughRefiner):
+    def __init__(self):
+        self.priority = 0
+        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
+            PTag('l3vpn-svc', 'l3vpn-svc'),
+            PTag('l3vpn-svc', 'vpn-services'),
+            PTag('l3vpn-svc', 'vpn-service'),
+            Key.wildcard(),
+            PTag('l3vpn-svc', 'customer-name'),
+            ]), SUB_TYPE_RUNNING), False)]
+        self.refiner_dependencies = []
+        self.subtrees = {}
+
+    @staticmethod
+    def id() -> int:
+        return 4009
+
 class L3vpnSvcParams(object):
     @property
     hostname: str
@@ -275,6 +294,8 @@ class L3vpnSvcParams(object):
     lan_interface_ipv4_address: ?IPv4Address
     @property
     is_bidirectional: ?bool
+    @property
+    customer_name: ?str
 
     def __init__(
             self,
@@ -284,7 +305,8 @@ class L3vpnSvcParams(object):
             device_reference: str,
             wan_interface_ipv4_address: ?IPv4Address,
             lan_interface_ipv4_address: ?IPv4Address,
-            is_bidirectional: ?bool):
+            is_bidirectional: ?bool,
+            customer_name: ?str):
         self.hostname = hostname
         self.vpn_id = vpn_id
         self.site_id = site_id
@@ -292,6 +314,7 @@ class L3vpnSvcParams(object):
         self.wan_interface_ipv4_address = wan_interface_ipv4_address
         self.lan_interface_ipv4_address = lan_interface_ipv4_address
         self.is_bidirectional = is_bidirectional
+        self.customer_name = customer_name
 
     def __str__(self) -> str:
         return "L3vpnSvcParams(" \
@@ -302,13 +325,16 @@ class L3vpnSvcParams(object):
             + ", " + optional_str(self.wan_interface_ipv4_address, "None") \
             + ", " + optional_str(self.lan_interface_ipv4_address, "None") \
             + ", " + optional_str(self.is_bidirectional, "None") \
+            + ", " + optional_str(self.customer_name, "None") \
             + ")"
 
 class L3vpnSvcParamsRefiner(Refiner):
     @property
     params_by_site_access_path_key: dict[Keypath, L3vpnSvcParams]
     @property
-    site_access_path_key_by_monitor_endpoint_path_key: dict[Keypath, Keypath]
+    site_access_path_key_by_monitor_endpoint_path_key: BiDict[Keypath, Keypath]
+    @property
+    site_access_path_key_by_vpn_service_path_key: BiDict[Keypath, Keypath]
 
     def __init__(self):
         self.priority = 0
@@ -321,17 +347,17 @@ class L3vpnSvcParamsRefiner(Refiner):
                 WanInterfaceIPv4AddressRefiner.id(),
                 LanInterfaceIPv4AddressRefiner.id(),
                 IpPerformanceBidirectionalRefiner.id(),
+                CustomerNameRefiner.id()
             ]
         self.params_by_site_access_path_key = {}
-        self.site_access_path_key_by_monitor_endpoint_path_key = {}
+        self.site_access_path_key_by_monitor_endpoint_path_key = BiDict()
+        self.site_access_path_key_by_vpn_service_path_key = BiDict()
 
     @staticmethod
     def id() -> int:
         return 4010
 
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        updated: set[Keypath] = set([])
-
         #print("ietf.l3vpn_svc - root:\n" + str(root))
 
         _hostname_refiner, hostname_keys = input_refiners[HostnameRefiner.id()]
@@ -339,14 +365,30 @@ class L3vpnSvcParamsRefiner(Refiner):
         _device_ref_refiner, device_ref_keys = input_refiners[DeviceReferenceRefiner.id()]
         _wan_address_refiner, wan_address_keys = input_refiners[WanInterfaceIPv4AddressRefiner.id()]
         _lan_address_refiner, lan_address_keys = input_refiners[LanInterfaceIPv4AddressRefiner.id()]
-        _bidirectional_refiner, bidirectional_keys = input_refiners[IpPerformanceBidirectionalRefiner.id()]
+        bidirectional_refiner, bidirectional_keys = input_refiners[IpPerformanceBidirectionalRefiner.id()]
+        customer_name_refiner, customer_name_keys = input_refiners[CustomerNameRefiner.id()]
 
         site_access_path_keys: set[Keypath] = set(hostname_keys + vpn_id_keys + device_ref_keys + wan_address_keys + lan_address_keys)
 
         for monitor_endpoint_path_key in bidirectional_keys:
-            site_access_path_key = try_get(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
+            #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_get_val(monitor_endpoint_path_key) # actonc codegen error
+            site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
             if site_access_path_key is not None:
                 site_access_path_keys.add(site_access_path_key)
+            _state = bidirectional_refiner.state(monitor_endpoint_path_key)
+            if _state is None:
+                #self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_val(monitor_endpoint_path_key)
+                BiDict.try_pop_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
+
+        for vpn_service_path_key in customer_name_keys:
+            #site_access_path_key = self.site_access_path_key_by_vpn_service_path_key.try_get_val(vpn_service_path_key) # actonc codegen error
+            site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+            if site_access_path_key is not None:
+                site_access_path_keys.add(site_access_path_key)
+            _state = customer_name_refiner.state(vpn_service_path_key)
+            if _state is None:
+                #self.site_access_path_key_by_vpn_service_path_key.try_pop_val(vpn_service_path_key) # actonc codegen error
+                BiDict.try_pop_val(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
 
         prefix = 'l3vpn-svc'
         dt_prefix = 'dt-l3vpn-svc'
@@ -370,24 +412,45 @@ class L3vpnSvcParamsRefiner(Refiner):
                             wan_interface_ipv4_address: ?IPv4Address = _vars[PTag(prefix, 'wan-interface')][PTag(prefix, 'ipv4-address')].try_ipv4address()
                             lan_interface_ipv4_address: ?IPv4Address = _vars[PTag(prefix, 'lan-interface')][PTag(prefix, 'ipv4-address')].try_ipv4address()
 
+                            # is_bidirectional
                             _vpn_service = root[PTag(dt_prefix, 'ip-performance')][PTag(dt_prefix, 'vpn-service')][Key([vpn_id])]
                             is_bidirectional: ?bool = \
                                 _vpn_service[PTag(dt_prefix, 'monitor-endpoint')][Key([hostname])][PTag(dt_prefix, 'bidirectional')].try_bool()
-                            monitor_endpoint_path_key = Keypath([Key([vpn_id]), Key([hostname])])
-                            if is_bidirectional is not None:
-                                self.site_access_path_key_by_monitor_endpoint_path_key[monitor_endpoint_path_key] = site_access_path_key
-                            else:
-                                try_pop(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
 
-                            params = L3vpnSvcParams(hostname, vpn_id, site_id, device_reference, wan_interface_ipv4_address, lan_interface_ipv4_address, is_bidirectional)
+                            # customer_name
+                            _vpn_service = root[PTag(prefix, 'l3vpn-svc')][PTag(prefix, 'vpn-services')][PTag(prefix, 'vpn-service')][Key([vpn_id])]
+                            customer_name: ?str = \
+                                _vpn_service[PTag(prefix, 'customer-name')].try_str()
+
+                            params = L3vpnSvcParams(
+                                hostname,
+                                vpn_id,
+                                site_id,
+                                device_reference,
+                                wan_interface_ipv4_address,
+                                lan_interface_ipv4_address,
+                                is_bidirectional,
+                                customer_name)
+
+            old_params = try_pop(self.params_by_site_access_path_key, site_access_path_key)
+            if old_params is not None:
+                # self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_key(site_access_path_key) # actonc codegen error
+                BiDict.try_pop_key(self.site_access_path_key_by_monitor_endpoint_path_key, site_access_path_key)
+                # self.site_access_path_key_by_vpn_service_path_key.try_pop_key(site_access_path_key) # actonc codegen error
+                BiDict.try_pop_key(self.site_access_path_key_by_vpn_service_path_key, site_access_path_key)
 
             if params is not None:
                 self.params_by_site_access_path_key[site_access_path_key] = params
-            else:
-                old_params = try_pop(self.params_by_site_access_path_key, site_access_path_key)
-            updated.add(site_access_path_key)
 
-        return list(iter(updated))
+                monitor_endpoint_path_key = Keypath([Key([params.vpn_id]), Key([params.hostname])])
+                #self.site_access_path_key_by_monitor_endpoint_path_key.set(monitor_endpoint_path_key, site_access_path_key) # actonc codegen error
+                BiDict.set(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key, site_access_path_key)
+
+                vpn_service_path_key = Keypath([Key([params.vpn_id])])
+                #self.site_access_path_key_by_vpn_service_path_key.set(vpn_service_path_key, site_access_path_key) # actonc codegen error
+                BiDict.set(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key, site_access_path_key)
+
+        return list(iter(site_access_path_keys))
 
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.params_by_site_access_path_key, keys)

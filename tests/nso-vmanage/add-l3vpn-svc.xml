@@ -4,6 +4,7 @@
     <vpn-services>
       <vpn-service>
         <vpn-id>2000000002</vpn-id>
+        <customer-name>Beispiel Standard-VPN</customer-name>
       </vpn-service>
     </vpn-services>
     <sites>

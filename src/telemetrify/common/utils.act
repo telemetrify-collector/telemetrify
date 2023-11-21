@@ -115,6 +115,44 @@ class Queue[T](object):
 #     l[a] = l[b]
 #     l[b] = tmp
 
+class BiDict[K(Hashable), V(Hashable)](object):
+    @property
+    key_to_val: dict[K, V]
+    @property
+    val_to_key: dict[V, K]
+
+    def __init__(self):
+        self.key_to_val = {}
+        self.val_to_key = {}
+
+    def set(self, k: K, v: V):
+        self.key_to_val[k] = v
+        self.val_to_key[v] = k
+
+    def try_get_val(self, k: K) -> ?V:
+        return try_get(self.key_to_val, k)
+
+    def try_get_key(self, v: V) -> ?K:
+        return try_get(self.val_to_key, v)
+
+    def try_pop_val(self, k: K) -> ?V:
+        v = try_pop(self.key_to_val, k)
+        if v is not None:
+            del self.val_to_key[v]
+        return v
+
+    def try_pop_key(self, v: V) -> ?K:
+        k = try_pop(self.val_to_key, v)
+        if k is not None:
+            del self.key_to_val[k]
+        return k
+
+    def clear(self):
+        # self.key_to_val.clear()
+        # self.val_to_key.clear()
+        self.key_to_val = {}
+        self.val_to_key = {}
+
 protocol TryGetMapping[A(Eq), B](Mapping[A, B]):
     try_get: (A) -> ?B
 
