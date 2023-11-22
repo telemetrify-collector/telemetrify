@@ -473,7 +473,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         sub_config = sub_update.config
         if sub_config is not None:
             if sub_config[_SUBSCRIPTION_TYPE_ACTION_POLLER].exists():
-                sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema)
+                sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
             elif sub_config[_SUBSCRIPTION_TYPE_GET_POLLER].exists():
                 sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, None)
@@ -575,7 +575,13 @@ def _source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath
 
 #actor NetconfRpcPollSubscription(source: NetconfSource, path: str, period_ms: int):
 #actor NetconfRpcPollSubscription(source: NetconfSource, config: TNode, sinks: SubscriptionSinkCollection):
-actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
+actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("netconf-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
 
@@ -590,7 +596,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     var is_running: bool = False
 
-    print("SUBSCRIBER netconf-rpc-poll CREATED")
+    log.info("SUBSCRIBER netconf-rpc-poll CREATED", None)
 
     def _do_rpc_request(seqno: int, poll_ts: time.Instant):
         if seqno != poller_seqno:
@@ -631,7 +637,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # TODO: Process node
         if node is not None:
             xnode = netconf.netconf_to_xnode(node, [], 0)
-            print("SUBSCRIBER netconf-rpc-poll POLL:", xnode)
+            log.debug("SUBSCRIBER netconf-rpc-poll POLL:", {"xnode": xnode})
             source_params = tnode_root()
             _source_params_try_append_dev_sub(source_params, dev_sub_key)
             source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
@@ -639,9 +645,9 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                 source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
             sinks.write(xnode, source_params)
         else:
-            print("SUBSCRIBER netconf-rpc-poll POLL interrupted")
+            log.error("SUBSCRIBER netconf-rpc-poll POLL interrupted", None)
 
-        #print("POLLED...")
+        #log.undecided("POLLED...", None)
         curr_ts = time.monotonic()
         next_ts = last_ts.add(period)
         #print("  period:", period.to_float())
@@ -656,7 +662,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # print("  next_ts:", next_ts)
 
         delay = next_ts.since(curr_ts)
-        print("  ... delay " + str(delay.to_float()) + "s")
+        log.debug("delay (s)", {"delay": delay.to_float()})
         after delay.to_float(): _do_rpc_request(seqno, next_ts)
 
     #def update_sinks(sink_updates: list[(Keypath, ?SubscriptionSink)]):
@@ -666,7 +672,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         _config = update.config
         if _config is not None:
             _stop_poller()
-            print("SUBSCRIBER netconf-rpc-poll CONFIG", _config)
+            log.debug("SUBSCRIBER netconf-rpc-poll CONFIG", {"config": _config})
 
             poll = _config[PTag('tlm', 'netconf-rpc-poll')]
             path = poll[PTag('tlm', 'path')].try_str()
@@ -709,7 +715,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                             is_cursor_ok = True
                         # if cursor.push(PTag(prefix, 'rpc-' + name)):
                         #     if cursor.push(unmangled_rpc_tag):
-                        #         print("PING28")
+                        #         log.undecided("PING28", None)
                         #         is_cursor_ok = True
                         #     else:
                         #         print(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)))
@@ -755,13 +761,13 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     def start():
         if not is_running:
-            print("SUBSCRIBER netconf-rpc-poll STARTED")
+            log.info("SUBSCRIBER netconf-rpc-poll STARTED", None)
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            print("SUBSCRIBER netconf-rpc-poll STOPPED")
+            log.info("SUBSCRIBER netconf-rpc-poll STOPPED", None)
             is_running = False
             _stop_poller()
 
