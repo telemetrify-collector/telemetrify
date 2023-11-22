@@ -842,7 +842,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         sub_config = sub_update.config
         if sub_config is not None:
             if sub_config[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
-                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema)
+                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
@@ -907,7 +907,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         subscribers = {}
 
 
-actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
+actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var logh = logging.Handler("vmanage-poll-subscription")
     if log_handler is not None:
         logh.set_handler(log_handler)
