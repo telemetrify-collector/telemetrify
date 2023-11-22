@@ -576,7 +576,7 @@ def _source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath
 #actor NetconfRpcPollSubscription(source: NetconfSource, path: str, period_ms: int):
 #actor NetconfRpcPollSubscription(source: NetconfSource, config: TNode, sinks: SubscriptionSinkCollection):
 actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
-    var logh = logging.Handler("netconf-source")
+    var logh = logging.Handler("netconf-rpc-poll-subscription")
     if log_handler is not None:
         logh.set_handler(log_handler)
 
