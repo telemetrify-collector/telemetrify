@@ -774,13 +774,19 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
     def close():
         stop()
 
-actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
+actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("vmanage-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var config: TNode = tnode_empty()
     var client: ?vmanage.VManageHTTPClient = None
     var client_seqno: int = 0
     var subscribers: dict[Keypath, Subscriber] = {}
 
-    print("SOURCE vmanage CREATED")
+    log.info("SOURCE vmanage CREATED", None)
 
     def _on_client_connect(seqno: int):
         if seqno != client_seqno:
@@ -800,8 +806,8 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         pass
 
     def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
-        print("SOURCE vmanage CONFIG update", optional_str(source_update, "None"))
-        print("SOURCE vmanage SUBSCRIPTION update", mapping_str(subscription_updates))
+        log.debug("SOURCE vmanage CONFIG update", {"source_update": optional_str(source_update, "None")})
+        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": mapping_str(subscription_updates)})
 
         restart = False
 
@@ -1475,7 +1481,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             return source
 
         if source_key == SOURCE_KEY_VMANAGE_HTTP:
-            source_act = VManageSource(env.cap, shared_schema)
+            source_act = VManageSource(env.cap, shared_schema, logh)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
