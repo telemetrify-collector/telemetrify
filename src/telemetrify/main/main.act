@@ -908,6 +908,12 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
 
 
 actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
+    var logh = logging.Handler("vmanage-poll-subscription")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
 
@@ -918,7 +924,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
     var is_running: bool = False
 
-    print("SUBSCRIBER vmanage CREATED")
+    log.info("SUBSCRIBER vmanage CREATED", None)
 
     def _do_poll(seqno: int, poll_ts: time.Instant):
         if seqno != poller_seqno:
@@ -985,8 +991,8 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                         source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
                     sinks.write(xnode, source_params)
             except Exception as exc:
-                print(exc)
-                print(reply.body)
+                log.error("Exception", {"exception": exc})
+                log.debug("Reply body", {"body": reply.body})
 
         _schedule_next_poll(seqno, last_ts)
 
@@ -1046,13 +1052,13 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
     def start():
         if not is_running:
-            print("SUBSCRIBER vmanage-poll STARTED")
+            log.info("SUBSCRIBER vmanage-poll STARTED", None)
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            print("SUBSCRIBER vmanage-poll STOPPED")
+            log.info("SUBSCRIBER vmanage-poll STOPPED", None)
             is_running = False
             _stop_poller()
 
