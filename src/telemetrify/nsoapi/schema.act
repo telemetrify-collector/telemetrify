@@ -172,6 +172,12 @@ class Cursor:
         root_nsmaps = try_get(schema._mount_id_maps, ROOT_MOUNT_ID)
         self._mount_points.append((ROOT_MOUNT_ID, root_nsmaps) if root_nsmaps is not None else None)
 
+    def clone(self: Cursor):
+        other = Cursor(self._schema)
+        other._path.extend(self._path[1:])
+        other._mount_points.extend(self._mount_points)
+        return other
+
     def get_schema_path(self: Cursor) -> SchemaPath:
         tags: list[Tag] = []
         mount_ids: list[?HTag] = []

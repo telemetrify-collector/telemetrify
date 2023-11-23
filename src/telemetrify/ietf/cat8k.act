@@ -193,7 +193,7 @@ actor IpSlaTransform(
         else:
             ip_sla_stats: IpSlaStats = _ip_sla_stats
 
-            root = TTree(OP_NONE, ITag.root(), None, {})
+            root = TTree(OP_MERGE, ITag.root(), None, {})
 
             # TODO: DELETE/REPLACE based on l3vpn-svc?
 

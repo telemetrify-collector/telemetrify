@@ -119,7 +119,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
     var conn: ?net.TCPConnection = None
 
     def _write(data: bytes):
-        print("CdbConnection TCP send:", data)
+        #print("CdbConnection TCP send:", data)
         if conn is not None:
             conn.write(data)
             # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
@@ -242,10 +242,10 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
         # print("CdbConnection TCP recv:", data)
         data_len: int = len(data)
         recv_bytes_total += data_len
-        if len(data) > 80:
-            print("CdbConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
-        else:
-            print("CdbConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
+        # if len(data) > 80:
+        #     print("CdbConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
+        # else:
+        #     print("CdbConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
         input_stream.append_data(data)
         # _post_poll_recv()
         if record_to is not None:
@@ -273,7 +273,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
     def _send_cdb_request(queue, op: ?int, read_op: bool, req: ?EObject, response_cb: action(?value) -> None):
         payload_writer = BufferWriter()
         if req is not None and isinstance(req, EObject):
-            print("ENC EObject:", str(req))
+            #print("ENC EObject:", str(req))
             payload_writer.write_tag(_ERL_EXTERN_FMT)
             req.encode(payload_writer)
         payload_data = payload_writer.to_bytes()

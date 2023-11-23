@@ -717,7 +717,7 @@ actor test_etv_tnode(env: Env, opts: Opts):
 
             root = TTree(OP_NONE, PTag.root(), None, {})
             def do_merge(etvs):
-                merge_root = etagvals_to_ttree(etvs, Cursor(schema))
+                merge_root = etagvals_to_merge_ttree(etvs, Cursor(schema))
                 if isinstance(merge_root, TTree):
                     print("Got ttree:\n" + str(merge_root))
                     root.merge(merge_root)
@@ -797,7 +797,7 @@ actor test_subscriber(env: Env, opts: Opts):
         print("CDB (cmd) connected!!!!")
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [DeviceSettingsRefiner],
-            [([DeviceSettingsRefiner.id()], _on_config_update)], _on_config_cache_error)
+            [([DeviceSettingsRefiner.id()], _on_config_update)], _on_config_cache_error, None)
         #await async env.exit(0)
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]]):

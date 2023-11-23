@@ -183,6 +183,9 @@ extension HTag(Hashable):
     def __hash__(self) -> int:
         return safe_hash(self.ns_hash + self.name_hash)
 
+def _eq_optional_value(a: ?value, b: ?value):
+    return a is not None and b is not None and _eq_value(a, b) or a is None and b is None
+
 def _eq_value(a: value, b: value) -> bool:
     if isinstance(a, int) and isinstance(b, int):
         return a == b
@@ -601,6 +604,12 @@ class TNode(Node):
     def iter(self) -> Iterator[TNode]:
         return [].__iter__()
 
+    def iter_ids(self) -> Iterator[Id]:
+        return [].__iter__()
+
+    def iter_items(self) -> Iterator[(Id, TNode)]:
+        return [].__iter__()
+
     def has_children(self) -> bool:
         return False
 
@@ -642,7 +651,7 @@ class TNode(Node):
     def _copy_deep(self, new_op: ?int) -> TNode:
         return self
 
-    def go(self, _id: value) -> TNode:
+    def go(self, _id: Id) -> TNode:
         """Try to get node or return dummy if not found."""
         node = self.get(_id)
         return node if node is not None else (TNode(OP_NONE, _id if isinstance(_id, Tag) else self._tag))
@@ -656,8 +665,11 @@ class TNode(Node):
     def exists(self) -> bool:
         return False
 
-    def get(self, _id: value) -> ?TNode:
+    def get(self, _id: Id) -> ?TNode:
         return None
+
+    def has_child(self, _id: Id) -> bool:
+        return False
 
     #
     # values
@@ -996,6 +1008,12 @@ class TTree(TNode):
     def iter(self) -> Iterator[TNode]:
         return self._children.values()
 
+    def iter_ids(self) -> Iterator[Id]:
+        return self._children.keys()
+
+    def iter_items(self) -> Iterator[(Id, TNode)]:
+        return self._children.items()
+
     def has_children(self) -> bool:
         return bool(self._children)
 
@@ -1028,14 +1046,15 @@ class TTree(TNode):
 
     def merge(self, other: TNode) -> TNode:
         if isinstance(other, TTree):
-            if other._op == OP_NOCREATE and self._op == OP_DELETE:
+            if other._op == OP_NOCREATE and self._op in [OP_DELETE, OP_REPLACE]:
                 return self
 
             if other._op in [OP_DELETE, OP_REPLACE]:
-                self.clear()
-                if other._op == OP_DELETE:
-                    if self._op != OP_NONE:
-                        self._op = other._op
+                if self._op == OP_NONE:
+                    self.clear()
+                else:
+                    if self._op != OP_DELETE:
+                        self._op = OP_REPLACE
             elif other._op == OP_MERGE:
                 if self._op == OP_DELETE:
                     self._op = OP_REPLACE
@@ -1049,7 +1068,7 @@ class TTree(TNode):
                         try_pop(self._children, child_id)
                     else:
                         self._children[child_id] = self_child.merge(other_child)
-                elif other_child._op in [OP_MERGE, OP_REPLACE]:
+                elif not (other_child._op == OP_NOCREATE and self._op == OP_NONE):
                     self._children[child_id] = other_child._copy_deep(OP_NONE if self._op == OP_NONE else None)
 
             return self
@@ -1065,19 +1084,25 @@ class TTree(TNode):
     def exists(self) -> bool:
         return self._op not in [OP_DELETE, OP_NOCREATE]
 
-    def get(self, _id: value) -> ?TNode:
-        if isinstance(_id, Id):
-            return try_get(self._children, _id)
-        # TODO: For future convenience
-        # elif isinstance(_id, str):
-        #     ...
-        # elif isinstance(_id, int):
-        #     ...
-        # elif isinstance(_id, list):
-        #     ...
-        # elif isinstance(_id, tuple):
-        #     ...
-        return None
+    # TODO: For future convenience
+    # def get(self, _id: value) -> ?TNode:
+    #     if isinstance(_id, Id):
+    #         return try_get(self._children, _id)
+    #     elif isinstance(_id, str):
+    #         ...
+    #     elif isinstance(_id, int):
+    #         ...
+    #     elif isinstance(_id, list):
+    #         ...
+    #     elif isinstance(_id, tuple):
+    #         ...
+    #     return None
+
+    def get(self, _id: Id) -> ?TNode:
+        return try_get(self._children, _id)
+
+    def has_child(self, _id: Id) -> bool:
+        return _id in self._children
 
     #
     # Node

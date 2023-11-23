@@ -99,7 +99,8 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
                 # CustomerNameRefiner.id(), # For DEBUG printouts only
                 L3vpnSvcParamsRefiner.id()
             ],
-            lambda r: _on_config_update(r, s))], _on_config_cache_error)
+            lambda r: _on_config_update(r, s))], _on_config_cache_error,
+            None)
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
         for refiner_id, updates in refiner_updates.items():
