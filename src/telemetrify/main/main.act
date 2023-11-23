@@ -482,7 +482,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
                 sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
             elif sub_config[_SUBSCRIPTION_TYPE_GET_POLLER].exists():
-                sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, None)
+                sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
@@ -870,7 +870,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
             #    _on_client_error(e, client_seqno)
 
             tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(auth)))
-            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, None)
+            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, logh)
             client = new_client
 
         # # <TEST>
@@ -1698,7 +1698,7 @@ actor main(env):
                         device_name = _device_name_key[0]
                         _shared_resources = shared_resources
                         if isinstance(device_name, str) and _shared_resources is not None:
-                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources, None)
+                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources, logh)
                 updated_device_keys.add(device_key)
                 updated_device_configs[device_key] = state
             else:
