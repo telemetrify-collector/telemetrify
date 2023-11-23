@@ -1656,9 +1656,11 @@ actor main(env):
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
         for refiner_id, updates in refiner_updates.items():
-            print("refiner_id: " + str(refiner_id))
+            log.debug("refiner_id:", {"refiner_id": refiner_id})
+            _updates = {}
             for k, v in updates:
-                print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+                _updates[str(k)] = str(v) if v is not None else "DELETED"
+            log.debug("refiner updates", _updates)
 
         dev_config: list[(Keypath, ?value)] = refiner_updates[DeviceStreamerRefiner.id()]
         sub_config: list[(Keypath, ?value)] = refiner_updates[DeviceSubscriptionSourceRefiner.id()]
