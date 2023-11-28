@@ -217,13 +217,19 @@ class SubscriptionSinkCollection(object):
         #self.sub_sinks.clear()
         self.sub_sinks = {}
 
-actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema):
+actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("nso-cdb-sink")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var maapi_connection: ?telemetrify.nsoapi.maapi.MaapiConnection = None
     var writer: ?telemetrify.nso.writer.MaapiWriter = None
 
     var tasks: Wardrobe[(Node, TNode, TNode)] = Wardrobe() # (node, source_params, sink_config)
 
-    print("SINK nso-cdb CREATED")
+    log.info("SINK nso-cdb CREATED", None)
 
     def write(node: Node, source_params: TNode, sink_config: TNode) -> None:
         m = maapi_connection
@@ -238,7 +244,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema):
 
     def _on_start_trans(_m, txn_handle, task_id):
         if isinstance(txn_handle, int):
-            print("SINK nso-cdb MAAPI started transaction txn_handle:", txn_handle)
+            log.debug("SINK nso-cdb MAAPI started transaction", {"txn_handle": txn_handle})
             w = writer
             if w is not None:
                 try:
@@ -248,34 +254,34 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema):
                 else:
                     w.write(node, txn_handle, False, lambda e: _on_write(e, txn_handle, task_id))
         else:
-            print("SINK nso-cdb MAAPI start transaction failed:", txn_handle)
+            log.error("SINK nso-cdb MAAPI start transaction failed:", {"txn_handle": txn_handle})
 
     def _on_write(e: ?Exception, txn_handle: int, task_id: int):
         if e is not None:
-            print("SINK nso-cdb MAAPI write txn_handle:", txn_handle, "failed:", e)
+            log.error("SINK nso-cdb MAAPI write txn_handle failed:", {"txn_handle": txn_handle, "exception": e})
         m = maapi_connection
         if m is not None:
             m.apply_trans(txn_handle, False, 0, lambda _c, e: _on_apply_trans(e, txn_handle, task_id))
 
     def _on_apply_trans(e: ?Exception, txn_handle: int, task_id: int):
         if e is not None:
-            print("SINK nso-cdb MAAPI apply transaction txn_handle:", txn_handle, "failed:", e)
+            log.error("SINK nso-cdb MAAPI apply transaction failed:", {"txn_handle": txn_handle, "exception": e})
         m = maapi_connection
         if m is not None:
             m.finish_trans(txn_handle, lambda _c, e: _on_finish_trans(e, txn_handle, task_id))
 
     def _on_finish_trans(e: ?Exception, txn_handle: int, task_id: int):
         if e is not None:
-            print("SINK nso-cdb MAAPI finish transaction txn_handle:", txn_handle, "failed:", e)
+            log.error("SINK nso-cdb MAAPI finish transaction failed:", {"txn_handle": txn_handle, "exception": e})
         else:
-            print("SINK nso-cdb WRITE DONE")
+            log.debug("SINK nso-cdb WRITE DONE", None)
         try:
             tasks.discard(task_id)
         except Exception:
             pass
 
     def _on_maapi_connect(_m: MaapiConnection):
-        print("SINK nso-cdb MAAPI connect complete")
+        log.info("SINK nso-cdb MAAPI connect complete", None)
         m = maapi_connection
         if m is not None:
             m.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
@@ -286,7 +292,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema):
             writer = telemetrify.nso.writer.MaapiWriter(m, shared_schema)
 
     def _on_maapi_connect_error(e):
-        print("SINK nso-cdb MAAPI connect failed:", e)
+        log.error("SINK nso-cdb MAAPI connect failed:", {"error": e})
         # TODO: retry? We should probably panic/exit/crash if we don't have a local NSO
 
     def close():
@@ -300,11 +306,17 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema):
             _maapi_connection.close()
             maapi_connection = None
         tasks.clear()
-        print("SINK nso-cdb CLOSED")
+        log.info("SINK nso-cdb CLOSED", None)
 
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
 
-actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema):
+actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("m3db-sink")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     config_m3db = config[PTag('tlm', 'm3db')]
     address = config_m3db[PTag('tlm', 'address')].req_str()
     port = config_m3db[PTag('tlm', 'port')].req_int()
@@ -312,7 +324,7 @@ actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema
     var client: ?tsdb.m3.Client = None
     var writer: ?telemetrify.tsdb.writer.TSDBWriter = None
 
-    print("SINK m3db CREATED")
+    log.info("SINK m3db CREATED", None)
 
     def write(node: Node, source_params: TNode, sink_config: TNode) -> None:
         w = writer
@@ -365,42 +377,47 @@ actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema
             # _client.close()
             pass
 
-        print("SINK m3db CLOSED")
+        log.info("SINK m3db CLOSED", None)
 
     def _on_tsdb_connect(c: tsdb.m3.Client):
         client = c
         c.quick_init(_on_tsdb_init)
-        print("SINK m3db CONNECTED")
+        log.info("SINK m3db CONNECTED", None)
 
     def _on_tsdb_init(c: tsdb.m3.Client, success: bool):
         writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema)
-        print("SINK m3db INITIALIZED")
+        log.info("SINK m3db INITIALIZED", None)
 
     def _on_tsdb_error(c: tsdb.m3.Client, e):
-        print("SINK m3db CLIENT ERROR:", e)
+        log.error("SINK m3db CLIENT ERROR:", {"error": str(e)})
         # TODO: Reconnect ourselves or pass along upwards?
 
     def _on_write_done(c, e):
-        if e is None:
-            print("SINK m3db WRITE DONE")
+        if e is not None:
+            log.error("SINK m3db WRITE ERROR:", {"error": str(e)})
         else:
-            print("SINK m3db WRITE ERROR:", e)
+            log.info("SINK m3db WRITE DONE", None)
 
-    log_handler = logging.Handler(None)
     #log_handler.add_sink(logging.StdoutSink())
 
     #log = logging.Logger(log_handler)
 
-    tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(auth))), address, port, _on_tsdb_connect, _on_tsdb_error, log_handler)
+    tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(auth))), address, port, _on_tsdb_connect, _on_tsdb_error, logh)
 
 #actor NetconfSource(auth: WorldCap, on_ready: action(), on_error: action(str) -> None, on_closed() -> None):
-actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
+actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("netconf-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var config: TNode = tnode_empty()
     var client: ?netconf.Client = None
     var client_seqno: int = 0
     var subscribers: dict[Keypath, Subscriber] = {}
 
-    print("SOURCE netconf CREATED")
+    log.info("SOURCE netconf CREATED", None)
 
     def _on_client_connect(seqno: int):
         if seqno != client_seqno:
@@ -420,8 +437,8 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         pass
 
     def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
-        print("SOURCE netconf CONFIG update", optional_str(source_update, "None"))
-        print("SOURCE netconf SUBSCRIPTION update", mapping_str(subscription_updates))
+        log.debug("SOURCE netconf CONFIG update", {"source_update": optional_str(source_update, "None")})
+        log.debug("SOURCE netconf SUBSCRIPTION update", {"subscription_updates": mapping_str(subscription_updates)})
 
         restart = False
 
@@ -435,18 +452,19 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
 
         for dev_sub_key, sub_update in subscription_updates.items():
             if sub_update is not None:
-                print("SOURCE netconf SUBSCRIPTION update", sub_update)
+                log.trace("SOURCE netconf SUBSCRIPTION update", {"sub_update": sub_update})
                 sub = try_get(subscribers, dev_sub_key)
                 if sub is not None:
-                    print("SOURCE netconf SUBSCRIPTION update", sub_update, "exists")
+                    log.trace("SOURCE netconf SUBSCRIPTION update exists", {"sub_update": sub_update})
                     sub.update_config(sub_update)
                 else:
-                    print("SOURCE netconf SUBSCRIPTION update", sub_update, "is new")
+                    log.trace("SOURCE netconf SUBSCRIPTION update is new", {"sub_update": sub_update})
                     new_sub = _create_subscriber(dev_sub_key, sub_update)
                     new_sub.update_config(sub_update)
-                    print("SOURCE netconf SUBSCRIPTION update 'restart' is", restart, "'client' is", optional_str(client, "None"))
+                    log.trace("SOURCE netconf SUBSCRIPTION update 'restart'", {"restart": restart})
+                    log.trace("SOURCE netconf SUBSCRIPTION update 'client'", {"client": optional_str(client, "None")})
                     if not restart and client is not None:
-                        print("SOURCE netconf SUBSCRIPTION update", sub_update, "to start")
+                        log.debug("SOURCE netconf SUBSCRIPTION update to start", {"sub_update": sub_update})
                         new_sub.start()
                     subscribers[dev_sub_key] = new_sub
             else:
@@ -461,10 +479,10 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         sub_config = sub_update.config
         if sub_config is not None:
             if sub_config[_SUBSCRIPTION_TYPE_ACTION_POLLER].exists():
-                sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema)
+                sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
             elif sub_config[_SUBSCRIPTION_TYPE_GET_POLLER].exists():
-                sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, None)
+                sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
@@ -475,7 +493,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         username = config[PTag('tlm', 'username')].try_str()
         password = config[PTag('tlm', 'password')].try_str()
         key: ?str = None # TODO
-        print("SOURCE netconf CONNECT", optional_str(address, "None"), optional_str(port, "None"), optional_str(username, "None"), optional_str(password, "None"))
+        log.debug("SOURCE netconf CONNECT", {"address": optional_str(address, "None"), "port": optional_str(port, "None"), "username": optional_str(username, "None"), "password": optional_str(password, "None")})
 
         if address is not None and port is not None and \
                 username is not None and (password is not None or key is not None):
@@ -563,7 +581,13 @@ def _source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath
 
 #actor NetconfRpcPollSubscription(source: NetconfSource, path: str, period_ms: int):
 #actor NetconfRpcPollSubscription(source: NetconfSource, config: TNode, sinks: SubscriptionSinkCollection):
-actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
+actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("netconf-rpc-poll-subscription")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
 
@@ -578,7 +602,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     var is_running: bool = False
 
-    print("SUBSCRIBER netconf-rpc-poll CREATED")
+    log.info("SUBSCRIBER netconf-rpc-poll CREATED", None)
 
     def _do_rpc_request(seqno: int, poll_ts: time.Instant):
         if seqno != poller_seqno:
@@ -619,7 +643,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # TODO: Process node
         if node is not None:
             xnode = netconf.netconf_to_xnode(node, [], 0)
-            print("SUBSCRIBER netconf-rpc-poll POLL:", xnode)
+            log.debug("SUBSCRIBER netconf-rpc-poll POLL:", {"xnode": xnode})
             source_params = tnode_root()
             _source_params_try_append_dev_sub(source_params, dev_sub_key)
             source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
@@ -627,9 +651,9 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                 source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
             sinks.write(xnode, source_params)
         else:
-            print("SUBSCRIBER netconf-rpc-poll POLL interrupted")
+            log.error("SUBSCRIBER netconf-rpc-poll POLL interrupted", None)
 
-        #print("POLLED...")
+        #log.undecided("POLLED...", None)
         curr_ts = time.monotonic()
         next_ts = last_ts.add(period)
         #print("  period:", period.to_float())
@@ -644,7 +668,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # print("  next_ts:", next_ts)
 
         delay = next_ts.since(curr_ts)
-        print("  ... delay " + str(delay.to_float()) + "s")
+        log.debug("delay (s)", {"delay": delay.to_float()})
         after delay.to_float(): _do_rpc_request(seqno, next_ts)
 
     #def update_sinks(sink_updates: list[(Keypath, ?SubscriptionSink)]):
@@ -654,7 +678,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         _config = update.config
         if _config is not None:
             _stop_poller()
-            print("SUBSCRIBER netconf-rpc-poll CONFIG", _config)
+            log.debug("SUBSCRIBER netconf-rpc-poll CONFIG", {"config": _config})
 
             poll = _config[PTag('tlm', 'netconf-rpc-poll')]
             path = poll[PTag('tlm', 'path')].try_str()
@@ -697,7 +721,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                             is_cursor_ok = True
                         # if cursor.push(PTag(prefix, 'rpc-' + name)):
                         #     if cursor.push(unmangled_rpc_tag):
-                        #         print("PING28")
+                        #         log.undecided("PING28", None)
                         #         is_cursor_ok = True
                         #     else:
                         #         print(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)))
@@ -743,26 +767,32 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     def start():
         if not is_running:
-            print("SUBSCRIBER netconf-rpc-poll STARTED")
+            log.info("SUBSCRIBER netconf-rpc-poll STARTED", None)
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            print("SUBSCRIBER netconf-rpc-poll STOPPED")
+            log.info("SUBSCRIBER netconf-rpc-poll STOPPED", None)
             is_running = False
             _stop_poller()
 
     def close():
         stop()
 
-actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
+actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("vmanage-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var config: TNode = tnode_empty()
     var client: ?vmanage.VManageHTTPClient = None
     var client_seqno: int = 0
     var subscribers: dict[Keypath, Subscriber] = {}
 
-    print("SOURCE vmanage CREATED")
+    log.info("SOURCE vmanage CREATED", None)
 
     def _on_client_connect(seqno: int):
         if seqno != client_seqno:
@@ -782,8 +812,8 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         pass
 
     def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
-        print("SOURCE vmanage CONFIG update", optional_str(source_update, "None"))
-        print("SOURCE vmanage SUBSCRIPTION update", mapping_str(subscription_updates))
+        log.debug("SOURCE vmanage CONFIG update", {"source_update": optional_str(source_update, "None")})
+        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": mapping_str(subscription_updates)})
 
         restart = False
 
@@ -818,7 +848,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         sub_config = sub_update.config
         if sub_config is not None:
             if sub_config[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
-                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema)
+                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
@@ -840,7 +870,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
             #    _on_client_error(e, client_seqno)
 
             tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(auth)))
-            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, None)
+            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, logh)
             client = new_client
 
         # # <TEST>
@@ -883,7 +913,13 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema):
         subscribers = {}
 
 
-actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema):
+actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("vmanage-poll-subscription")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
 
@@ -894,7 +930,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
     var is_running: bool = False
 
-    print("SUBSCRIBER vmanage CREATED")
+    log.info("SUBSCRIBER vmanage CREATED", None)
 
     def _do_poll(seqno: int, poll_ts: time.Instant):
         if seqno != poller_seqno:
@@ -961,8 +997,8 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                         source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
                     sinks.write(xnode, source_params)
             except Exception as exc:
-                print(exc)
-                print(reply.body)
+                log.error("Exception", {"exception": exc})
+                log.debug("Reply body", {"body": reply.body})
 
         _schedule_next_poll(seqno, last_ts)
 
@@ -1022,13 +1058,13 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
     def start():
         if not is_running:
-            print("SUBSCRIBER vmanage-poll STARTED")
+            log.info("SUBSCRIBER vmanage-poll STARTED", None)
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            print("SUBSCRIBER vmanage-poll STOPPED")
+            log.info("SUBSCRIBER vmanage-poll STOPPED", None)
             is_running = False
             _stop_poller()
 
@@ -1055,14 +1091,14 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     var is_running: bool = False
 
-    print("SUBSCRIBER netconf-get-poll CREATED")
+    log.info("SUBSCRIBER netconf-get-poll CREATED", None)
 
     def _do_get_request(seqno: int, poll_ts: time.Instant):
-        print("SUBSCRIBER netconf-get-poll GET_REQUEST")
+        log.debug("SUBSCRIBER netconf-get-poll GET_REQUEST", None)
         if seqno != poller_seqno:
             return
 
-        print("SUBSCRIBER netconf-get-poll GET_XML", optional_str(get_xml, "None"))
+        log.trace("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": optional_str(get_xml, "None")})
         if get_xml is not None:
             request_ts = time.time()
 
@@ -1170,7 +1206,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             # # </TEST>
 
     def _on_get_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, node: ?xml.Node):
-        print("SUBSCRIBER netconf-get-poll GET_REPLY")
+        log.debug("SUBSCRIBER netconf-get-poll GET_REPLY", None)
         if seqno != poller_seqno:
             return
 
@@ -1181,7 +1217,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                  if node.tag == "data" and len(node.children) >= 1:
                      node = node.children[0]
                      xnode = netconf.netconf_to_xnode(node, [], 0)
-                     print("SUBSCRIBER netconf-get-poll POLL:", xnode)
+                     log.trace("SUBSCRIBER netconf-get-poll POLL:", {"xnode": xnode})
                      source_params = tnode_root()
                      _source_params_try_append_dev_sub(source_params, dev_sub_key)
                      source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
@@ -1192,10 +1228,8 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             pass
             log.error("SUBSCRIBER netconf-get-poll POLL interrupted", None)
 
-        #print("POLLED...")
         curr_ts = time.monotonic()
         next_ts = last_ts.add(period)
-        #log.info("  period:", period.to_float(), None)
 
         if next_ts < curr_ts:
             # Allow drift when reply arrived later than next period
@@ -1207,7 +1241,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         # log.info("  next_ts:", next_ts, None)
 
         delay = next_ts.since(curr_ts)
-        print("  ... delay " + str(delay.to_float()) + "s")
+        log.debug("  ... delay " + str(delay.to_float()) + "s", None)
         after delay.to_float(): _do_get_request(seqno, next_ts)
 
     #def update_sinks(sink_updates: list[(Keypath, ?SubscriptionSink)]):
@@ -1217,7 +1251,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         _config = update.config
         if _config is not None:
             _stop_poller()
-            print("SUBSCRIBER netconf-get-poll CONFIG", _config)
+            log.debug("SUBSCRIBER netconf-get-poll CONFIG", {"_config": _config})
 
             poll = _config[PTag('tlm', 'netconf-get-poll')]
             path = poll[PTag('tlm', 'path')].try_str()
@@ -1232,7 +1266,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
             if period_ms is not None and get_xml is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
-                print("period: " + str(period.to_float()) + "s")
+                log.debug("period: " + str(period.to_float()) + "s", None)
                 if is_running:
                     _try_start_poller()
             else:
@@ -1256,7 +1290,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                 for _id in get_path:
                     if isinstance(_id, Tag) and not cursor.push(_id):
                         # TODO: print some error or something?
-                        print("Invalid subscription path, bad node:", _id)
+                        log.error("Invalid subscription path, bad node:", {"_id": _id})
                         is_cursor_ok = False
                         break
 
@@ -1300,8 +1334,8 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
         schema_path = _schema_path
 
     def _try_start_poller():
-        print("SUBSCRIBER netconf-get-poll TRY_START")
-        print("SUBSCRIBER netconf-get-poll GET_XML", optional_str(get_xml, "None"))
+        log.debug("SUBSCRIBER netconf-get-poll TRY_START", None)
+        log.debug("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": optional_str(get_xml, "None")})
         if get_xml is not None:
             curr_ts = time.monotonic()
             # TODO: reduce to after 0. But we're currently getting an error, the
@@ -1314,13 +1348,13 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     def start():
         if not is_running:
-            print("SUBSCRIBER netconf-get-poll STARTED")
+            log.info("SUBSCRIBER netconf-get-poll STARTED", None)
             is_running = True
             _try_start_poller()
 
     def stop():
         if is_running:
-            print("SUBSCRIBER netconf-get-poll STOPPED")
+            log.info("SUBSCRIBER netconf-get-poll STOPPED", None)
             is_running = False
             _stop_poller()
 
@@ -1343,12 +1377,18 @@ class SubscriptionUpdate(object):
             unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink, "None") + ")")
         return "SubscriptionUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
 
-actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources):
+actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources, log_handler: ?logging.Handler):
+    var logh = logging.Handler("device-streamer")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
     var sources: dict[Keypath, Source] = {}
     var subscription_sources: dict[Keypath, Keypath] = {}
     var sinks: dict[Keypath, Sink] = {}
 
-    print("DEVICE", name, "CREATED")
+    log.info("DEVICE CREATED", {"name": name})
 
     def on_config(
             updated_device_config: ?DeviceStreamerConfig,
@@ -1357,19 +1397,27 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             source_updates: list[(Keypath, ?value)],
             sink_updates: list[(Keypath, ?value)]):
 
-        print("DEVICE", name, "CONFIG", optional_str(updated_device_config, "None"))
-        print("  SUBSCRIPTIONS")
+        log.debug("DEVICE CONFIG", {"name": name, "updated_device_config": optional_str(updated_device_config, "None")})
+
+        _subscription_updates = {}
         for k, v in subscription_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-        print("  SUBSCRIPTION SINKS")
+            _subscription_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SUBSCRIPTIONS", _subscription_updates)
+
+        _subscription_sink_updates = {}
         for k, v in subscription_sink_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-        print("  SOURCES")
+            _subscription_sink_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SUBSCRIPTION SINKS", _subscription_sink_updates )
+
+        _source_updates = {}
         for k, v in source_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
-        print("  SINKS")
+            _source_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SOURCES", _source_updates)
+
+        _sink_updates = {}
         for k, v in sink_updates:
-            print("    " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+            _sink_updates[str(k)] = str(v) if v is not None else "DELETED"
+        log.trace("SINKS", _sink_updates)
 
         source_config_updates: dict[Keypath, TNode] = {}
         updated_source_dev_subs: dict[Keypath, dict[Keypath, SubscriptionUpdate]] = {}
@@ -1439,13 +1487,13 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             return _source
 
         if source_key == SOURCE_KEY_NETCONF:
-            source_act = NetconfSource(env.cap, shared_schema)
+            source_act = NetconfSource(env.cap, shared_schema, logh)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
 
         if source_key == SOURCE_KEY_VMANAGE_HTTP:
-            source_act = VManageSource(env.cap, shared_schema)
+            source_act = VManageSource(env.cap, shared_schema, logh)
             source = Source(source_key, source_act.update_config, source_act.close)
             sources[source_key] = source
             return source
@@ -1459,7 +1507,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
 
         if config is not None and isinstance(config, TNode):
             if config[PTag('tlm', 'm3db')].exists():
-                sink_act = M3dbSink(env.cap, config, shared_schema)
+                sink_act = M3dbSink(env.cap, config, shared_schema, logh)
                 sinks[sink_key] = Sink(sink_act.write, sink_act.close)
                 return
             # elif config[PTag('tlm', 'nso-data-provider')].exists():
@@ -1467,7 +1515,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             #     sinks[sink_key] = sink
             #     return
             elif config[PTag('tlm', 'nso-cdb')].exists():
-                sink_act = NsoCdbSink(env, config, shared_schema)
+                sink_act = NsoCdbSink(env, config, shared_schema, logh)
                 sinks[sink_key] = Sink(sink_act.write, sink_act.close)
                 return
 
@@ -1547,34 +1595,37 @@ actor main(env):
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
     var shared_resources: ?SharedResources = None
 
+    var logh = logging.Handler("telemetrify")
+    var log = logging.Logger(logh)
+
     def _on_maapi_connect_error(e):
-        print("MAAPI connect failed:", e)
+        log.error("MAAPI connect failed:" + str(e), None)
 
     def _on_maapi_connect(c):
-        print("MAAPI connected!!!!")
+        log.info("MAAPI connected!!!!", None)
         c.load_schema(_on_load_schema)
 
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
-            print("MAAPI loaded schema!!!!")
+            log.info("MAAPI loaded schema!!!!", None)
             shared_resources = SharedResources(env, shared_schema)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
         else:
-            print("MAAPI load schema failed:", optional_str(e, ""))
+            log.error("MAAPI load schema failed:" + optional_str(e, ""), None)
             await async env.exit(1)
 
     def _on_cdb_connect_error(e):
-        print("CDB connect failed:", e)
+        log.error("CDB connect failed:" + str(e), None)
         await async env.exit(1)
 
     def _on_cdb_sub_connect(sc, s):
-        print("CDB (sub) connected!!!!")
+        log.info("CDB (sub) connected!!!!", None)
         cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
             action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None)
 
     def _on_cdb_cmd_connect(sc, cc, s):
-        print("CDB (cmd) connected!!!!")
+        log.info("CDB (cmd) connected!!!!", None)
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
                 DeviceSettingsRefiner,
@@ -1605,9 +1656,11 @@ actor main(env):
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
         for refiner_id, updates in refiner_updates.items():
-            print("refiner_id: " + str(refiner_id))
+            log.debug("refiner_id:", {"refiner_id": refiner_id})
+            _updates = {}
             for k, v in updates:
-                print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+                _updates[str(k)] = str(v) if v is not None else "DELETED"
+            log.debug("refiner updates", _updates)
 
         dev_config: list[(Keypath, ?value)] = refiner_updates[DeviceStreamerRefiner.id()]
         sub_config: list[(Keypath, ?value)] = refiner_updates[DeviceSubscriptionSourceRefiner.id()]
@@ -1645,7 +1698,7 @@ actor main(env):
                         device_name = _device_name_key[0]
                         _shared_resources = shared_resources
                         if isinstance(device_name, str) and _shared_resources is not None:
-                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources)
+                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources, logh)
                 updated_device_keys.add(device_key)
                 updated_device_configs[device_key] = state
             else:
@@ -1682,8 +1735,8 @@ actor main(env):
             entry.close()
 
     def _on_config_cache_error(e):
-        print("CdbCache failed:", optional_str(e.error_message, ""))
+        log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
         await async env.exit(1)
 
-    print("Starting up...")
+    log.info("Starting up...", None)
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
