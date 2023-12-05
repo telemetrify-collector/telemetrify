@@ -131,20 +131,37 @@ class DeviceSourceVmanageRefiner(PassthroughRefiner):
 SOURCE_KEY_NETCONF = Keypath([Key(['netconf'])])
 SOURCE_KEY_VMANAGE_HTTP = Keypath([Key(['vmanage-http'])])
 
+SUBSCRIPTION_TYPE_KEY_ACTION_POLLER = PTag('tlm', 'netconf-rpc-poll')
+SUBSCRIPTION_TYPE_KEY_GET_POLLER = PTag('tlm', 'netconf-get-poll')
+SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER = PTag('tlm', 'vmanage-poll')
+
+_SUBSCRIPTION_TYPE_SOURCE_LOOKUP = {
+    SUBSCRIPTION_TYPE_KEY_ACTION_POLLER: SOURCE_KEY_NETCONF,
+    SUBSCRIPTION_TYPE_KEY_GET_POLLER: SOURCE_KEY_NETCONF,
+    SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER: SOURCE_KEY_VMANAGE_HTTP
+}
+
 class DeviceSourceRefiner(Refiner):
     @property
     device_source_configs: dict[Keypath, dict[Keypath, TNode]]
+    @property
+    device_source_subs: dict[Keypath, set[Keypath]]
+    @property
+    device_sub_sources: dict[Keypath, Keypath]
 
     def __init__(self):
         self.priority = 0
         self.subscription_dependencies = [
             ]
         self.refiner_dependencies = [
+                DeviceSubscriptionSourceRefiner.id(),
                 DeviceSourceNetconfRefiner.id(),
                 DeviceSourceVmanageRefiner.id(),
             ]
 
         self.device_source_configs = {}
+        self.device_source_subs = {}
+        self.device_sub_sources = {}
 
     @staticmethod
     def id() -> int:
@@ -152,6 +169,39 @@ class DeviceSourceRefiner(Refiner):
 
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         updated: set[Keypath] = set([])
+
+        dev_sub_source_refiner, dev_sub_keys = input_refiners[DeviceSubscriptionSourceRefiner.id()]
+
+        for dev_sub_key in dev_sub_keys:
+            dev_key = dev_sub_key.try_slice(0, 1)
+            sub_key = dev_sub_key.try_slice(1, 2)
+            if dev_key is not None and sub_key is not None:
+                source_key: ?Keypath = None
+
+                state = dev_sub_source_refiner.state(dev_sub_key)
+                if state is not None and isinstance(state, TNode):
+                    sub_source_node: TNode = state
+                    for sub_type_id in sub_source_node.iter_ids():
+                        try:
+                            source_key = _SUBSCRIPTION_TYPE_SOURCE_LOOKUP[sub_type_id]
+                        except KeyError:
+                            raise ValueError("Missing _SUBSCRIPTION_TYPE_SOURCE_LOOKUP entry for: " + str(sub_type_id))
+                        else:
+                            break
+
+                if source_key is not None:
+                    dev_source_key = dev_key + source_key
+                    if dev_source_key not in self.device_source_subs:
+                        updated.add(dev_source_key)
+                    dict_set_add(self.device_source_subs, dev_source_key, sub_key)
+                    self.device_sub_sources[dev_sub_key] = source_key
+                else:
+                    source_key = try_pop(self.device_sub_sources, dev_sub_key)
+                    if source_key is not None:
+                        dev_source_key = dev_key + source_key
+                        dict_set_discard(self.device_source_subs, dev_source_key, sub_key)
+                        if dev_source_key not in self.device_source_subs:
+                            updated.add(dev_source_key)
 
         source_deps = [
             (SOURCE_KEY_NETCONF, input_refiners[DeviceSourceNetconfRefiner.id()]),
@@ -177,12 +227,13 @@ class DeviceSourceRefiner(Refiner):
         return list(iter(updated))
 
     def state(self, keys: Keypath) -> ?value:
-        device_key = keys.try_slice(0, 1)
-        source_key = keys.try_slice(1, 2)
-        if device_key is not None and source_key is not None:
-            sources = try_get(self.device_source_configs, device_key)
-            if sources is not None:
-                return try_get(sources, source_key)
+        if keys in self.device_source_subs:
+            device_key = keys.try_slice(0, 1)
+            source_key = keys.try_slice(1, 2)
+            if device_key is not None and source_key is not None:
+                sources = try_get(self.device_source_configs, device_key)
+                if sources is not None:
+                    return try_get(sources, source_key)
         return None
 
 class DeviceStreamerConfig(object):
