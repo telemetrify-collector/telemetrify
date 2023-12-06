@@ -44,10 +44,6 @@ import telemetrify.vmanage.transform
 # class Poll(object):
 #     pass
 
-_SUBSCRIPTION_TYPE_ACTION_POLLER = PTag('tlm', 'netconf-rpc-poll')
-_SUBSCRIPTION_TYPE_VMANAGE_POLLER = PTag('tlm', 'vmanage-poll')
-_SUBSCRIPTION_TYPE_GET_POLLER = PTag('tlm', 'netconf-get-poll')
-
 def tnode_empty() -> TNode:
     return TNode(OP_NONE, PTag.root())
 
@@ -478,10 +474,10 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
     def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
         sub_config = sub_update.config
         if sub_config is not None:
-            if sub_config[_SUBSCRIPTION_TYPE_ACTION_POLLER].exists():
+            if sub_config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
                 sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
-            elif sub_config[_SUBSCRIPTION_TYPE_GET_POLLER].exists():
+            elif sub_config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
                 sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
@@ -568,6 +564,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
             subscriber.close()
         #subscribers.clear()
         subscribers = {}
+        log.info("SOURCE netconf CLOSED", None)
 
 def _source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath):
     _device_name_key = dev_sub_key.try_get_key(0)
@@ -680,7 +677,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             _stop_poller()
             log.debug("SUBSCRIBER netconf-rpc-poll CONFIG", {"config": _config})
 
-            poll = _config[PTag('tlm', 'netconf-rpc-poll')]
+            poll = _config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
             period_ms = poll[PTag('tlm', 'period')].try_int()
 
@@ -779,6 +776,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     def close():
         stop()
+        log.info("SUBSCRIBER netconf-rpc-poll CLOSED", None)
 
 actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
     var logh = logging.Handler("vmanage-source")
@@ -847,7 +845,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
     def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
         sub_config = sub_update.config
         if sub_config is not None:
-            if sub_config[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
+            if sub_config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
                 sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
@@ -911,7 +909,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
             subscriber.close()
         #subscribers.clear()
         subscribers = {}
-
+        log.info("SOURCE vmanage CLOSED", None)
 
 actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var logh = logging.Handler("vmanage-poll-subscription")
@@ -930,7 +928,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
     var is_running: bool = False
 
-    log.info("SUBSCRIBER vmanage CREATED", None)
+    log.info("SUBSCRIBER vmanage-poll CREATED", None)
 
     def _do_poll(seqno: int, poll_ts: time.Instant):
         if seqno != poller_seqno:
@@ -1025,7 +1023,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
         if _config is not None:
             _stop_poller()
 
-            poll = _config[PTag('tlm', 'vmanage-poll')]
+            poll = _config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
             period_ms = poll[PTag('tlm', 'period')].try_int()
 
@@ -1070,6 +1068,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
     def close():
         stop()
+        log.info("SUBSCRIBER vmanage-poll CLOSED", None)
 
 actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
     var logh = logging.Handler("netconf-get-poll")
@@ -1253,7 +1252,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             _stop_poller()
             log.debug("SUBSCRIBER netconf-get-poll CONFIG", {"_config": _config})
 
-            poll = _config[PTag('tlm', 'netconf-get-poll')]
+            poll = _config[SUBSCRIPTION_TYPE_KEY_GET_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
             period_ms = poll[PTag('tlm', 'period')].try_int()
 
@@ -1359,7 +1358,8 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             _stop_poller()
 
     def close():
-        pass
+        stop()
+        log.info("DEVICE netconf-get-poll CLOSED", None)
 
 class SubscriptionUpdate(object):
     @property
@@ -1472,11 +1472,11 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
                 del sources[source_key]
 
     def _get_subscription_source_key(state: TNode) -> Keypath:
-        if state[_SUBSCRIPTION_TYPE_ACTION_POLLER].exists():
+        if state[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
             return SOURCE_KEY_NETCONF
-        if state[_SUBSCRIPTION_TYPE_GET_POLLER].exists():
+        if state[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
             return SOURCE_KEY_NETCONF
-        if state[_SUBSCRIPTION_TYPE_VMANAGE_POLLER].exists():
+        if state[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
             return SOURCE_KEY_VMANAGE_HTTP
 
         raise Exception("Unknown subscription type: " + str(state))
@@ -1566,6 +1566,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             sink.close()
         #sinks.clear()
         sinks = {}
+        log.info("DEVICE CLOSED", {"name": name})
 
 actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
     var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
@@ -1597,6 +1598,9 @@ actor main(env):
 
     var logh = logging.Handler("telemetrify")
     var log = logging.Logger(logh)
+
+    logh.set_output_level(logging.NOTICE)
+    logh.add_sink(logging.StdoutSink())
 
     def _on_maapi_connect_error(e):
         log.error("MAAPI connect failed:" + str(e), None)
@@ -1642,8 +1646,8 @@ actor main(env):
             [([
                 #DeviceSettingsRefiner.id(), # For DEBUG printouts only
                 DeviceStreamerRefiner.id(),
-                DeviceSourceNetconfRefiner.id(), # For DEBUG printouts only
-                DeviceSourceVmanageRefiner.id(), # For DEBUG printouts only
+                #DeviceSourceNetconfRefiner.id(), # For DEBUG printouts only
+                #DeviceSourceVmanageRefiner.id(), # For DEBUG printouts only
                 DeviceSourceRefiner.id(),
                 DeviceSubscriptionSourceRefiner.id(),
                 #DeviceSubscriptionSinkBaseRefiner.id(), # For DEBUG printouts purposes
@@ -1651,7 +1655,8 @@ actor main(env):
                 #SinkRefiner.id(), # For DEBUG printouts purposes
                 DeviceSinksRefiner.id()
             ],
-            lambda r: _on_config_update(r, s))], _on_config_cache_error)
+            lambda r: _on_config_update(r, s))], _on_config_cache_error,
+            logh)
         #await async env.exit(0)
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):

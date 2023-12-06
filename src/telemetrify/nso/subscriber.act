@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.nsoapi.cdb import *
@@ -22,6 +24,14 @@ from telemetrify.nsoapi.schema import *
 SUB_TYPE_RUNNING = CDB_SUB_TYPE_RUNNING
 # SUB_TYPE_RUNNING_TWOPHASE = CDB_SUB_TYPE_RUNNING_TWOPHASE
 SUB_TYPE_OPERATIONAL = CDB_SUB_TYPE_OPERATIONAL
+
+def sub_type_str(sub_type: int) -> str:
+    if sub_type == SUB_TYPE_RUNNING:
+        return "SUB_TYPE_OPERATIONAL"
+    elif sub_type == SUB_TYPE_OPERATIONAL:
+        return "SUB_TYPE_OPERATIONAL"
+    else:
+        raise Exception("Not Implemented")
 
 class SubscriptionSpec(object):
     @property
@@ -42,6 +52,9 @@ class SubscriptionIdentity(object):
     def __init__(self, path: Keypath, sub_type: int):
         self.path = path
         self.sub_type = sub_type
+
+    def __str__(self) -> str:
+        return "SubscriptionIdentity(" + str(self.path) + ", " + sub_type_str(self.sub_type) + ")"
 
 extension SubscriptionIdentity(Hashable):
     def __eq__(self, other: SubscriptionIdentity) -> bool:
@@ -138,6 +151,9 @@ class PassthroughRefiner(Refiner):
     @property
     subtrees: dict[Keypath, TNode]
 
+    # @property
+    # key_tree: KeyTree
+
     def __init__(self, subscription_spec: SubscriptionSpec):
         self.priority = 0
         self.subscription_dependencies = [subscription_spec]
@@ -148,13 +164,11 @@ class PassthroughRefiner(Refiner):
         _subtrees: dict[Keypath, TNode] = {}
 
         sub_identity = self.subscription_dependencies[0].identity
-        keys = input_subs[sub_identity]
+        keypaths = input_subs[sub_identity]
 
-        ancestor_deleted_keys = []
-
-        for key in keys:
-            key_index = 0
-            key_len = len(key)
+        for keypath in keypaths:
+            keypath_index = 0
+            keypath_len = len(keypath)
 
             node = root
             sub_path = sub_identity.path
@@ -162,30 +176,29 @@ class PassthroughRefiner(Refiner):
             for path_index in range(0, len(sub_path), 1):
                 _id: Id = sub_path[path_index]
                 if isinstance(_id, Key) and _id.is_wildcard():
-                    if key_index < key_len:
-                        node = node[key[key_index]]
-                        key_index += 1
-                    else:
-                        #for deleted_key_tail in _get_subtree_path_keys(node, sub_path[path_index:]):
-                        for deleted_key_tail in _get_subtree_path_keys(node, sub_path.get_slice(path_index, len(sub_path))):
-                            ancestor_deleted_keys.append(key + deleted_key_tail)
-                        break
+                    if keypath_index < keypath_len:
+                        node = node[keypath[keypath_index]]
+                        keypath_index += 1
                 else:
                     node = node[_id]
+                if not node.exists():
+                    break
 
             if node.exists():
-                _subtrees[key] = node
+                _subtrees[keypath] = node
+            else:
+                try_pop(_subtrees, keypath)
 
         self.subtrees = _subtrees
 
-        return keys + ancestor_deleted_keys if ancestor_deleted_keys else keys
+        return keypaths
 
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.subtrees, keys)
 
-def _get_subpath_num_keys(sub_path: Keypath) -> int:
+def _get_path_num_keys(path: Keypath) -> int:
     c = 0
-    for _id in sub_path:
+    for _id in path:
         if isinstance(_id, Key):
             c += 1
     return c
@@ -230,12 +243,33 @@ def _get_subtree_keys(node: TNode, max_keys: int) -> list[Keypath]:
                 keys.append(Keypath(list(curr_keys)))
     return keys
 
+class SubscriptionParams(object):
+    @property
+    identity: SubscriptionIdentity
+    # @property
+    # max_keys: int
+    @property
+    delete_only_filter_path: ?EKeypath
+
+    #def __init__(self, identity: SubscriptionIdentity, max_keys: int, delete_only_filter_path: ?EKeypath):
+    def __init__(self, identity: SubscriptionIdentity, delete_only_filter_path: ?EKeypath):
+        self.identity = identity
+        #self.max_keys = max_keys
+        self.delete_only_filter_path = delete_only_filter_path
+
 actor CdbCache(cdb_sub_conn: CdbConnection,
             cdb_cmd_conn: CdbConnection,
             shared_schema: SharedSchema,
             refiner_ctors: list[pure() -> Refiner],
             callbacks: list[(list[int], action(dict[int, list[(Keypath, ?value)]]) -> None)],
-            on_error: action(Exception) -> None):
+            on_error: action(Exception) -> None,
+            log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("cdb-cache")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
 
     var _refiners: dict[int, Refiner] = {}
     var _callback_indexes: dict[int, list[int]] = {}
@@ -243,7 +277,9 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
     #var _schema = shared_schema.shared_schema()
     var _schema = unsafe_get_shared_schema(shared_schema)
 
-    var _sub_ids: dict[int, (SubscriptionIdentity, int, set[Refiner])] = {}
+    var _sub_id_params: dict[int, SubscriptionParams] = {}
+    var _pending_setup_sub_params: dict[SubscriptionIdentity, SubscriptionParams] = {}
+    var __subscription_dependents: dict[SubscriptionIdentity, list[Refiner]] = {}
     var __refiner_dependents: dict[Refiner, list[Refiner]] = {}
 
     var _pending_sub_ids: list[int] = []
@@ -251,78 +287,85 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     var _root = TTree(OP_NONE, PTag.root(), None, {})
 
-    def _assign_priority(r: Refiner):
-        if r.priority == 0:
-            #r.priority = 1 + max([_assign_priority(_refiners[i]) for i in r.refiner_dependencies], 0)
-            mp = 0
-            for i in r.refiner_dependencies:
-                dp = _assign_priority(_refiners[i])
-                if dp > mp:
-                    mp = dp
-            r.priority = 1 + mp
-        return r.priority
+    var _stree = STree()
 
-    sub_specs: dict[SubscriptionIdentity, SubscriptionSpec] = {}
+    # Workaround actonc: Name _pending_setup_sub_params is not in scope
+    def _clear_pending_setup_sub_params():
+        #_pending_setup_sub_params.clear()
+        _pending_setup_sub_params = {}
 
-    for c in refiner_ctors:
-        r = c()
-        for sub_spec in r.subscription_dependencies:
-            identity = sub_spec.identity
-            existing_spec = try_get(sub_specs, identity)
-            if existing_spec is not None:
-                # Merge specs
-                #existing_spec.is_required |= sub_spec.is_required # Type error?
-                if existing_spec.is_required:
-                    sub_spec.is_required = True
-            else:
-                sub_specs[identity] = sub_spec
-        if r.id() in _refiners:
-            raise ValueError("ERROR: CdbCache - Attempted to register duplicate refiner-id")
-        _refiners[r.id()] = r
+    def _init() -> None:
+        def _assign_priority(r: Refiner):
+            if r.priority == 0:
+                #r.priority = 1 + max([_assign_priority(_refiners[i]) for i in r.refiner_dependencies], 0)
+                mp = 0
+                for i in r.refiner_dependencies:
+                    dp = _assign_priority(_refiners[i])
+                    if dp > mp:
+                        mp = dp
+                r.priority = 1 + mp
+            return r.priority
 
-    for r in _refiners.values():
-        _assign_priority(r)
-        for refiner_id in r.refiner_dependencies:
-            dependency = _refiners[refiner_id]
-            dict_list_append(__refiner_dependents, dependency, r)
+        for c in refiner_ctors:
+            r = c()
 
-    for i in range(0, len(callbacks), 1):
-        dependency_ids = callbacks[i].0
-        for dependency_id in dependency_ids:
-            dict_list_append(_callback_indexes, dependency_id, i)
+            for sub_spec in r.subscription_dependencies:
+                _stree.add_subscription(sub_spec)
+                dict_list_append(__subscription_dependents, sub_spec.identity, r)
+
+            if r.id() in _refiners:
+                raise ValueError("ERROR: CdbCache - Attempted to register duplicate refiner-id")
+            _refiners[r.id()] = r
+
+        for r in _refiners.values():
+            _assign_priority(r)
+            for refiner_id in r.refiner_dependencies:
+                dependency = _refiners[refiner_id]
+                dict_list_append(__refiner_dependents, dependency, r)
+
+        for i in range(0, len(callbacks), 1):
+            dependency_ids = callbacks[i].0
+            for dependency_id in dependency_ids:
+                dict_list_append(_callback_indexes, dependency_id, i)
+
+        _pending_setup_sub_params, inner_sub_specs = _stree.prepare_subscriptions(_schema)
+
+        _SubscriptionSetup(cdb_sub_conn, inner_sub_specs, shared_schema, _on_sub_event, _on_subscription_success, on_error, logh)
 
     def update() -> None:
-        updated_subs: dict[SubscriptionIdentity, list[Keypath]] = {}
-        updated_refiners: dict[Refiner, list[Keypath]] = {}
-        scheduled_refiners: set[Refiner] = set([])
+        combined_merge_root = TTree(OP_MERGE, PTag.root(), None, {})
 
-        #schedule_heap: MinHeap[Refiner] = MinHeap()
-        schedule_heap: MinHeap_Ord2[Refiner] = MinHeap_Ord2()
-
+        # Build combined merge root
         for sub_id, etvs in _pending_sub_modifications:
-            merge_root = etagvals_to_ttree(etvs, Cursor(_schema))
+            updated_keys: set[Keypath]
+            merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
             if isinstance(merge_root, TTree):
-                #print("Got ttree: " + str(merge_root))
-                _root.merge(merge_root)
-                #print("New root: " + str(_root))
-
-                sub_entry = try_get(_sub_ids, sub_id)
-                if sub_entry is not None:
-                    sub_identity, max_keys, refiners = sub_entry
-                    #print("For: ", sub_path, "max_keys:", max_keys)
-                    keys = _get_subtree_keys(merge_root, max_keys)
-                    #print("Got keys: " + list_str(keys))
-                    updated_subs[sub_identity] = keys
-                    for refiner in refiners:
-                        if refiner not in scheduled_refiners:
-                            #schedule_heap.insert(refiner)
-                            MinHeap_Ord2.insert(schedule_heap, refiner)
-                            scheduled_refiners.add(refiner)
-
+                #log.debug("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
+                combined_merge_root.merge(merge_root)
             elif isinstance(merge_root, Exception):
                 on_error(Exception("Get modifications to tnode conversion error: " + merge_root.error_message))
 
         _pending_sub_modifications.clear()
+
+        #log.debug("Combined merge", {"merge_root": combined_merge_root})
+
+        # Schedule subscription-triggered refiners
+        updated_subs: dict[SubscriptionIdentity, list[Keypath]] = _stree.evaluate_subscriptions(_root, combined_merge_root)
+        scheduled_refiners: set[Refiner] = set([])
+        #schedule_heap: MinHeap[Refiner] = MinHeap()
+        schedule_heap: MinHeap_Ord2[Refiner] = MinHeap_Ord2()
+
+        for sub_identity in updated_subs.keys():
+            for refiner in __subscription_dependents[sub_identity]:
+                #schedule_heap.insert(refiner)
+                MinHeap_Ord2.insert(schedule_heap, refiner)
+                scheduled_refiners.add(refiner)
+
+        # Apply combined merge
+        _root.merge(combined_merge_root)
+
+        # Update refiners
+        updated_refiners: dict[Refiner, list[Keypath]] = {}
 
         while True:
             #curr_refiner = schedule_heap.try_pop()
@@ -347,6 +390,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             else:
                 break
 
+        # Invoke callbacks of updated refiners
         trigger_callback_indexes: set[int] = set([])
         for refiner in scheduled_refiners:
             refiner_id = refiner.id()
@@ -365,38 +409,40 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_sub_event(c: CdbConnection, v: value) -> None:
         if isinstance(v, list):
-            print("Sub event: Triggered sub-ids:", v)
+            log.debug("Sub event triggered", {"sub-ids": v})
             _pending_sub_ids = v
             _do_get_modifications()
         elif isinstance(v, Exception):
-            print("Sub event error:", v.error_message)
+            log.error("Sub event error", {"msg": v.error_message})
             on_error(Exception("Sub event error: " + v.error_message))
         else:
-            print("Sub event error:", v)
+            log.error("Sub event error", {"msg": v})
             on_error(Exception("Sub event error: " + str(v)))
 
     def _do_get_modifications():
         #if _pending_sub_ids:
         if len(_pending_sub_ids) > 0:
             sub_id = list_pop(_pending_sub_ids)
-            # TODO: Why does setting a ?EKeypath parameter to None result in actonc: Cannot infer None < telemetrify.nsoapi.conf.EKeypath
-            #cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, None, _on_get_modifications)
-            cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, EKeypath([]), lambda c, v: _on_get_modifications(c, v, sub_id))
+
+            sub_params = _sub_id_params[sub_id]
+            filter_path: ?EKeypath = sub_params.delete_only_filter_path
+
+            # actonc: ?_ is not a subclass of telemetrify.nsoapi.conf.EKeypath
+            #cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, filter_path, lambda c, v: _on_get_modifications(c, v, sub_id))
+            cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, filter_path if filter_path is not None else EKeypath([]), lambda c, v: _on_get_modifications(c, v, sub_id))
         else:
             cdb_sub_conn.sync_subscription_socket(CDB_SUB_SYNC_DONE_PRIORITY, _on_sync_subscription_socket, _on_sub_event)
 
     def _on_get_modifications(c: CdbConnection, v: value, sub_id: int):
         if isinstance(v, EList):
-            #
-            print(v)
-            #
+            #log.debug("_on_get_modification" {"eobj": v})
             _pending_sub_modifications.append((sub_id, v))
             _do_get_modifications()
         elif isinstance(v, Exception):
-            print("Get modifications error:", v.error_message)
+            log.error("Get modifications error", {"msg": v.error_message})
             on_error(Exception("Get modifications error: " + v.error_message))
         else:
-            print("Get modifications error:", v)
+            log.error("Get modifications error", {"msg": v})
             on_error(Exception("Get modifications error: " + str(v)))
 
     def _on_sync_subscription_socket(c: CdbConnection, v: ?Exception):
@@ -406,21 +452,21 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_subscription_success(sub_ids: dict[SubscriptionIdentity, int]) -> None:
         for sub_identity, sub_id in sub_ids.items():
-            _sub_ids[sub_id] = (sub_identity, _get_subpath_num_keys(sub_identity.path), set([]))
-        for refiner in _refiners.values():
-            _sub_specs = refiner.subscription_dependencies
-            for sub_spec in _sub_specs:
-                sub_id = try_get(sub_ids, sub_spec.identity)
-                if sub_id is not None:
-                    _sub_ids[sub_id].2.add(refiner)
+            sub_params = _pending_setup_sub_params[sub_identity]
+            _sub_id_params[sub_id] = sub_params
+
+        #_pending_setup_sub_params.clear()
+        #_pending_setup_sub_params = {}
+        # Workaround actonc: Name _pending_setup_sub_params is not in scope
+        _clear_pending_setup_sub_params()
 
         if not _trigger_subscriptions():
             _trigger_oper_subscriptions()
 
     def _trigger_subscriptions() -> bool:
         trigger_ids: set[int] = set([])
-        for sub_id, (sub_identity, _1, _2) in _sub_ids.items():
-            if sub_identity.sub_type != SUB_TYPE_OPERATIONAL:
+        for sub_id, sub_params in _sub_id_params.items():
+            if sub_params.identity.sub_type != SUB_TYPE_OPERATIONAL:
                 trigger_ids.add(sub_id)
 
         if trigger_ids:
@@ -436,8 +482,8 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _trigger_oper_subscriptions():
         trigger_ids: list[int] = []
-        for sub_id, (sub_identity, _1, _2) in _sub_ids.items():
-            if sub_identity.sub_type == SUB_TYPE_OPERATIONAL:
+        for sub_id, sub_params in _sub_id_params.items():
+            if sub_params.identity.sub_type == SUB_TYPE_OPERATIONAL:
                 trigger_ids.append(sub_id)
 
         if trigger_ids:
@@ -447,11 +493,296 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
         if v is not None:
             on_error(Exception("Initial trigger_oper_subscriptions error: " + str(v.error_message)))
 
-    _SubscriptionSetup(cdb_sub_conn, list(sub_specs.values()), shared_schema, _on_sub_event, _on_subscription_success, on_error)
+    _init()
+
+class STree(object):
+    @property
+    root: SNode
+
+    def __init__(self):
+        self.root = SNode(PTag.root(), {}, None)
+
+    def add_subscription(self, spec: SubscriptionSpec):
+        return self._add_subscription(spec, None)
+
+    def _add_subscription(self, spec: SubscriptionSpec, ancestor_delete_fallback_origin: ?SubscriptionIdentity):
+        n = self.root
+        for _id in spec.identity.path:
+            n = n.go(_id)
+        n.add_subscription(spec, ancestor_delete_fallback_origin)
+
+    def prepare_subscriptions(self, _schema: Schema) -> (dict[SubscriptionIdentity, SubscriptionParams], list[SubscriptionSpec]):
+        # Prune invalid subscriptions that are not 'required' and prepare ancestor delete fallback config subscriptions
+        def _validate_and_prepare_fallback_subs(n: SNode, path: list[Id], _cursor: Cursor, is_valid: bool):
+            _sdata = n.sdata
+            if _sdata is not None:
+                if is_valid:
+                    if _sdata.identity.sub_type == SUB_TYPE_OPERATIONAL:
+                        found_deletable_config_ancestor = False
+                        cursor = Cursor(_schema)
+                        path_len = len(path)
+                        i = 0
+                        while i < path_len:
+                            _id = path[i]
+                            if isinstance(_id, Tag):
+                                cursor.push(_id)
+                                schema_node = cursor.node()
+                                if schema_node.is_oper():
+                                    break
+                                if schema_node.is_list() or schema_node.is_p_container():
+                                    found_deletable_config_ancestor = True
+                            i += 1
+                        if found_deletable_config_ancestor:
+                            self._add_subscription(
+                                    SubscriptionSpec(SubscriptionIdentity(Keypath(path[0:i]), CDB_SUB_TYPE_RUNNING), _sdata.is_required),
+                                    _sdata.identity)
+                else:
+                    if _sdata.is_required:
+                        raise ValueError("Invalid subscription path: " + str(Keypath(list(path))))
+                    else:
+                        n.sdata = None
+            return True
+
+        self._traverse_stree(_validate_and_prepare_fallback_subs, _schema)
+
+        # Prepare inner (i.e. actually registered to cdb) subscriptions
+        params: dict[SubscriptionIdentity, SubscriptionParams] = {}
+        specs: list[SubscriptionSpec] = []
+
+        def _prepare_inner_subs(n: SNode, path: list[Id], cursor: Cursor, is_valid: bool, sub_type: int):
+            _sdata = n.sdata
+            if _sdata is not None:
+                identity = _sdata.identity
+                if identity.sub_type == sub_type:
+                    do_recurse = False
+                    delete_only_filter_path: ?EKeypath = None
+                    ancestor_delete_fallback_origin = _sdata.ancestor_delete_fallback_origin
+                    if ancestor_delete_fallback_origin is not None:
+                        # TODO: Does cdb.get-modifications accept a filter path for a 'config' path that ends in 'oper'?
+                        #_delete_only_filter_path: EKeypath = keypath_to_ekeypath(ancestor_delete_fallback_origin, Cursor(_schema), True)
+                        # do_recurse = True
+                        pass
+                    params[identity] = SubscriptionParams(identity, delete_only_filter_path)
+                    specs.append(SubscriptionSpec(identity, _sdata.is_required))
+                    return do_recurse
+            return True
+
+        # actonc: Name n is not in scope
+        #self._traverse_stree(lambda n, p, c, v: _prepare_inner_subs(n, p, c, v, SUB_TYPE_RUNNING), _schema)
+        def _prepare_inner_config_subs(n: SNode, path: list[Id], cursor: Cursor, is_valid: bool):
+            return _prepare_inner_subs(n, path, cursor, is_valid, SUB_TYPE_RUNNING)
+        self._traverse_stree(_prepare_inner_config_subs, _schema)
+        # actonc: Name n is not in scope
+        #self._traverse_stree(lambda n, p, c, v: _prepare_inner_subs(n, p, c, v, SUB_TYPE_OPERATIONAL), _schema)
+        def _prepare_inner_oper_subs(n: SNode, path: list[Id], cursor: Cursor, is_valid: bool):
+            return _prepare_inner_subs(n, path, cursor, is_valid, SUB_TYPE_OPERATIONAL)
+        self._traverse_stree(_prepare_inner_oper_subs, _schema)
+
+        return (params, specs)
+
+    def _traverse_stree(self, visit: mut(SNode, list[Id], Cursor, bool) -> bool, _schema: Schema):
+        stack: list[(SNode, bool, bool)] = []
+        for c in self.root.children.values():
+            stack.append((c, True, True))
+
+        cursor = Cursor(_schema)
+        path: list[Id] = []
+
+        while stack:
+            n, is_valid, do_enter = list_pop(stack)
+            n_id = n._id
+
+            if do_enter:
+                if is_valid:
+                    if isinstance(n_id, Tag):
+                        if not cursor.push(n_id):
+                            is_valid = False
+                    elif isinstance(n_id, Key):
+                        if not n_id.is_wildcard():
+                            # TODO: Support non-wildcard keys
+                            raise ValueError("Support for non-wildcard not (yet) implemented - subscription path: " + str(Keypath(list(path))))
+
+                path.append(n_id)
+
+                do_recurse = visit(n, path, cursor, is_valid)
+
+                stack.append((n, is_valid, False))
+
+                if do_recurse:
+                    for c in n.children.values():
+                        stack.append((c, is_valid, True))
+            else:
+                list_pop(path)
+                if is_valid and isinstance(n_id, Tag):
+                    cursor.pop()
+
+    def evaluate_subscriptions(self, root: TNode, merge_root: TNode) -> dict[SubscriptionIdentity, list[Keypath]]:
+        trigger: dict[SubscriptionIdentity, list[Keypath]] = {}
+
+        keys: list[Id] = []
+
+        def _visit(state: ?TNode, update: ?TNode, parent_op: int, snode: ?SNode, s_count: int):
+            is_updated: bool = False
+
+            key: ?Key = update.key() if update is not None else state.key() if state is not None else None
+            if key is not None:
+                keys.append(key)
+
+            sdata = snode.sdata if snode is not None else None
+            if sdata is not None:
+                s_count += 1
+
+            op = parent_op
+            if update is not None:
+                op = update.op()
+                if op == OP_MERGE and parent_op in [OP_REPLACE, OP_DELETE]:
+                    op = OP_REPLACE
+
+            # print("_visit(" + (optional_str(root.tag(), "None") if root is not None else "None") +
+            #         ", " + (optional_str(update.tag(), "None") if update is not None else "None") + ")" +
+            #         ", " + op_str(op) +
+            #         ", " + (str(sdata.identity) if sdata is not None else "None") +
+            #         ", " + str(s_count) +
+            #         ")")
+
+            def _get_c_snodes(c_id: Id) -> list[SNode]:
+                c_snodes: list[SNode] = []
+                if snode is not None:
+                    if isinstance(c_id, Key) and not c_id.is_wildcard():
+                        _c_wildcard_snode = try_get(snode.children, Key.wildcard())
+                        if _c_wildcard_snode is not None:
+                            c_snodes.append(_c_wildcard_snode)
+                    _c_snode = try_get(snode.children, c_id)
+                    if _c_snode is not None:
+                        c_snodes.append(_c_snode)
+                return c_snodes
+
+            if op == OP_DELETE:
+                if state is not None:
+                    is_updated = True
+
+                    for c_id, c in state.iter_items():
+                        if snode is not None:
+                            c_snodes = _get_c_snodes(c_id)
+                            for c_snode in c_snodes:
+                                _visit(c, None, op, c_snode, s_count)
+
+            elif update is not None:
+
+                def _visit_children(update_children: Iterator[(Id, TNode)]) -> bool:
+                    is_updated: bool = False
+                    for c_id, c in update.iter_items():
+                        c_snodes = _get_c_snodes(c_id)
+                        if c_snodes:
+                            for c_snode in c_snodes:
+                                c_is_updated = _visit(state.get(c_id) if state is not None else None, c, op, c_snode, s_count)
+                                is_updated = is_updated or c_is_updated
+                        elif not is_updated and s_count > 0:
+                            c_is_updated = _visit(state.get(c_id) if state is not None else None, c, op, None, s_count)
+                            is_updated = is_updated or c_is_updated
+                    return is_updated
+
+                if op == OP_MERGE:
+                    if state is not None:
+                        is_updated = is_updated or not _eq_optional_value(update.value(), state.value())
+                    else:
+                        is_updated = True
+                    _is_updated = _visit_children(update.iter_items())
+                    is_updated = is_updated or _is_updated
+                elif op == OP_REPLACE:
+                    if state is not None:
+                        is_updated = is_updated or not _eq_optional_value(update.value(), state.value())
+
+                        for c_id, c in state.iter_items():
+                            if not update.has_child(c_id):
+                                is_updated = True
+                                if snode is not None:
+                                    c_snodes = _get_c_snodes(c_id)
+                                    for c_snode in c_snodes:
+                                        _visit(c, None, OP_DELETE, c_snode, s_count)
+                        _is_updated = _visit_children(update.iter_items())
+                        is_updated = is_updated or _is_updated
+                    else:
+                        _visit_children(update.iter_items())
+                        is_updated = True
+                elif op == OP_NOCREATE:
+                    for c_id, c in update.iter_items():
+                        c_state = state.get(c_id) if state is not None else None
+                        c_snodes = _get_c_snodes(c_id)
+                        if c_snodes:
+                            for c_snode in c_snodes:
+                                c_is_updated = _visit(c_state, c, op, c_snode, s_count)
+                                is_updated = is_updated or c_is_updated
+                        elif not is_updated and s_count > 0 and c_state is not None:
+                            c_is_updated = _visit(c_state, c, op, None, s_count)
+                            is_updated = is_updated or c_is_updated
+
+            #if is_updated and sdata is not None and sdata.ancestor_delete_fallback_origin is None:
+            if is_updated and sdata is not None:
+                _sdata_ancestor_delete_fallback_origin = sdata.ancestor_delete_fallback_origin
+                if _sdata_ancestor_delete_fallback_origin is None:
+                    dict_list_append(trigger, sdata.identity, Keypath(keys[0:sdata.num_keys]))
+
+            if key is not None:
+                list_pop(keys)
+
+            return is_updated
+
+        _visit(root, merge_root, merge_root.op(), self.root, 0)
+
+        return trigger
+
+class SNode(object):
+    @property
+    _id: Id
+    @property
+    children: dict[Id, SNode]
+    @property
+    sdata: ?SData
+
+    def __init__(self, _id: Id, children: dict[Id, SNode], sdata: ?SData):
+        self._id = _id
+        self.children = children
+        self.sdata = sdata
+
+    def go(self, _id: Id) -> SNode:
+        return get_or_create(self.children, _id, lambda: SNode(_id, {}, None))
+
+    def add_subscription(self, spec: SubscriptionSpec, ancestor_delete_fallback_origin: ?SubscriptionIdentity):
+        _sdata = self.sdata
+        if _sdata is not None:
+            if spec.identity != _sdata.identity:
+                raise ValueError("subscriber - Conflicting subscription specifications: " + str(spec.identity) + " vs " + str(_sdata.identity))
+            #_sdata.is_required |= spec.is_required # actonc: __builtin__.bool does not implement __builtin__.Logical
+            _sdata.is_required = _sdata.is_required or spec.is_required
+            old_ancestor_delete_fallback_origin = _sdata.ancestor_delete_fallback_origin
+            if old_ancestor_delete_fallback_origin is not None:
+                pass # TODO: Find out if we even need to merge, or if we get the ancestor deletes that we want reusing the same filter-path?
+            # else: # Simply drop the origin as we already have a full subscription
+        else:
+            self.sdata = SData(spec.identity, spec.is_required, _get_path_num_keys(spec.identity.path), ancestor_delete_fallback_origin)
+
+class SData(object):
+    @property
+    identity: SubscriptionIdentity
+    @property
+    is_required: bool
+    @property
+    num_keys: int
+    @property
+    ancestor_delete_fallback_origin: ?SubscriptionIdentity # is not None -> Only to detect subtree deletes
+
+    def __init__(self, identity: SubscriptionIdentity, is_required: bool, num_keys: int, ancestor_delete_fallback_origin: ?SubscriptionIdentity):
+        self.identity = identity
+        self.is_required = is_required
+        self.ancestor_delete_fallback_origin = ancestor_delete_fallback_origin
 
 actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_specs: list[SubscriptionSpec], shared_schema: SharedSchema,
                             sub_event_cb: action(CdbConnection, value) -> None,
-                            on_success: action(dict[SubscriptionIdentity, int]) -> None, on_error: action(Exception) -> None):
+                            on_success: action(dict[SubscriptionIdentity, int]) -> None, on_error: action(Exception) -> None,
+                            log_handler: logging.Handler):
+
+    var log = logging.Logger(log_handler)
 
     #var _schema = shared_schema.shared_schema()
     var _schema = unsafe_get_shared_schema(shared_schema)
@@ -475,7 +806,7 @@ actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_specs: list[S
                     on_error(ValueError("Invalid subscription path: " + str(spec.identity.path)))
                     return
                 else:
-                    print("DEBUG: Invalid but non-required subscription path: " + str(spec.identity.path))
+                    log.debug("Invalid but non-required subscription", {"path": spec.identity.path})
 
         cdb_sub_conn.subscribe_done(_on_subscribe_done, sub_event_cb)
 
@@ -487,7 +818,7 @@ actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_specs: list[S
                 on_error(ValueError("Invalid subscription path: " + str(spec.identity.path)))
                 return
             else:
-                print("DEBUG: Invalid but non-required subscription path: " + str(spec.identity.path))
+                log.debug("Invalid but non-required subscription", {"path": spec.identity.path})
         _do_subscribe()
 
     def _on_subscribe_done(c, e):

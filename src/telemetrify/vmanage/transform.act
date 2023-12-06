@@ -78,7 +78,7 @@ actor Transform(
         except KeyError:
             pass # TODO: debug/trace log?
         else:
-            root = TTree(OP_NONE, ITag.root(), None, {})
+            root = TTree(OP_MERGE, ITag.root(), None, {})
 
             # TODO: DELETE/REPLACE based on l3vpn-svc?
 

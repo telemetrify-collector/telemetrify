@@ -110,8 +110,8 @@ def _get_key_from_etagvals(etagvals: list[EObject], index: int, _len: int, curso
         index += 1
     return Key(key_elems)
 
-def etagvals_to_ttree(etagvallist: EList, cursor: Cursor) -> value: # (TTree | Exception)
-    root = TTree(OP_NONE, PTag.root(), None, {})
+def etagvals_to_merge_ttree(etagvallist: EList, cursor: Cursor) -> value: # (TTree | Exception)
+    root = TTree(OP_MERGE, PTag.root(), None, {})
     path: list[TNode] = [root]
 
     etagvals: list[EObject] = etagvallist.elems
