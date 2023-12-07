@@ -641,7 +641,8 @@ extension EList(Collection[EObject]):
         return iter(self.elems)
 
     @staticmethod
-    def __fromiter__(iterable: Iterable[EObject]) -> EList:
+    #def __fromiter__(iterable: Iterable[EObject]) -> EList:
+    def __fromiter__(iterable):
         #return EList(list(iterable))
         return EList(list(iter(iterable)), True)
 
@@ -706,7 +707,8 @@ extension ETuple(Collection[EObject]):
         return iter(self.elems)
 
     @staticmethod
-    def __fromiter__(iterable: Iterable[EObject]) -> ETuple:
+    #def __fromiter__(iterable: Iterable[EObject]) -> ETuple:
+    def __fromiter__(iterable):
         #return ETuple(list(iterable))
         return ETuple(list(iter(iterable)))
 

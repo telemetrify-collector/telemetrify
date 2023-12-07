@@ -308,7 +308,8 @@ extension Key(Collection[value]):
         return iter(self._keys)
 
     @staticmethod
-    def __fromiter__(iterable: Iterable[value]) -> Key:
+    # def __fromiter__(iterable: Iterable[value]) -> Key:
+    def __fromiter__(iterable):
         #return Key(list(iterable))
         return Key(list(iter(iterable)))
 
@@ -356,8 +357,8 @@ extension Keypath(Collection[Id]):
         return iter(self.path)
 
     @staticmethod
-    def __fromiter__(iterable: Iterable[Id]) -> Keypath:
-        #return Key(list(iterable))
+    # def __fromiter__(iterable: Iterable[value]) -> Keypath:
+    def __fromiter__(iterable):
         return Keypath(list(iter(iterable)))
 
     def __len__(self) -> int:
