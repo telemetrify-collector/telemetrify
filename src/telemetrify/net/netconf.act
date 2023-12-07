@@ -27,12 +27,12 @@ CHUNKED_FRAMING: int = 1
 
 CHUNK_SIZE_MAX: int = 4294967295
 
-LEGACY_SEPARATOR_STR = "]]>]]>"
-LEGACY_SEPARATOR_BYTES = LEGACY_SEPARATOR_STR.encode()
+LEGACY_SEPARATOR_STR: str = "]]>]]>"
+LEGACY_SEPARATOR_BYTES: bytes = LEGACY_SEPARATOR_STR.encode()
 
-CHUNK_TAG_PREFIX = "\n#".encode()
-CHUNK_TAG_END_OF_MSG = "#".encode()
-CHUNK_TAG_POSTFIX = "\n".encode()
+CHUNK_TAG_PREFIX: bytes = "\n#".encode()
+CHUNK_TAG_END_OF_MSG: bytes = "#".encode()
+CHUNK_TAG_POSTFIX: bytes = "\n".encode()
 
 CAP_NC_1_1 = "urn:ietf:params:netconf:base:1.1"
 
