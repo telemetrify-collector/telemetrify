@@ -80,21 +80,13 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
         print("ietf.l3vpn_svc - CDB (cmd) connected!!!!")
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
-                HostnameRefiner,
-                VpnIdRefiner,
-                DeviceReferenceRefiner,
-                WanInterfaceIPv4AddressRefiner,
-                LanInterfaceIPv4AddressRefiner,
+                SiteNetworkAccessRefiner,
                 IpPerformanceBidirectionalRefiner,
                 CustomerNameRefiner,
                 L3vpnSvcParamsRefiner,
             ],
             [([
-                # HostnameRefiner.id(), # For DEBUG printouts only
-                # VpnIdRefiner.id(), # For DEBUG printouts only
-                # DeviceReferenceRefiner.id(), # For DEBUG printouts only
-                # WanInterfaceIPv4AddressRefiner.id(), # For DEBUG printouts only
-                # LanInterfaceIPv4AddressRefiner.id(), # For DEBUG printouts only
+                # SiteNetworkAccessRefiner.id(), # For DEBUG printouts only
                 # IpPerformanceBidirectionalRefiner.id(), # For DEBUG printouts only
                 # CustomerNameRefiner.id(), # For DEBUG printouts only
                 L3vpnSvcParamsRefiner.id()
@@ -138,143 +130,116 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
     cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
         action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
 
-class HostnameRefiner(PassthroughRefiner):
+class SiteNetworkAccessRefiner(MirrorRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vars'),
-            PTag('l3vpn-svc', 'hostname')
-            ]), SUB_TYPE_OPERATIONAL), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        MirrorRefiner.__init__(self,
+            [
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('l3vpn-svc', 'l3vpn-svc'),
+                    PTag('l3vpn-svc', 'sites'),
+                    PTag('l3vpn-svc', 'site'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'site-network-accesses'),
+                    PTag('l3vpn-svc', 'site-network-access'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'vars'),
+                    PTag('l3vpn-svc', 'hostname')
+                    ]), SUB_TYPE_OPERATIONAL), False),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('l3vpn-svc', 'l3vpn-svc'),
+                    PTag('l3vpn-svc', 'sites'),
+                    PTag('l3vpn-svc', 'site'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'site-network-accesses'),
+                    PTag('l3vpn-svc', 'site-network-access'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'vpn-attachment'),
+                    PTag('l3vpn-svc', 'vpn-id')
+                    ]), SUB_TYPE_RUNNING), False),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('l3vpn-svc', 'l3vpn-svc'),
+                    PTag('l3vpn-svc', 'sites'),
+                    PTag('l3vpn-svc', 'site'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'site-network-accesses'),
+                    PTag('l3vpn-svc', 'site-network-access'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'device-reference'),
+                    ]), SUB_TYPE_RUNNING), False),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('l3vpn-svc', 'l3vpn-svc'),
+                    PTag('l3vpn-svc', 'sites'),
+                    PTag('l3vpn-svc', 'site'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'site-network-accesses'),
+                    PTag('l3vpn-svc', 'site-network-access'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'vars'),
+                    PTag('l3vpn-svc', 'wan-interface'),
+                    PTag('l3vpn-svc', 'ipv4-address')
+                    ]), SUB_TYPE_OPERATIONAL), False),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('l3vpn-svc', 'l3vpn-svc'),
+                    PTag('l3vpn-svc', 'sites'),
+                    PTag('l3vpn-svc', 'site'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'site-network-accesses'),
+                    PTag('l3vpn-svc', 'site-network-access'),
+                    Key.wildcard(),
+                    PTag('l3vpn-svc', 'vars'),
+                    PTag('l3vpn-svc', 'lan-interface'),
+                    PTag('l3vpn-svc', 'ipv4-address')
+                    ]), SUB_TYPE_OPERATIONAL), False)
+            ],
+            Keypath([
+                PTag('l3vpn-svc', 'l3vpn-svc'),
+                PTag('l3vpn-svc', 'sites'),
+                PTag('l3vpn-svc', 'site'),
+                Key.wildcard(),
+                PTag('l3vpn-svc', 'site-network-accesses'),
+                PTag('l3vpn-svc', 'site-network-access'),
+                Key.wildcard()]))
 
     @staticmethod
     def id() -> int:
         return 4002
 
-class VpnIdRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vpn-attachment'),
-            PTag('l3vpn-svc', 'vpn-id')
-            ]), SUB_TYPE_RUNNING), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4003
-
-class DeviceReferenceRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'device-reference'),
-            ]), SUB_TYPE_RUNNING), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4004
-
-class WanInterfaceIPv4AddressRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vars'),
-            PTag('l3vpn-svc', 'wan-interface'),
-            PTag('l3vpn-svc', 'ipv4-address')
-            ]), SUB_TYPE_OPERATIONAL), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4005
-
-class LanInterfaceIPv4AddressRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'sites'),
-            PTag('l3vpn-svc', 'site'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'site-network-accesses'),
-            PTag('l3vpn-svc', 'site-network-access'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'vars'),
-            PTag('l3vpn-svc', 'lan-interface'),
-            PTag('l3vpn-svc', 'ipv4-address')
-            ]), SUB_TYPE_OPERATIONAL), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
-
-    @staticmethod
-    def id() -> int:
-        return 4006
-
-
 class IpPerformanceBidirectionalRefiner(PassthroughRefiner):
-    def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('dt-l3vpn-svc', 'ip-performance'),
-            PTag('dt-l3vpn-svc', 'vpn-service'),
-            Key.wildcard(),
-            PTag('dt-l3vpn-svc', 'monitor-endpoint'),
-            Key.wildcard(),
-            PTag('dt-l3vpn-svc', 'bidirectional')
-            ]), SUB_TYPE_RUNNING), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    mut def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(self, SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('dt-l3vpn-svc', 'ip-performance'),
+                PTag('dt-l3vpn-svc', 'vpn-service'),
+                Key.wildcard(),
+                PTag('dt-l3vpn-svc', 'monitor-endpoint'),
+                Key.wildcard(),
+                PTag('dt-l3vpn-svc', 'bidirectional')
+                ]), SUB_TYPE_RUNNING), False))
 
     @staticmethod
     def id() -> int:
         return 4008
 
 class CustomerNameRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([
-            PTag('l3vpn-svc', 'l3vpn-svc'),
-            PTag('l3vpn-svc', 'vpn-services'),
-            PTag('l3vpn-svc', 'vpn-service'),
-            Key.wildcard(),
-            PTag('l3vpn-svc', 'customer-name'),
-            ]), SUB_TYPE_RUNNING), False)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(self, SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('l3vpn-svc', 'l3vpn-svc'),
+                PTag('l3vpn-svc', 'vpn-services'),
+                PTag('l3vpn-svc', 'vpn-service'),
+                Key.wildcard(),
+                PTag('l3vpn-svc', 'customer-name'),
+                ]), SUB_TYPE_RUNNING), False))
 
     @staticmethod
     def id() -> int:
@@ -342,11 +307,7 @@ class L3vpnSvcParamsRefiner(Refiner):
         self.subscription_dependencies = [
             ]
         self.refiner_dependencies = [
-                HostnameRefiner.id(),
-                VpnIdRefiner.id(),
-                DeviceReferenceRefiner.id(),
-                WanInterfaceIPv4AddressRefiner.id(),
-                LanInterfaceIPv4AddressRefiner.id(),
+                SiteNetworkAccessRefiner.id(),
                 IpPerformanceBidirectionalRefiner.id(),
                 CustomerNameRefiner.id()
             ]
@@ -361,15 +322,11 @@ class L3vpnSvcParamsRefiner(Refiner):
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         #print("ietf.l3vpn_svc - root:\n" + str(root))
 
-        _hostname_refiner, hostname_keys = input_refiners[HostnameRefiner.id()]
-        _vpn_id_refiner, vpn_id_keys = input_refiners[VpnIdRefiner.id()]
-        _device_ref_refiner, device_ref_keys = input_refiners[DeviceReferenceRefiner.id()]
-        _wan_address_refiner, wan_address_keys = input_refiners[WanInterfaceIPv4AddressRefiner.id()]
-        _lan_address_refiner, lan_address_keys = input_refiners[LanInterfaceIPv4AddressRefiner.id()]
+        _site_network_access_refiner, site_network_access_keys = input_refiners[SiteNetworkAccessRefiner.id()]
         bidirectional_refiner, bidirectional_keys = input_refiners[IpPerformanceBidirectionalRefiner.id()]
         customer_name_refiner, customer_name_keys = input_refiners[CustomerNameRefiner.id()]
 
-        site_access_path_keys: set[Keypath] = set(hostname_keys + vpn_id_keys + device_ref_keys + wan_address_keys + lan_address_keys)
+        site_access_path_keys: set[Keypath] = set(site_network_access_keys)
 
         for monitor_endpoint_path_key in bidirectional_keys:
             #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_get_val(monitor_endpoint_path_key) # actonc codegen error

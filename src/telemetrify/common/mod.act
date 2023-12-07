@@ -352,6 +352,26 @@ class Keypath:
     def get_slice(self, start: int, stop: int) -> Keypath:
         return Keypath(self.path[start:stop])
 
+    def is_sub_path(self, other: Keypath):
+        self_len = len(self)
+        return self_len <= len(other) and self.get_common_base_path_len(other) == self_len
+
+    def is_strict_sub_path(self, other: Keypath):
+        self_len = len(self)
+        return self_len < len(other) and self.get_common_base_path_len(other) == self_len
+
+    def get_common_base_path_len(self, other: Keypath):
+        i = 0
+        max_len = min2(len(self), len(other))
+        while i < max_len:
+            if self[i] != other[i]:
+                break
+            i += 1
+        return i
+
+    def get_common_base_path(self, other: Keypath):
+        return self.get_slice(0, self.get_common_base_path_len(other))
+
 extension Keypath(Collection[Id]):
     def __iter__(self) -> Iterator[Id]:
         return iter(self.path)

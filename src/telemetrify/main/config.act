@@ -37,15 +37,16 @@ class DeviceSettingsRefiner(Refiner):
     _authgroup_devices: dict[Keypath, set[Keypath]]
 
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [
+        Refiner.__init__(
+            self,
+            [
                 SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'authgroups'), PTag('ncs', 'group'), Key.wildcard()]), SUB_TYPE_RUNNING), True),
                 SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'authgroup')]), SUB_TYPE_RUNNING), True),
                 #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'address')]), SUB_TYPE_RUNNING), True),
                 #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'port')]), SUB_TYPE_RUNNING), True),
                 #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'netconf'), PTag('ncs', 'ned-id')]), SUB_TYPE_RUNNING), True)
-            ]
-        self.refiner_dependencies = []
+            ],
+            [])
 
         self._device_authgroup = {}
         self._authgroup_configs = {}
@@ -150,14 +151,14 @@ class DeviceSourceRefiner(Refiner):
     device_sub_sources: dict[Keypath, Keypath]
 
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [
-            ]
-        self.refiner_dependencies = [
+        Refiner.__init__(
+            self,
+            [],
+            [
                 DeviceSubscriptionSourceRefiner.id(),
                 DeviceSourceNetconfRefiner.id(),
                 DeviceSourceVmanageRefiner.id(),
-            ]
+            ])
 
         self.device_source_configs = {}
         self.device_source_subs = {}
@@ -251,14 +252,15 @@ class DeviceStreamerRefiner(Refiner):
     device_configs: dict[Keypath, DeviceStreamerConfig]
 
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = [
+        Refiner.__init__(
+            self,
+            [
                 #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify')]), SUB_TYPE_RUNNING), True)
-            ]
-        self.refiner_dependencies = [
+            ],
+            [
                 DeviceSubscriptionSourceRefiner.id(),
                 DeviceSettingsRefiner.id()
-            ]
+            ])
 
         self.device_configs = {}
 
@@ -300,36 +302,37 @@ class DeviceStreamerRefiner(Refiner):
         return try_get(self.device_configs, keys)
 
 class DeviceSubscriptionSourceRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        #super().__init__(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'subscription'), Key.wildcard(), PTag('tlm', 'source')]))
-        #PassthroughRefiner.__init__(self, Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'subscription'), Key.wildcard(), PTag('tlm', 'source')]))
-        #init(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'subscription'), Key.wildcard(), PTag('tlm', 'type')]))
-        #PassthroughRefiner.init(self, Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'subscription'), Key.wildcard(), PTag('tlm', 'source')]))
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'subscription'), Key.wildcard(), PTag('tlm', 'source')]), SUB_TYPE_RUNNING), True)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('ncs', 'devices'),
+                PTag('ncs', 'device'),
+                Key.wildcard(),
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'subscription'),
+                Key.wildcard(),
+                PTag('tlm', 'source')
+                ]),
+                SUB_TYPE_RUNNING), True)
+            )
 
     @staticmethod
     def id() -> int:
         return 1005
 
 class DeviceSubscriptionSinkBaseRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        # super().__init__(
-        #     Keypath([
-        #         PTag('ncs', 'devices'),
-        #         PTag('ncs', 'device'),
-        #         Key.wildcard(),
-        #         PTag('tlm', 'telemetrify'),
-        #         PTag('tlm', 'subscription'),
-        #         Key.wildcard(),
-        #         PTag('tlm', 'sink'),
-        #         Key.wildcard()
-        #         ])
-        #     )
-        self.priority = 0
-        self.subscription_dependencies = [
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
             SubscriptionSpec(SubscriptionIdentity(Keypath([
                 PTag('ncs', 'devices'),
                 PTag('ncs', 'device'),
@@ -341,21 +344,27 @@ class DeviceSubscriptionSinkBaseRefiner(PassthroughRefiner):
                 Key.wildcard()
                 ]),
                 SUB_TYPE_RUNNING), True)
-            ]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+            )
 
     @staticmethod
     def id() -> int:
         return 1006
 
 class SinkRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        #super().__init__(Keypath([PTag('tlm', 'telemetrify'), PTag('tlm', 'sink'), Key.wildcard()]))
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('tlm', 'telemetrify'), PTag('tlm', 'sink'), Key.wildcard()]), SUB_TYPE_RUNNING), True)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'sink'),
+                Key.wildcard()
+                ]),
+            SUB_TYPE_RUNNING), True)
+        )
 
     @staticmethod
     def id() -> int:
@@ -372,12 +381,13 @@ class DeviceSinksRefiner(Refiner):
     sink_devices: dict[Keypath, set[Keypath]]
 
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = []
-        self.refiner_dependencies = [
+        Refiner.__init__(
+            self,
+            [],
+            [
                 DeviceSubscriptionSinkBaseRefiner.id(),
                 SinkRefiner.id()
-            ]
+            ])
 
         self.sinks = {}
         self.device_sink_subs = {}
@@ -448,12 +458,13 @@ class DeviceSubscriptionSinkRefiner(Refiner):
     sink_dev_subs: dict[Keypath, set[Keypath]]
 
     def __init__(self):
-        self.priority = 0
-        self.subscription_dependencies = []
-        self.refiner_dependencies = [
+        Refiner.__init__(
+            self,
+            [],
+            [
                 DeviceSubscriptionSinkBaseRefiner.id(),
                 SinkRefiner.id()
-            ]
+            ])
 
         self.dev_sub_sinks = {}
         self.sink_dev_subs = {}
