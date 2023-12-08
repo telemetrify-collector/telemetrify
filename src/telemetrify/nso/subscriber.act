@@ -43,6 +43,9 @@ class SubscriptionSpec(object):
         self.identity = identity
         self.is_required = is_required
 
+    def __str__(self) -> str:
+        return "SubscriptionSpec(" + str(self.identity) + ", is_required=" + str(self.is_required) + ")"
+
 class SubscriptionIdentity(object):
     @property
     path: Keypath
@@ -71,8 +74,10 @@ class Refiner(object):
     @property
     refiner_dependencies: list[int]
 
-    def __init__(self):
-        raise Exception("Not Implemented")
+    def __init__(self, subscription_dependencies: list[SubscriptionSpec], refiner_dependencies: list[int]):
+        self.priority = 0
+        self.subscription_dependencies = subscription_dependencies
+        self.refiner_dependencies = refiner_dependencies
 
     @staticmethod
     def id() -> int:
@@ -151,16 +156,11 @@ class PassthroughRefiner(Refiner):
     @property
     subtrees: dict[Keypath, TNode]
 
-    # @property
-    # key_tree: KeyTree
-
     def __init__(self, subscription_spec: SubscriptionSpec):
-        self.priority = 0
-        self.subscription_dependencies = [subscription_spec]
-        self.refiner_dependencies = []
+        Refiner.__init__(self, [subscription_spec], [])
         self.subtrees = {}
 
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+    mut def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         _subtrees: dict[Keypath, TNode] = {}
 
         sub_identity = self.subscription_dependencies[0].identity
@@ -192,6 +192,70 @@ class PassthroughRefiner(Refiner):
         self.subtrees = _subtrees
 
         return keypaths
+
+    def state(self, keys: Keypath) -> ?value:
+        return try_get(self.subtrees, keys)
+
+class MirrorRefiner(Refiner):
+    @property
+    subtrees: dict[Keypath, TNode]
+    @property
+    base_path: Keypath
+    @property
+    num_keys: int
+
+    def __init__(self, subscription_specs: list[SubscriptionSpec], base_path: ?Keypath):
+        Refiner.__init__(self, subscription_specs, [])
+        self.subtrees = {}
+
+        if len(subscription_specs) >= 1:
+            common_path = subscription_specs[0].identity.path
+            for other_spec in subscription_specs[1:]:
+                common_path = common_path.get_common_base_path(other_spec.identity.path)
+
+            if base_path is not None:
+                self.base_path = base_path
+                if not base_path.is_sub_path(common_path):
+                    raise ValueError("Subscriptions: " + list_str(subscription_specs) + " are not decendents of base_path: " + str(base_path))
+            else:
+                self.base_path = common_path
+        else:
+            self.base_path = base_path if base_path is not None else Keypath([])
+
+        self.num_keys = _get_path_num_keys(self.base_path)
+
+    mut def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        keypaths: set[Keypath] = set([])
+        for sub_keypaths in input_subs.values():
+            for sub_keypath in sub_keypaths:
+                _keypath = sub_keypath.get_slice(0, self.num_keys)
+                if len(_keypath) != self.num_keys:
+                    raise Exception("Broken invariant: MirrorRefiner received less than expected number of keys in updated keypath:" + str(len(_keypath)) + " != " + str(self.num_keys))
+                keypaths.add(_keypath)
+
+        for keypath in keypaths:
+            keypath_index = 0
+            keypath_len = len(keypath)
+
+            node = root
+            base_path = self.base_path
+            for path_index in range(0, len(base_path), 1):
+                _id: Id = base_path[path_index]
+                if isinstance(_id, Key) and _id.is_wildcard():
+                    if keypath_index < keypath_len:
+                        node = node[keypath[keypath_index]]
+                        keypath_index += 1
+                else:
+                    node = node[_id]
+                if not node.exists():
+                    break
+
+            if node.exists():
+                self.subtrees[keypath] = node
+            else:
+                try_pop(self.subtrees, keypath)
+
+        return list(keypaths)
 
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.subtrees, keys)
@@ -260,7 +324,7 @@ class SubscriptionParams(object):
 actor CdbCache(cdb_sub_conn: CdbConnection,
             cdb_cmd_conn: CdbConnection,
             shared_schema: SharedSchema,
-            refiner_ctors: list[pure() -> Refiner],
+            refiner_ctors: list[mut() -> Refiner],
             callbacks: list[(list[int], action(dict[int, list[(Keypath, ?value)]]) -> None)],
             on_error: action(Exception) -> None,
             log_handler: ?logging.Handler):

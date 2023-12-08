@@ -320,6 +320,12 @@ def dict_set_discard[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, v: V):
 def optional_str[T](v: ?T, default: str) -> str:
     return str(v) if v is not None else default
 
+def min2[T(Ord)](a: T, b: T) -> T:
+    return a if a <= b else b
+
+def max2[T(Ord)](a: T, b: T) -> T:
+    return a if a >= b else b
+
 class MinHeap[T(Ord)](object):
     @property
     _items: list[T]
