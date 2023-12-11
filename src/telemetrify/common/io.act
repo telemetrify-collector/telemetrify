@@ -34,16 +34,16 @@ class Buffer(object):
         self.total_bytes = 0
         self.unread_bytes = 0
 
-    def write_bytes(self: Buffer, data: bytes):
+    def write_bytes(self, data: bytes):
         l = len(data)
         self.parts.append(data)
         self.total_bytes += l
         self.unread_bytes += l
 
-    def write_str(self: Buffer, data: str):
+    def write_str(self, data: str):
         self.write_bytes(data.encode())
 
-    def consume(self: Buffer):
+    def consume(self):
         #print("CONSUME!", self.i, self.j)
         if self.i > 0:
             # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
@@ -58,19 +58,19 @@ class Buffer(object):
         self.total_bytes = self.unread_bytes
         #print("CONSUMED!", self.parts)
 
-    def rewind(self: Buffer):
+    def rewind(self):
         #print("REWIND!")
         self.i = 0
         self.j = 0
         self.unread_bytes = self.total_bytes
 
-    def read_bytes_count(self: Buffer) -> int:
+    def read_bytes_count(self) -> int:
         return self.total_bytes - self.unread_bytes
 
-    def has_unread_bytes(self: Buffer) -> bool:
+    def has_unread_bytes(self) -> bool:
         return self.unread_bytes > 0
 
-    def assert_unread_bytes(self: Buffer, count: int) -> value: # (bool | IncompleteReadError)
+    def assert_unread_bytes(self, count: int) -> value: # (bool | IncompleteReadError)
         # if self.unread_bytes < count:
         #     raise IncompleteReadError()
         if self.unread_bytes < count:
@@ -78,7 +78,7 @@ class Buffer(object):
         else:
             return True
 
-    def read_bytes(self: Buffer, count: int) -> value: # (bytes | IncompleteReadError)
+    def read_bytes(self, count: int) -> value: # (bytes | IncompleteReadError)
         #print("READ", count)
         #print("READ0!", self.i, self.j)
         # if count > self.unread_bytes:
@@ -104,14 +104,14 @@ class Buffer(object):
         #print("READ1!", self.i, self.j)
         return bytes([]).join(acc)
 
-    def read_all_bytes(self: Buffer) -> bytes:
+    def read_all_bytes(self) -> bytes:
         b = self.read_bytes(self.unread_bytes)
         if isinstance(b, bytes):
             return b
         else:
             return bytes([])
 
-    def skip_bytes(self: Buffer, count: int) -> value: # (bool | IncompleteReadError):
+    def skip_bytes(self, count: int) -> value: # (bool | IncompleteReadError):
         #print("SKIP", count)
         #print("SKIP0!", self.i, self.j)
         if count > self.unread_bytes:
@@ -133,7 +133,7 @@ class Buffer(object):
         #print("SKIP0!", self.i, self.j)
         return True
 
-    def find_bytes(self: Buffer, pattern: bytes) -> value: # (index: int | err: IncompleteReadError)
+    def find_bytes(self, pattern: bytes) -> value: # (index: int | err: IncompleteReadError)
         index: int = 0
         pattern_index: int = 0
         _i = self.i
@@ -171,7 +171,7 @@ class Buffer(object):
 
         return index - pattern_len
 
-    def match_bytes(self: Buffer, pattern: bytes) -> value: # (is_match: bool | err: IncompleteReadError)
+    def match_bytes(self, pattern: bytes) -> value: # (is_match: bool | err: IncompleteReadError)
         b = self.read_bytes(len(pattern))
         if isinstance(b, bytes):
             return b == pattern

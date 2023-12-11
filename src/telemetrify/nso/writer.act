@@ -530,9 +530,9 @@ class _EndParam:
     @property
     epath_pop_count: int
 
-    def __init__(self: _EndParam, eparam: ?EObject, epath_pop_count: int):
+    def __init__(self, eparam: ?EObject, epath_pop_count: int):
         self.eparam = eparam
         self.epath_pop_count = epath_pop_count
 
-    def __str__(self: _EndParam) -> str:
+    def __str__(self) -> str:
         return "_EndParam(" + optional_str(self.eparam, "None") + ", " + str(self.epath_pop_count) + ")"

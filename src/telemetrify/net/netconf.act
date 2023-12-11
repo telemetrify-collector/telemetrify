@@ -279,13 +279,13 @@ class NsMaps(object):
     @property
     parent: ?NsMaps
 
-    def __init__(self: NsMaps, namespaces: list[(?str, str)], parent: ?NsMaps):
+    def __init__(self, namespaces: list[(?str, str)], parent: ?NsMaps):
         _nsmap: dict[str, str] = {}
         for _prefix, _ns in namespaces:
             _nsmap[_prefix if _prefix is not None else ""] = _ns
         self.nsmap = _nsmap
 
-    def lookup(self: NsMaps, prefix: ?str) -> ?str:
+    def lookup(self, prefix: ?str) -> ?str:
         _inst = self
         while True:
             ns: ?str = try_get(_inst.nsmap, prefix if prefix is not None else "")
