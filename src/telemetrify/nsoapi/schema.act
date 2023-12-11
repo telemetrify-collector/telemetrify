@@ -1003,13 +1003,8 @@ class Type(object):
             retval = Any.value_to_eobject(v, cursor, use_ikp)
         return retval
 
-    def eobject_to_value(self, obj: ?EObject, cursor: Cursor) -> ?value:
-        conf_type: int, _value: ?value = Any.eobject_to_conf_type_and_value(obj, cursor)
-
-        self_conf_type = self.conf_type
-        if self_conf_type is not None and conf_type == self_conf_type or conf_type == cursor.node().conf_type:
-            return _value
-        return None
+    def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
+        return Any.eobject_to_conf_type_and_base_value(obj)
 
     # def netconf_to_eobject(self, node: Node, s: str) -> ?EObject:
     #     return netvalue_to_eobject(netconf_to_value(node, s))
@@ -1062,7 +1057,7 @@ class EnumType(Type):
                 return ETuple([EInt(C_ENUM_VALUE), EInt(v)])
         return None
 
-    def eobject_to_value(self, obj: ?EObject, cursor: Cursor) -> ?value:
+    def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
         # if obj is not None and isinstance(obj, ETuple): # actonc: #### findAttr' fails for telemetrify.nsoapi.proto.EObject . elems
         #     _elems = obj.elems
         if obj is not None:
@@ -1075,8 +1070,8 @@ class EnumType(Type):
                     if isinstance(_conf_type, EInt) and _conf_type.val == C_ENUM_VALUE and isinstance(_ordinal, EInt):
                         ordinal = _ordinal.val
                         name = try_get(self.ordinal_to_name, ordinal)
-                        return name if name is not None else ordinal
-        return None
+                        return (C_ENUM_VALUE, name if name is not None else ordinal)
+        return (C_UNKNOWN, None)
 
     def validate_value(self, cursor: Cursor, v: ?value) -> bool:
         if v is not None:
@@ -1131,12 +1126,12 @@ class UnionType(Type):
                 return res
         return None
 
-    def eobject_to_value(self, obj: ?EObject, cursor: Cursor) -> ?value:
+    def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
         for t in self.types:
-            res = t.eobject_to_value(obj, cursor)
-            if res is not None:
-                return res
-        return None
+            _conf_type, _value = t.eobject_to_conf_type_and_value(obj, cursor)
+            if _value is not None:
+                return (_conf_type, _value)
+        return (C_UNKNOWN, None)
 
 class RestrictedNumberType(Type):
     @property
@@ -2572,15 +2567,14 @@ class Any:
         return None
 
     @staticmethod
-    def eobject_to_value(v: ?EObject, cursor: Cursor) -> ?value:
-        _conf_type, _value = Any.eobject_to_conf_type_and_value(v, cursor)
-        # TODO: How do we want to use this?
-        # if _conf_type == C_LIST:
-        #     ...
-        return _value
+    def eobject_to_conf_type_and_value(obj: ?EObject, cursor: Cursor) -> (int, ?value):
+        _value_type = cursor.node().value_type
+        if _value_type is not None:
+            return _value_type.eobject_to_conf_type_and_value(obj, cursor)
+        return Any.eobject_to_conf_type_and_base_value(obj)
 
     @staticmethod
-    def eobject_to_conf_type_and_value(v: ?EObject, cursor: Cursor) -> (int, ?value):
+    def eobject_to_conf_type_and_base_value(v: ?EObject) -> (int, ?value):
         """Schema-less mapping of Conf objects Telemetrify values"""
         if isinstance(v, ETuple):
             _elems = v.elems
@@ -2856,7 +2850,8 @@ class Any:
             #     unsafe_list_append(_l, Any.eobject_to_conf_type_and_value(_e, cursor))
             _l: list[?value] = []
             for _e in v.elems:
-                unsafe_list_append(_l, Any.eobject_to_value(_e, cursor))
+                _inner_conf_type, _elem_base_val = Any.eobject_to_conf_type_and_base_value(_e)
+                unsafe_list_append(_l, _elem_base_val)
             return (C_LIST, v.elems)
 
         return (C_UNKNOWN, None)
