@@ -10,10 +10,16 @@ jobs:
     steps:
       - name: "Check out repository code"
         uses: actions/checkout@v3
+#      - name: "Install acton"
+#        run: |
+#          wget https://github.com/actonlang/acton/releases/download/tip/acton_tip_amd64.deb
+#          sudo dpkg -i acton_*.deb
       - name: "Install acton"
         run: |
-          wget https://github.com/actonlang/acton/releases/download/tip/acton_tip_amd64.deb
-          sudo dpkg -i acton_*.deb
+          wget -q -O - https://apt.acton-lang.io/acton.gpg | sudo apt-key add -
+          echo "deb [arch=amd64] http://apt.acton-lang.io/ bullseye main" | sudo tee /etc/apt/sources.list.d/acton.list
+          sudo apt-get update
+          sudo apt-get install -qy acton
       - name: "Build"
         run: |
           actonc build
