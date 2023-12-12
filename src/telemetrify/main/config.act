@@ -504,3 +504,23 @@ class DeviceSubscriptionSinkRefiner(Refiner):
 
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.dev_sub_sinks, keys)
+
+class LoggingLevelRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'logging'),
+                PTag('tlm', 'level')
+                ]),
+            SUB_TYPE_RUNNING), True)
+        )
+
+    @staticmethod
+    def id() -> int:
+        return 1101

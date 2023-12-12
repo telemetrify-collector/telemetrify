@@ -1642,6 +1642,7 @@ actor main(env):
                 DeviceSubscriptionSinkRefiner,
                 SinkRefiner,
                 DeviceSinksRefiner,
+                LoggingLevelRefiner,
             ],
             [([
                 #DeviceSettingsRefiner.id(), # For DEBUG printouts only
@@ -1653,7 +1654,8 @@ actor main(env):
                 #DeviceSubscriptionSinkBaseRefiner.id(), # For DEBUG printouts purposes
                 DeviceSubscriptionSinkRefiner.id(),
                 #SinkRefiner.id(), # For DEBUG printouts purposes
-                DeviceSinksRefiner.id()
+                DeviceSinksRefiner.id(),
+                LoggingLevelRefiner.id()
             ],
             lambda r: _on_config_update(r, s))], _on_config_cache_error,
             logh)
@@ -1734,10 +1736,50 @@ actor main(env):
                     updated_device_sources.get(updated_device_key, []),
                     updated_device_sinks.get(updated_device_key, []))
 
+        # Logging
+        _on_logging_level(refiner_updates[LoggingLevelRefiner.id()])
+
     def _remove_device_streamer(device_key):
         entry = try_pop(device_streamers, device_key)
         if entry is not None:
             entry.close()
+
+    def _on_logging_level(updates: list[(Keypath, ?value)]):
+        level: int = logging.WARNING
+        for _keypath, state in updates:
+            if state is not None and isinstance(state, TNode):
+                #_val = state.try_str()
+                _leaf: TNode = state
+                _val = _leaf.try_str()
+                if _val is not None:
+                    if _val == 'off':
+                        level = logging.OFF
+                    elif _val == 'emergency':
+                        level = logging.EMERGENCY
+                    elif _val == 'alert':
+                        level = logging.ALERT
+                    elif _val == 'critical':
+                        level = logging.CRITICAL
+                    elif _val == 'error':
+                        level = logging.ERROR
+                    elif _val == 'warning':
+                        level = logging.WARNING
+                    elif _val == 'info':
+                        level = logging.INFO
+                    elif _val == 'notice':
+                        level = logging.NOTICE
+                    elif _val == 'debug':
+                        level = logging.DEBUG
+                    elif _val == 'verbose':
+                        level = logging.VERBOSE
+                    elif _val == 'trace':
+                        level = logging.TRACE
+                    elif _val == 'all':
+                        level = logging.ALL
+                    else:
+                        raise Exception("Unimplemented logging level value: " + str(_val))
+
+        logh.set_output_level(level)
 
     def _on_config_cache_error(e):
         log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)

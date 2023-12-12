@@ -282,6 +282,48 @@ module telemetrify {
         }
       }
     }
+
+    container logging {
+      leaf level {
+        description "Log-level to output.";
+        type enumeration {
+          enum off;
+          enum emergency;
+          enum alert;
+          enum critical;
+          enum error;
+          enum warning;
+          enum info;
+          enum notice;
+          enum debug;
+          enum verbose;
+          enum trace;
+          enum all;
+        }
+        default "warning";
+      }
+
+      // leaf stdout {
+      //   description "Send logs to standard output.";
+      //   type boolean;
+      //   default "true";
+      // }
+
+      // container file {
+      //   presence true;
+      //
+      //   leaf path {
+      //     type string;
+      //   }
+      //
+      //   leaf size {
+      //   }
+      //
+      //   leaf rotate {
+      //   }
+      // }
+    }
+
     tailf:action restart {
       tailf:actionpoint restart-telemetrify;
     }
