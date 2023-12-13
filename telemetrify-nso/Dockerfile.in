@@ -2,7 +2,6 @@ ARG NSO_IMAGE_PATH
 ARG NSO_VERSION
 
 FROM gitlab.dev.terastrm.net:4567/abs/dt-sdwan/nso:${NSO_VERSION} AS dt-sdwan
-FROM gitlab.dev.terastrm.net:4567/abs/dt-mplsnet/nso:${NSO_VERSION} AS dt-mplsnet
 # DEP_START
 # DEP_END
 
