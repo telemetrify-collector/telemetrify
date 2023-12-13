@@ -1,16 +1,12 @@
 ARG NSO_IMAGE_PATH
 ARG NSO_VERSION
 
-FROM gitlab.dev.terastrm.net:4567/abs/dt-sdwan/nso:${NSO_VERSION} AS dt-sdwan
 # DEP_START
 # DEP_END
 
 # Compile local packages in the build stage
 FROM ${NSO_IMAGE_PATH}cisco-nso-dev:${NSO_VERSION} AS build
 ARG PKG_FILE
-
-# We just need a few packages and in particular the YANG models from these sources
-COPY --from=dt-sdwan /var/opt/ncs/packages/ietf-network-topology/ /includes/ietf-network-topology/
 
 # DEP_INC_START
 # DEP_INC_END

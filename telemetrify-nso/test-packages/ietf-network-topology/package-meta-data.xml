@@ -1,0 +1,6 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>ietf-network-topology</name>
+  <package-version>1.0</package-version>
+  <description>The IETF network topology models</description>
+  <ncs-min-version>6.1</ncs-min-version>
+</ncs-package>
