@@ -28,6 +28,9 @@ class DeviceSettings(object):
     def __str__(self) -> str:
         return "DeviceSettings(username=" + optional_str(self.username, "") + ", password=" + optional_str(self.password, "") + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 class DeviceSettingsRefiner(Refiner):
     @property
     _device_authgroup: dict[Keypath, Keypath]
@@ -246,6 +249,9 @@ class DeviceStreamerConfig(object):
 
     def __str__(self) -> str:
         return "DeviceStreamerConfig(" + optional_str(self.device_settings, "None") + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 class DeviceStreamerRefiner(Refiner):
     @property

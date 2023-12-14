@@ -179,6 +179,9 @@ class SubscriptionSink(object):
     def __str__(self) -> str:
         return "SubscriptionSink(" + str(self.config) + ", " + str(self.sink) + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     def write(self, node: Node, source_params: TNode) -> None:
         self.head_cb(node, source_params)
 
@@ -1377,6 +1380,9 @@ class SubscriptionUpdate(object):
         for sink_key, sink in self.sinks:
             unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink, "None") + ")")
         return "SubscriptionUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources, log_handler: ?logging.Handler):
     var logh = logging.Handler("device-streamer")

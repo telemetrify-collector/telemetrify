@@ -46,6 +46,9 @@ class SubscriptionSpec(object):
     def __str__(self) -> str:
         return "SubscriptionSpec(" + str(self.identity) + ", is_required=" + str(self.is_required) + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 class SubscriptionIdentity(object):
     @property
     path: Keypath
@@ -58,6 +61,9 @@ class SubscriptionIdentity(object):
 
     def __str__(self) -> str:
         return "SubscriptionIdentity(" + str(self.path) + ", " + sub_type_str(self.sub_type) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 extension SubscriptionIdentity(Hashable):
     def __eq__(self, other: SubscriptionIdentity) -> bool:
@@ -401,12 +407,14 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
         # Build combined merge root
         for sub_id, etvs in _pending_sub_modifications:
             updated_keys: set[Keypath]
-            merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
-            if isinstance(merge_root, TTree):
+            try:
+                merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
+            except Exception as exc:
+                log.trace("Error converting subscription event etagvals", {"etvs": etvs})
+                on_error(Exception("Get modifications to tnode conversion error: " + exc.error_message))
+            else:
                 log.trace("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
                 combined_merge_root.merge(merge_root)
-            elif isinstance(merge_root, Exception):
-                on_error(Exception("Get modifications to tnode conversion error: " + merge_root.error_message))
 
         _pending_sub_modifications.clear()
 

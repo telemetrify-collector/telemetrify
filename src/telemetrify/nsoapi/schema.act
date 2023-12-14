@@ -75,6 +75,9 @@ class TypeId:
     def __str__(self) -> str:
         return str(self.ns_hash) + ":" + self.name
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     def str_pretty(self, hash_to_name: dict[int, str]) -> str:
         cns = try_get(hash_to_name, self.ns_hash)
         if cns is not None:
@@ -510,6 +513,9 @@ class NamespaceDescription:
             + self.cns + "," + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
             + optional_str(self.revision, "") + "," + self.module + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_tuple(elems: list[EObject]) -> ?NamespaceDescription:
         if len(elems) >= 6:
@@ -806,6 +812,9 @@ class Type(object):
     def __str__(self) -> str:
         return "Type(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     def __str_common(self) -> str:
         parent_type_id = "None"
         _parent_type = self.parent_type
@@ -1034,6 +1043,9 @@ class EnumType(Type):
     def __str__(self) -> str:
         return "EnumType(" + self.__str_common() + ", " + str(self.name_to_ordinal) + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         if isinstance(opaque, EList):
@@ -1096,6 +1108,9 @@ class UnionType(Type):
     def __str__(self) -> str:
         return "UnionType(" + self.__str_common() + ", " + list_str(self.types) + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
         if isinstance(opaque, EList):
@@ -1149,6 +1164,9 @@ class RestrictedNumberType(Type):
     def __str__(self) -> str:
         return "RestrictedNumberType(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1173,6 +1191,9 @@ class BitsType(Type):
 
     def __str__(self) -> str:
         return "BitsType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1289,6 +1310,9 @@ class Decimal64Type(Type):
     def __str__(self) -> str:
         return "Decimal64Type(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
@@ -1320,6 +1344,9 @@ class ListType(Type):
 
     def __str__(self) -> str:
         return "ListType(" + self.__str_common() + ", " + str(self.elem_type) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
@@ -1390,6 +1417,9 @@ class ListRestrictionType(Type):
     def __str__(self) -> str:
         return "ListRestrictionType(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1407,6 +1437,9 @@ class DisplayHintType(Type):
 
     def __str__(self) -> str:
         return "DisplayHintType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1430,6 +1463,9 @@ class StringType(Type):
     def __str__(self) -> str:
         return "StringType(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1452,6 +1488,9 @@ class IdentityType(Type):
 
     def __str__(self) -> str:
         return "IdentityType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:

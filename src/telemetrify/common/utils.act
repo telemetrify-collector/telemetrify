@@ -711,6 +711,9 @@ class Decimal64:
             s += to_n_dec_str(f.significand, -f.exponent)
         return s
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?Decimal64:
         parts = try_parse_float_parts(s)
@@ -778,6 +781,9 @@ class IPv4Address:
         d = self.data
         return str(d.0) + "." + str(d.1) + "." + str(d.2) + "." + str(d.3)
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Address:
         #return IPv4Address((1,2,3,4))
@@ -811,6 +817,9 @@ class IPv6Address:
         d = self.data
         return hex(d.0) + ":" + hex(d.1) + ":" + hex(d.2) + ":" + hex(d.3) \
             + ":" + hex(d.4) + ":" + hex(d.5) + ":" + hex(d.6) + ":" + hex(d.7)
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Address:
@@ -850,6 +859,9 @@ class IPv4Network:
     def __str__(self) -> str:
         return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Network:
         p = s.strip(" \t").split("/", -1)
@@ -883,6 +895,9 @@ class IPv6Network:
 
     def __str__(self) -> str:
         return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Network:
@@ -955,6 +970,9 @@ class DateTime:
         return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + "T" \
             + to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) \
             + tz
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?DateTime:
@@ -1106,6 +1124,9 @@ class Date:
 
         return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + tz
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?Date:
         s = s.strip(" ")
@@ -1228,6 +1249,9 @@ class Time:
                     tz = str(tz_h) + ":" + str(tz_m)
 
         return to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) + tz
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?Time:
@@ -1365,6 +1389,9 @@ class Duration:
                 unsafe_list_append(sl, "S")
         return "".join(sl)
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?Duration:
         fmt = "PYMDTHMS"
@@ -1458,6 +1485,9 @@ class Oid:
         for _id in self._ids:
             unsafe_list_append(sl, str(_id))
         return ".".join(sl)
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     def ids(self) -> list[int]:
         return self._ids

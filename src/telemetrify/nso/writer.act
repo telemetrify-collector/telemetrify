@@ -547,3 +547,6 @@ class _EndParam:
 
     def __str__(self) -> str:
         return "_EndParam(" + optional_str(self.eparam, "None") + ", " + str(self.epath_pop_count) + ")"
+
+    def __repr__(self):
+        return self.__str__()

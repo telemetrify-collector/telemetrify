@@ -24,7 +24,7 @@ from telemetrify.nso.subscriber import *
 from telemetrify.nsoapi.cdb import *
 
 actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
-    var logh = logging.Handler("vmanage-transform")
+    var logh = logging.Handler("l3vpn-svc-tracker")
     if log_handler is not None:
         logh.set_handler(log_handler)
     var log = logging.Logger(logh)
@@ -300,6 +300,9 @@ class L3vpnSvcParams(object):
             + ", " + optional_str(self.is_bidirectional, "None") \
             + ", " + optional_str(self.customer_name, "None") \
             + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 class L3vpnSvcParamsRefiner(Refiner):
     @property

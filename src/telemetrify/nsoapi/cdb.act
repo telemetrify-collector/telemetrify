@@ -100,6 +100,9 @@ class CdbException(ProtoError):
             + ", errmsg=" + error_msg \
             + ", path=" + conf_path + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 def addr_to_eobject(addr: str) -> EObject:
     if addr != "127.0.0.1":
         raise Exception("NOT IMPLEMENTED!") # NotImplementedError()
