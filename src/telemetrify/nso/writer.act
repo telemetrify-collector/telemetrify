@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 from telemetrify.common.mod import *
 from telemetrify.nsoapi.conf import *
 from telemetrify.nsoapi.proto import *
@@ -32,7 +34,12 @@ _PARENT_STATE_PREFIX_NOCREATE = 2
 _PARENT_STATE_PARAM = 3
 _PARENT_STATE_POSTFIX_NOCREATE = 4
 
-actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
+actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("maapi-writer")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     # Task queue
     #write_tasks: Queue[(Node, int, bool, action(?Exception) -> None)] = Queue()
@@ -69,35 +76,35 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
         pending_mount_id = None
 
     def _poll():
-        print("writer: begin poll")
+        log.debug("writer: begin poll", None)
         while True:
             if state == _STATE_IDLE:
-                #print("writer:   STATE_IDLE")
+                log.trace("writer:   STATE_IDLE", None)
                 if write_tasks:
-                    print("writer:     Setup write task")
+                    log.debug("writer:     Setup write task", None)
                     _setup_next_task()
                 else:
-                    print("writer:     No tasks")
+                    log.debug("writer:     No tasks", None)
                     break
             elif state == _STATE_PREPARE_EPARAMS:
-                #print("writer:   STATE_PREPARE_EPARAMS")
+                log.trace("writer:   STATE_PREPARE_EPARAMS", None)
                 _handle_state_prepare_eparams()
             elif state == _STATE_AWAITING_PREPARATORY_SET_ELEM:
-                #print("writer:   STATE_AWAITING_PREPARATORY_SET_ELEM")
+                log.trace("writer:   STATE_AWAITING_PREPARATORY_SET_ELEM", None)
                 break
             elif state == _STATE_AWAITING_PREPARATORY_DELETE:
-                #print("writer:   STATE_AWAITING_PREPARATORY_DELETE")
+                log.trace("writer:   STATE_AWAITING_PREPARATORY_DELETE", None)
                 break
             elif state == _STATE_AWAITING_PREPARATORY_CREATE:
-                #print("writer:   STATE_AWAITING_PREPARATORY_CREATE")
+                log.trace("writer:   STATE_AWAITING_PREPARATORY_CREATE", None)
                 break
             elif state == _STATE_AWAITING_MOUNT_ID:
-                #print("writer:   STATE_AWAITING_MOUNT_ID")
+                log.trace("writer:   STATE_AWAITING_MOUNT_ID", None)
                 break
             elif state == _STATE_AWAITING_SET_VALUES:
-                #print("writer:   STATE_AWAITING_SET_VALUES")
+                log.trace("writer:   STATE_AWAITING_SET_VALUES", None)
                 break
-        print("writer: end poll")
+        log.debug("writer: end poll", None)
 
     def _setup_next_task():
         write_task: (Node, int, bool, action(?Exception) -> None) = write_tasks.pop()
@@ -116,7 +123,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
         state = _STATE_PREPARE_EPARAMS
 
     def _handle_state_prepare_eparams():
-        #print("writer:       work_stack len:", len(work_stack))
+        log.trace("writer:", {"work_stack len": len(work_stack)})
         if len(work_stack) >= 1: #if work_stack:
             _item: value, _parent_state: int = list_pop(work_stack)
             if isinstance(_item, Node):
@@ -133,12 +140,12 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                         if use_ikp:
                             _itag = cursor.lookup_itag(_htag)
                             if _itag is None:
-                                print("WARNING: Unable to find ITag of ", _htag)
+                                log.warning("Unable to find ITag of", {"htag": _htag})
                         _e_tag = _itag.to_eobject() if _itag is not None else _htag.to_eobject()
 
                         # Leaf
                         if s_node.is_leaf():
-                            #print("writer:       LEAF")
+                            log.trace("writer:       LEAF", None)
                             if node.op() in [OP_MERGE, OP_REPLACE]:
                                 if _parent_state == _PARENT_STATE_PREFIX_NOCREATE:
                                     # TODO: Report error details
@@ -184,7 +191,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                     return
                         # Container
                         elif s_node.is_container():
-                            #print("writer:       CONTAINER")
+                            log.trace("writer:       CONTAINER", None)
                             _pending_mount_id: ?HTag = pending_mount_id
                             if _pending_mount_id is not None:
                                 cursor.set_mount_id(_pending_mount_id)
@@ -231,7 +238,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
 
                         # Leaf-list (element)
                         elif s_node.is_leaf_list():
-                            #print("writer:       LEAF-LIST")
+                            log.trace("writer:       LEAF-LIST", None)
                             if node.op() in [OP_MERGE, OP_REPLACE]:
                                 if _parent_state == _PARENT_STATE_NONE:
                                     _e_val = _node_value_to_eobject(cursor, node)
@@ -271,7 +278,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                 return
                         # List (element)
                         elif s_node.is_list():
-                           # print("writer:       LIST")
+                            log.trace("writer:       LIST", None)
                             _pending_mount_id: ?HTag = pending_mount_id
                             if _pending_mount_id is None:
                                 epath.append(_e_tag)
@@ -344,7 +351,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                                 _call_delete()
                                 return
                         else:
-                            print("WARNING: Unhandled schema node type.")
+                            log.warning("Unhandled schema node type.", None)
                 else:
                     _task_error("Encountered child node with missing tag")
                     return
@@ -356,7 +363,11 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
                     list_pop(epath)
                 cursor.pop()
         else:
-            _call_set_values()
+            if len(prefix_epath) > 0 or len(eparams) > 0:
+                _call_set_values()
+            else:
+                log.debug("Skipping set_values (nothing to write)", None)
+                _reset()
 
     #def _extend_work_stack[T](items: Iterable[T], created_parent: bool):
     def _extend_work_stack[T](items: list[T], parent_state: int):
@@ -518,7 +529,7 @@ actor MaapiWriter(mc: MaapiConnection, shared_schema: schema.SharedSchema):
             if result_cb is not None:
                 result_cb(None)
             _reset()
-            print("Done set_values")
+            log.debug("Done set_values", None)
         _poll()
 
     # def write_at(keypath, node: Node, result_cb: action(?Exception) -> None):

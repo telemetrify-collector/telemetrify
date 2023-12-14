@@ -265,7 +265,9 @@ def _hash_value(v: value) -> int:
         return hash(v)
     elif isinstance(v, Oid):
         return hash(v)
-    raise Exception("_hash_value: Not Implemented")
+    elif isinstance(v, list): # Leaf-list for completeness although not valid for keys
+        return list_hash(v)
+    raise Exception("_hash_value: Not Implemented for type: " + type(v))
 
 class Key(Id):
     _keys: list[value]

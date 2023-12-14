@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 import telemetrify.ietf.l3vpn_svc
 
 from telemetrify.common.mod import *
@@ -20,7 +22,13 @@ from telemetrify.ietf.l3vpn_svc import L3vpnSvcParams
 actor Transform(
         output_cb: action(Node, TNode) -> None,
         fetch_l3vpn_svc_tracker: action(action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None) -> None,
-        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
+        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("vmanage-transform")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
 
     tasks: Wardrobe[(list[dict[str, str]], TNode)] = Wardrobe()
     l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
@@ -71,7 +79,7 @@ actor Transform(
 
     def _on_lookup_result(params_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
 
-        print("vmanage.transform - lookup result: ", mapping_str(params_lookup))
+        log.debug("lookup", {"result": mapping_str(params_lookup)})
 
         try:
             approutes, source_params = tasks.pop(task_id)
