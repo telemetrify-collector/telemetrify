@@ -332,7 +332,6 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
     var logh = logging.Handler("cdb-cache")
     if log_handler is not None:
         logh.set_handler(log_handler)
-
     var log = logging.Logger(logh)
 
     var _refiners: dict[int, Refiner] = {}
@@ -351,7 +350,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     var _root = TTree(OP_NONE, PTag.root(), None, {})
 
-    var _stree = STree()
+    var _stree = STree(log)
 
     # Workaround actonc: Name _pending_setup_sub_params is not in scope
     def _clear_pending_setup_sub_params():
@@ -404,14 +403,14 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             updated_keys: set[Keypath]
             merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
             if isinstance(merge_root, TTree):
-                #log.debug("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
+                log.trace("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
                 combined_merge_root.merge(merge_root)
             elif isinstance(merge_root, Exception):
                 on_error(Exception("Get modifications to tnode conversion error: " + merge_root.error_message))
 
         _pending_sub_modifications.clear()
 
-        #log.debug("Combined merge", {"merge_root": combined_merge_root})
+        log.trace("Combined merge", {"merge_root": combined_merge_root})
 
         # Schedule subscription-triggered refiners
         updated_subs: dict[SubscriptionIdentity, list[Keypath]] = _stree.evaluate_subscriptions(_root, combined_merge_root)
@@ -499,7 +498,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_get_modifications(c: CdbConnection, v: value, sub_id: int):
         if isinstance(v, EList):
-            #log.debug("_on_get_modification" {"eobj": v})
+            log.trace("_on_get_modification", {"eobj": v})
             _pending_sub_modifications.append((sub_id, v))
             _do_get_modifications()
         elif isinstance(v, Exception):
@@ -562,9 +561,12 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 class STree(object):
     @property
     root: SNode
+    @property
+    log: logging.Logger
 
-    def __init__(self):
+    def __init__(self, log: logging.Logger):
         self.root = SNode(PTag.root(), {}, None)
+        self.log = log
 
     def add_subscription(self, spec: SubscriptionSpec):
         return self._add_subscription(spec, None)
@@ -702,12 +704,13 @@ class STree(object):
                 if op == OP_MERGE and parent_op in [OP_REPLACE, OP_DELETE]:
                     op = OP_REPLACE
 
-            # print("_visit(" + (optional_str(root.tag(), "None") if root is not None else "None") +
-            #         ", " + (optional_str(update.tag(), "None") if update is not None else "None") + ")" +
-            #         ", " + op_str(op) +
-            #         ", " + (str(sdata.identity) if sdata is not None else "None") +
-            #         ", " + str(s_count) +
-            #         ")")
+            if self.log.output_level >= logging.TRACE:
+                self.log.trace("_visit(" + (optional_str(root.tag(), "None") if root is not None else "None") +
+                            ", " + (optional_str(update.tag(), "None") if update is not None else "None") + ")" +
+                            ", " + op_str(op) +
+                            ", " + (str(sdata.identity) if sdata is not None else "None") +
+                            ", " + str(s_count) +
+                            ")", None)
 
             def _get_c_snodes(c_id: Id) -> list[SNode]:
                 c_snodes: list[SNode] = []

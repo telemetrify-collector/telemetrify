@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 from telemetrify.common.io import IncompleteReadError
 from telemetrify.nsoapi.proto import *
 from telemetrify.nsoapi.conf import *
@@ -22,13 +24,13 @@ CLIENT_CONF_VSN = 0x08010000
 IA_CLIENT_CDB = 5
 IA_CLIENT_MAAPI = 7
 
-def read_response(reader: BufferReader, op: ?int, read_op: bool) -> ?value: # (ConfResponse | IncompleteReadError)
+def read_response(reader: BufferReader, op: ?int, read_op: bool, log: logging.Logger) -> ?value: # (ConfResponse | IncompleteReadError)
     result = ConfResponse(op if op is not None else -1, None, False, 0, None)
     retval: ?value = result
     _response_len = reader.read_i32_be()
     if isinstance(_response_len, int):
         response_len: int = _response_len
-        #print("Recv cdb response len:", response_len)
+        #log.trace("Recv cdb response len:", response_len)
         expected_len = response_len + 4
         e = reader.assert_unread_bytes(response_len)
         if isinstance(e, IncompleteReadError):
@@ -41,7 +43,7 @@ def read_response(reader: BufferReader, op: ?int, read_op: bool) -> ?value: # (C
         else:
             read_len = reader.read_bytes_count()
             if read_len != expected_len:
-                print("WARNING: Inconsistent length of MAAPI response, expected:", expected_len, ", actual:", read_len)
+                log.warning("Inconsistent length of MAAPI response", {"expected": expected_len, "actual": read_len})
 
     else:
         if isinstance(_response_len, IncompleteReadError):

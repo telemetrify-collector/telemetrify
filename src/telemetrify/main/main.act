@@ -285,7 +285,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
     def _on_user_session(c, e):
         m = maapi_connection
         if m is not None:
-            writer = telemetrify.nso.writer.MaapiWriter(m, shared_schema)
+            writer = telemetrify.nso.writer.MaapiWriter(m, shared_schema, logh)
 
     def _on_maapi_connect_error(e):
         log.error("SINK nso-cdb MAAPI connect failed:", {"error": e})
@@ -304,7 +304,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
         tasks.clear()
         log.info("SINK nso-cdb CLOSED", None)
 
-    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)
 
 actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var logh = logging.Handler("m3db-sink")
@@ -509,7 +509,8 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
                 # lambda _c, e: _on_client_error(e, client_seqno),
                 __on_client_error,
                 # lambda _c, n: _on_client_notif(n, client_seqno))
-                __on_client_notif)
+                __on_client_notif,
+                logh)
 
             client = new_client
 
@@ -1547,13 +1548,15 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             transform_act = telemetrify.vmanage.transform.Transform(
                 next_cb,
                 shared_resources.request_l3vpn_svc_tracker,
-                shared_resources.release_l3vpn_svc_tracker)
+                shared_resources.release_l3vpn_svc_tracker,
+                logh)
             return Transform(transform_act.transform, transform_act.close)
         elif eq_optional(config[PTag('tlm', 'name')].try_str(), "cat8k-ip-sla"):
             transform_act = telemetrify.ietf.cat8k.IpSlaTransform(
                 next_cb,
                 shared_resources.request_l3vpn_svc_tracker,
-                shared_resources.release_l3vpn_svc_tracker)
+                shared_resources.release_l3vpn_svc_tracker,
+                logh)
             return Transform(transform_act.transform, transform_act.close)
         return None
 
@@ -1568,7 +1571,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         sinks = {}
         log.info("DEVICE CLOSED", {"name": name})
 
-actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
+actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
 
     # def request_l3vpn_svc_tracker(cb: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
@@ -1584,7 +1587,7 @@ actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
         if r is not None:
             cb(r)
         else:
-            n = telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker(env, shared_schema)
+            n = telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker(env, shared_schema, log_handler)
             l3vpn_svc_tracker = n
             cb(n)
 
@@ -1612,9 +1615,9 @@ actor main(env):
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
             log.info("MAAPI loaded schema!!!!", None)
-            shared_resources = SharedResources(env, shared_schema)
+            shared_resources = SharedResources(env, shared_schema, logh)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
+                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
         else:
             log.error("MAAPI load schema failed:" + optional_str(e, ""), None)
             await async env.exit(1)
@@ -1626,7 +1629,7 @@ actor main(env):
     def _on_cdb_sub_connect(sc, s):
         log.info("CDB (sub) connected!!!!", None)
         cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None)
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, logh, None)
 
     def _on_cdb_cmd_connect(sc, cc, s):
         log.info("CDB (cmd) connected!!!!", None)
@@ -1786,4 +1789,4 @@ actor main(env):
         await async env.exit(1)
 
     log.info("Starting up...", None)
-    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)
