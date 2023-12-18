@@ -2902,7 +2902,7 @@ class Any:
                     unsafe_list_append(_l, _elem_base_val)
                 else:
                     return (C_UNKNOWN, None)
-            return (C_LIST, v.elems)
+            return (C_LIST, _l)
 
         return (C_UNKNOWN, None)
 

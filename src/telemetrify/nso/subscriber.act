@@ -327,6 +327,12 @@ class SubscriptionParams(object):
         #self.max_keys = max_keys
         self.delete_only_filter_path = delete_only_filter_path
 
+    def __str__(self) -> str:
+        return "SubscriptionParams(" + str(self.identity) + ", " + optional_str(self.delete_only_filter_path, "None") + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
 actor CdbCache(cdb_sub_conn: CdbConnection,
             cdb_cmd_conn: CdbConnection,
             shared_schema: SharedSchema,
@@ -410,7 +416,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             try:
                 merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
             except Exception as exc:
-                log.trace("Error converting subscription event etagvals", {"etvs": etvs})
+                log.trace("Error converting subscription event etagvals", {"sub_id": sub_id, "etvs": etvs})
                 on_error(Exception("Get modifications to tnode conversion error: " + exc.error_message))
             else:
                 log.trace("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
