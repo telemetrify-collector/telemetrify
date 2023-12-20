@@ -158,6 +158,37 @@ def _get_subtree_path_keys(node: TNode, path: Keypath) -> list[Keypath]:
 
     return keys
 
+def _filter_ancestor_deletes(merge_root: TTree, path: Keypath) -> TTree:
+    def _filter_children(parent: TNode, new_parent: TNode, path_index: int):
+        def _filter_node(n_id: Id, node: TNode) -> ?TNode:
+            if isinstance(node, TTree):
+                op = node.op()
+                if op in [OP_MERGE, OP_NOCREATE]:
+                    return new_parent.tree(OP_NOCREATE, n_id)
+                elif op in [OP_REPLACE, OP_DELETE]:
+                    new_parent.tree(OP_DELETE, n_id)
+                    return None # I.e. don't recurse further
+            return None
+
+        _id = path[path_index]
+
+        if isinstance(_id, Key) and _id.is_wildcard():
+            for c_id, c in parent.iter_items():
+                n = _filter_node(c_id, c)
+                if n is not None:
+                    _filter_children(c, n, path_index + 1)
+        else:
+            c = parent.get(_id)
+            if c is not None:
+                n = _filter_node(_id, c)
+                if n is not None:
+                    _filter_children(c, n, path_index + 1)
+
+    delete_root = TTree(OP_NOCREATE, PTag.root(), None, {})
+    _filter_children(merge_root, delete_root, 0)
+
+    return delete_root
+
 class PassthroughRefiner(Refiner):
     @property
     subtrees: dict[Keypath, TNode]
@@ -319,16 +350,16 @@ class SubscriptionParams(object):
     # @property
     # max_keys: int
     @property
-    delete_only_filter_path: ?EKeypath
+    ancestor_delete_fallback_origin: ?SubscriptionIdentity
 
-    #def __init__(self, identity: SubscriptionIdentity, max_keys: int, delete_only_filter_path: ?EKeypath):
-    def __init__(self, identity: SubscriptionIdentity, delete_only_filter_path: ?EKeypath):
+    #def __init__(self, identity: SubscriptionIdentity, max_keys: int, ancestor_delete_fallback_origin: ?SubscriptionIdentity):
+    def __init__(self, identity: SubscriptionIdentity, ancestor_delete_fallback_origin: ?SubscriptionIdentity):
         self.identity = identity
         #self.max_keys = max_keys
-        self.delete_only_filter_path = delete_only_filter_path
+        self.ancestor_delete_fallback_origin = ancestor_delete_fallback_origin
 
     def __str__(self) -> str:
-        return "SubscriptionParams(" + str(self.identity) + ", " + optional_str(self.delete_only_filter_path, "None") + ")"
+        return "SubscriptionParams(" + str(self.identity) + ", " + optional_str(self.ancestor_delete_fallback_origin, "None") + ")"
 
     def __repr__(self):
         return self.__str__()
@@ -420,6 +451,12 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
                 on_error(Exception("Get modifications to tnode conversion error: " + exc.error_message))
             else:
                 log.trace("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
+                # Filter irrelevant parts of is-delete-only-sub
+                sub_params = _sub_id_params[sub_id]
+                _ancestor_delete_fallback_origin = sub_params.ancestor_delete_fallback_origin
+                if _ancestor_delete_fallback_origin is not None:
+                    merge_root = _filter_ancestor_deletes(merge_root, _ancestor_delete_fallback_origin.path)
+                    log.trace("Filtered delete-only-sub merge root", {"sub_id": sub_id, "merge_root": merge_root})
                 combined_merge_root.merge(merge_root)
 
         _pending_sub_modifications.clear()
@@ -440,6 +477,8 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
         # Apply combined merge
         _root.merge(combined_merge_root)
+
+        log.trace("New root", {"root": _root})
 
         # Update refiners
         updated_refiners: dict[Refiner, list[Keypath]] = {}
@@ -501,25 +540,22 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
         if len(_pending_sub_ids) > 0:
             sub_id = list_pop(_pending_sub_ids)
 
-            sub_params = _sub_id_params[sub_id]
-            filter_path: ?EKeypath = sub_params.delete_only_filter_path
-
             # actonc: ?_ is not a subclass of telemetrify.nsoapi.conf.EKeypath
-            #cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, filter_path, lambda c, v: _on_get_modifications(c, v, sub_id))
-            cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, filter_path if filter_path is not None else EKeypath([]), lambda c, v: _on_get_modifications(c, v, sub_id))
+            #cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, None, lambda c, v: _on_get_modifications(c, v, sub_id))
+            cdb_sub_conn.get_modifications(sub_id, CDB_GET_MODS_INCLUDE_LISTS | CDB_GET_MODS_WANT_ANCESTOR_DELETE, EKeypath([]), lambda c, v: _on_get_modifications(c, v, sub_id))
         else:
             cdb_sub_conn.sync_subscription_socket(CDB_SUB_SYNC_DONE_PRIORITY, _on_sync_subscription_socket, _on_sub_event)
 
     def _on_get_modifications(c: CdbConnection, v: value, sub_id: int):
         if isinstance(v, EList):
-            log.trace("_on_get_modification", {"eobj": v})
+            log.trace("_on_get_modification", {"sub_id": sub_id, "eobj": v})
             _pending_sub_modifications.append((sub_id, v))
             _do_get_modifications()
         elif isinstance(v, Exception):
-            log.error("Get modifications error", {"msg": v.error_message})
-            on_error(Exception("Get modifications error: " + v.error_message))
+            log.error("Get modifications error", {"sub_id": sub_id, "exc": v})
+            on_error(Exception("Get modifications exception: " + str(v)))
         else:
-            log.error("Get modifications error", {"msg": v})
+            log.error("Get modifications error", {"sub_id": sub_id, "msg": v})
             on_error(Exception("Get modifications error: " + str(v)))
 
     def _on_sync_subscription_socket(c: CdbConnection, v: ?Exception):
@@ -529,6 +565,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_subscription_success(sub_ids: dict[SubscriptionIdentity, int]) -> None:
         for sub_identity, sub_id in sub_ids.items():
+            log.debug("Subscription success", {"sub_id": sub_id, "sub_identity": sub_identity})
             sub_params = _pending_setup_sub_params[sub_identity]
             _sub_id_params[sub_id] = sub_params
 
@@ -598,24 +635,41 @@ class STree(object):
             if _sdata is not None:
                 if is_valid:
                     if _sdata.identity.sub_type == SUB_TYPE_OPERATIONAL:
-                        found_deletable_config_ancestor = False
-                        cursor = Cursor(_schema)
-                        path_len = len(path)
-                        i = 0
-                        while i < path_len:
+                        c = _cursor.clone()
+                        i = len(path) - 1
+                        while i >= 0:
                             _id = path[i]
+                            s = c.node()
+                            if not s.is_oper() and (s.is_list() or s.is_p_container()):
+                                fallback_path = path[0:i+1]
+                                if len(s.keys) > 0:
+                                    # Delete-fallback subscription to key-leaf
+                                    if isinstance(_id, Tag):
+                                        fallback_path.append(Key.wildcard())
+                                    leaf_tag = c.lookup_ptag(s.keys[0].tag)
+                                    if leaf_tag is not None:
+                                        fallback_path.append(leaf_tag)
+                                    else:
+                                        raise ValueError("Broken invariant: first key leaf missing in schema for: " + str(Keypath(fallback_path)))
+                                else:
+                                    # TODO: Delete-fallback subscription to a leaf that must exist in conjunction
+                                    # TODO: First look for a mandatory leaf close to other subscriptions
+                                    # TODO: Next try to find a mandatory leaf in the full subtree
+
+                                    # Fallback to subscribing to the full subtree
+                                    pass
+
+                                self._add_subscription(
+                                        SubscriptionSpec(SubscriptionIdentity(
+                                                Keypath(fallback_path),
+                                                CDB_SUB_TYPE_RUNNING),
+                                            _sdata.is_required),
+                                        _sdata.identity)
+
+                                break
                             if isinstance(_id, Tag):
-                                cursor.push(_id)
-                                schema_node = cursor.node()
-                                if schema_node.is_oper():
-                                    break
-                                if schema_node.is_list() or schema_node.is_p_container():
-                                    found_deletable_config_ancestor = True
-                            i += 1
-                        if found_deletable_config_ancestor:
-                            self._add_subscription(
-                                    SubscriptionSpec(SubscriptionIdentity(Keypath(path[0:i]), CDB_SUB_TYPE_RUNNING), _sdata.is_required),
-                                    _sdata.identity)
+                                c.pop()
+                            i -= 1
                 else:
                     if _sdata.is_required:
                         raise ValueError("Invalid subscription path: " + str(Keypath(list(path))))
@@ -635,14 +689,10 @@ class STree(object):
                 identity = _sdata.identity
                 if identity.sub_type == sub_type:
                     do_recurse = False
-                    delete_only_filter_path: ?EKeypath = None
                     ancestor_delete_fallback_origin = _sdata.ancestor_delete_fallback_origin
                     if ancestor_delete_fallback_origin is not None:
-                        # TODO: Does cdb.get-modifications accept a filter path for a 'config' path that ends in 'oper'?
-                        #_delete_only_filter_path: EKeypath = keypath_to_ekeypath(ancestor_delete_fallback_origin, Cursor(_schema), True)
-                        # do_recurse = True
-                        pass
-                    params[identity] = SubscriptionParams(identity, delete_only_filter_path)
+                        do_recurse = True
+                    params[identity] = SubscriptionParams(identity, ancestor_delete_fallback_origin)
                     specs.append(SubscriptionSpec(identity, _sdata.is_required))
                     return do_recurse
             return True
@@ -838,8 +888,13 @@ class SNode(object):
             _sdata.is_required = _sdata.is_required or spec.is_required
             old_ancestor_delete_fallback_origin = _sdata.ancestor_delete_fallback_origin
             if old_ancestor_delete_fallback_origin is not None:
-                pass # TODO: Find out if we even need to merge, or if we get the ancestor deletes that we want reusing the same filter-path?
-            # else: # Simply drop the origin as we already have a full subscription
+                if ancestor_delete_fallback_origin is not None:
+                    _sdata.ancestor_delete_fallback_origin = SubscriptionIdentity(
+                        old_ancestor_delete_fallback_origin.path.get_common_base_path(ancestor_delete_fallback_origin.path),
+                        old_ancestor_delete_fallback_origin.sub_type)
+                else:
+                    # Simply drop the origin as we already have a full subscription
+                    _sdata.ancestor_delete_fallback_origin = None
         else:
             self.sdata = SData(spec.identity, spec.is_required, _get_path_num_keys(spec.identity.path), ancestor_delete_fallback_origin)
 
