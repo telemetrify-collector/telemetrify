@@ -1528,8 +1528,10 @@ class TypeRange:
         self.hi = hi
         self.flags = flags
 
-actor SchemaBuilder():
+actor SchemaBuilder(log_handler: ?logging.Handler):
     var logh = logging.Handler("schema-builder")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
     var log = logging.Logger(logh)
 
     var raw_roots: set[int] = set([])
@@ -1764,6 +1766,8 @@ actor SchemaBuilder():
                     log.warning("Failed to resolve reference to type", {"type_name": type_id.str_pretty(hash_to_name)})
 
     def build() -> Schema:
+        log.trace("Build schema", None)
+
         _resolve_pending_types()
 
         if log.output_level >= logging.TRACE:

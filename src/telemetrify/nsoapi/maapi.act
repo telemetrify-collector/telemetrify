@@ -615,10 +615,10 @@ actor MaapiConnection(env: Env, port: int,
         _send_user_maapi_request(_MAAPI_GET_MOUNT_ID, True, None, e, lambda v: _some_result_cb(v, _transform_result, result_cb))
 
     action def load_schema(result_cb: action(MaapiConnection, ?Exception, ?telemetrify.nsoapi.schema.SharedSchema) -> None):
-        # sb = SchemaBuilder()
+        # sb = SchemaBuilder(logh)
         # ERROR: Error when compiling nsoapi.maapi module: Compilation error
         # Name 'SchemaBuilder$newact' is not in scope
-        sb = telemetrify.nsoapi.schema.SchemaBuilder()
+        sb = telemetrify.nsoapi.schema.SchemaBuilder(logh)
         # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self, v if v is not None else sb.build())) # Type inference conflict
         def _on_load_all_ns(v: ?value):
             _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_HASH_DB, lambda e: sb.on_hash_term(e), _on_load_hash_db)
