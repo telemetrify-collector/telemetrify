@@ -112,6 +112,7 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema, log_handler:
             for site_access_path_key, state in l3vpn_svc_params:
                 if state is not None and isinstance(state, L3vpnSvcParams):
                     params: L3vpnSvcParams = state
+                    site_access_path_params[site_access_path_key] = params
                     hostname_params[params.hostname] = params
                     wan_interface_ipv4_address = params.wan_interface_ipv4_address
                     if wan_interface_ipv4_address is not None:
@@ -310,7 +311,7 @@ class L3vpnSvcParamsRefiner(Refiner):
     @property
     site_access_path_key_by_monitor_endpoint_path_key: BiDict[Keypath, Keypath]
     @property
-    site_access_path_key_by_vpn_service_path_key: BiDict[Keypath, Keypath]
+    site_access_path_key_by_vpn_service_path_key: BiMultiDict[Keypath, Keypath]
 
     def __init__(self):
         self.priority = 0
@@ -323,7 +324,7 @@ class L3vpnSvcParamsRefiner(Refiner):
             ]
         self.params_by_site_access_path_key = {}
         self.site_access_path_key_by_monitor_endpoint_path_key = BiDict()
-        self.site_access_path_key_by_vpn_service_path_key = BiDict()
+        self.site_access_path_key_by_vpn_service_path_key = BiMultiDict()
 
     @staticmethod
     def id() -> int:
@@ -339,24 +340,30 @@ class L3vpnSvcParamsRefiner(Refiner):
         site_access_path_keys: set[Keypath] = set(site_network_access_keys)
 
         for monitor_endpoint_path_key in bidirectional_keys:
-            #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_get_val(monitor_endpoint_path_key) # actonc codegen error
-            site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
-            if site_access_path_key is not None:
-                site_access_path_keys.add(site_access_path_key)
+            site_access_path_key: ?Keypath = None
             _state = bidirectional_refiner.state(monitor_endpoint_path_key)
             if _state is None:
-                #self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_val(monitor_endpoint_path_key)
-                BiDict.try_pop_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
+                #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_val(monitor_endpoint_path_key)
+                site_access_path_key = BiDict.try_pop_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
+            else:
+                #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_get_val(monitor_endpoint_path_key) # actonc codegen error
+                site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
 
-        for vpn_service_path_key in customer_name_keys:
-            #site_access_path_key = self.site_access_path_key_by_vpn_service_path_key.try_get_val(vpn_service_path_key) # actonc codegen error
-            site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
             if site_access_path_key is not None:
                 site_access_path_keys.add(site_access_path_key)
+
+        for vpn_service_path_key in customer_name_keys:
+            _site_access_path_keys: ?set[Keypath] = None
             _state = customer_name_refiner.state(vpn_service_path_key)
             if _state is None:
-                #self.site_access_path_key_by_vpn_service_path_key.try_pop_val(vpn_service_path_key) # actonc codegen error
-                BiDict.try_pop_val(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+                #_site_access_path_keys = self.site_access_path_key_by_vpn_service_path_key.try_pop_vals(vpn_service_path_key) # actonc codegen error
+                _site_access_path_keys = BiMultiDict.try_pop_vals(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+            else:
+                #_site_access_path_keys = self.site_access_path_key_by_vpn_service_path_key.try_get_vals(vpn_service_path_key) # actonc codegen error
+                _site_access_path_keys = BiMultiDict.try_get_vals(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+
+            if _site_access_path_keys is not None:
+                set_update(site_access_path_keys, _site_access_path_keys)
 
         prefix = 'l3vpn-svc'
         dt_prefix = 'dt-l3vpn-svc'
@@ -405,7 +412,7 @@ class L3vpnSvcParamsRefiner(Refiner):
                 # self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_key(site_access_path_key) # actonc codegen error
                 BiDict.try_pop_key(self.site_access_path_key_by_monitor_endpoint_path_key, site_access_path_key)
                 # self.site_access_path_key_by_vpn_service_path_key.try_pop_key(site_access_path_key) # actonc codegen error
-                BiDict.try_pop_key(self.site_access_path_key_by_vpn_service_path_key, site_access_path_key)
+                BiMultiDict.try_pop_key(self.site_access_path_key_by_vpn_service_path_key, site_access_path_key)
 
             if params is not None:
                 self.params_by_site_access_path_key[site_access_path_key] = params
@@ -416,7 +423,7 @@ class L3vpnSvcParamsRefiner(Refiner):
 
                 vpn_service_path_key = Keypath([Key([params.vpn_id])])
                 #self.site_access_path_key_by_vpn_service_path_key.set(vpn_service_path_key, site_access_path_key) # actonc codegen error
-                BiDict.set(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key, site_access_path_key)
+                BiMultiDict.add(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key, site_access_path_key)
 
         return list(iter(site_access_path_keys))
 

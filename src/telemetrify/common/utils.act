@@ -126,6 +126,8 @@ class BiDict[K(Hashable), V(Hashable)](object):
         self.val_to_key = {}
 
     def set(self, k: K, v: V):
+        BiDict.try_pop_val(self, k)
+        BiDict.try_pop_key(self, v)
         self.key_to_val[k] = v
         self.val_to_key[v] = k
 
@@ -145,6 +147,46 @@ class BiDict[K(Hashable), V(Hashable)](object):
         k = try_pop(self.val_to_key, v)
         if k is not None:
             del self.key_to_val[k]
+        return k
+
+    def clear(self):
+        # self.key_to_val.clear()
+        # self.val_to_key.clear()
+        self.key_to_val = {}
+        self.val_to_key = {}
+
+class BiMultiDict[K(Hashable), V(Hashable)](object):
+    @property
+    key_to_val: dict[K, set[V]]
+    @property
+    val_to_key: dict[V, K]
+
+    def __init__(self):
+        self.key_to_val = {}
+        self.val_to_key = {}
+
+    def add(self, k: K, v: V):
+        vk = BiMultiDict.try_pop_key(self, v)
+        dict_set_add(self.key_to_val, k, v)
+        self.val_to_key[v] = k
+
+    def try_get_vals(self, k: K) -> ?set[V]:
+        return try_get(self.key_to_val, k)
+
+    def try_get_key(self, v: V) -> ?K:
+        return try_get(self.val_to_key, v)
+
+    def try_pop_vals(self, k: K) -> ?set[V]:
+        vals = try_pop(self.key_to_val, k)
+        if vals is not None:
+            for v in vals:
+                del self.val_to_key[v]
+        return vals
+
+    def try_pop_key(self, v: V) -> ?K:
+        k = try_pop(self.val_to_key, v)
+        if k is not None:
+            dict_set_discard(self.key_to_val, k, v)
         return k
 
     def clear(self):
