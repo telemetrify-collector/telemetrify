@@ -1754,7 +1754,7 @@ actor main(env):
             entry.close()
 
     def _on_logging_level(updates: list[(Keypath, ?value)]):
-        level: int = logging.WARNING
+        level: ?int = None
         for _keypath, state in updates:
             if state is not None and isinstance(state, TNode):
                 #_val = state.try_str()
@@ -1788,7 +1788,8 @@ actor main(env):
                     else:
                         raise Exception("Unimplemented logging level value: " + str(_val))
 
-        logh.set_output_level(level)
+        if level is not None:
+            logh.set_output_level(level)
 
     def _on_config_cache_error(e):
         log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
