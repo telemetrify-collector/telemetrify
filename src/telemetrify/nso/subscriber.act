@@ -27,7 +27,7 @@ SUB_TYPE_OPERATIONAL = CDB_SUB_TYPE_OPERATIONAL
 
 def sub_type_str(sub_type: int) -> str:
     if sub_type == SUB_TYPE_RUNNING:
-        return "SUB_TYPE_OPERATIONAL"
+        return "SUB_TYPE_RUNNING"
     elif sub_type == SUB_TYPE_OPERATIONAL:
         return "SUB_TYPE_OPERATIONAL"
     else:

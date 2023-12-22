@@ -72,7 +72,7 @@ class Sink(object):
 
 class Source(object):
     @property
-    update_config_fn: action(?TNode, dict[Keypath, SubscriptionUpdate]) -> None
+    update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None
     @property
     close_fn: action() -> None
     @property
@@ -81,7 +81,7 @@ class Source(object):
     def __init__(
             self,
             key: Keypath,
-            update_config_fn: action(?TNode, dict[Keypath, SubscriptionUpdate]) -> None,
+            update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None,
             close_fn: action() -> None
             ):
         self.key = key
@@ -92,11 +92,9 @@ class Source(object):
     def has_subscriptions(self) -> bool:
         return bool(self.subscription_keys)
 
-    def update_config(self, source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
-        for dev_sub_key, sub_update in subscription_updates.items():
-            #if sub_update.config is not None:
-            _config = sub_update.config
-            if _config is not None:
+    def update_config(self, source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
+        for dev_sub_key, sub_update in subscription_updates:
+            if sub_update is not None:
                 self.subscription_keys.add(dev_sub_key)
             else:
                 self.subscription_keys.discard(dev_sub_key)
@@ -435,9 +433,9 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         #     return
         pass
 
-    def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
+    def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
         log.debug("SOURCE netconf CONFIG update", {"source_update": optional_str(source_update, "None")})
-        log.debug("SOURCE netconf SUBSCRIPTION update", {"subscription_updates": mapping_str(subscription_updates)})
+        log.debug("SOURCE netconf SUBSCRIPTION update", {"subscription_updates": subscription_updates})
 
         restart = False
 
@@ -449,7 +447,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
 
             _connect_client()
 
-        for dev_sub_key, sub_update in subscription_updates.items():
+        for dev_sub_key, sub_update in subscription_updates:
             if sub_update is not None:
                 log.trace("SOURCE netconf SUBSCRIPTION update", {"sub_update": sub_update})
                 sub = try_get(subscribers, dev_sub_key)
@@ -813,9 +811,9 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         #     return
         pass
 
-    def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
+    def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
         log.debug("SOURCE vmanage CONFIG update", {"source_update": optional_str(source_update, "None")})
-        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": mapping_str(subscription_updates)})
+        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": subscription_updates})
 
         restart = False
 
@@ -827,7 +825,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
 
             _connect_client()
 
-        for dev_sub_key, sub_update in subscription_updates.items():
+        for dev_sub_key, sub_update in subscription_updates:
             if sub_update is not None:
                 sub = try_get(subscribers, dev_sub_key)
                 if sub is not None:
@@ -980,7 +978,6 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
             # response = http.Response(bytes([]), 200, {}, body)
             # after 0: _on_poll_reply(seqno, poll_ts, request_ts, response)
             # # </TEST>
-
 
     def _on_poll_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, reply: ?http.Response):
         if seqno != poller_seqno:
@@ -1427,53 +1424,51 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         log.trace("SINKS", _sink_updates)
 
         source_config_updates: dict[Keypath, TNode] = {}
-        updated_source_dev_subs: dict[Keypath, dict[Keypath, SubscriptionUpdate]] = {}
+        updated_source_dev_sub_keys: dict[Keypath, set[Keypath]] = {}
+        dev_sub_updates: dict[Keypath, SubscriptionUpdate] = {}
 
-        deleted_dev_sub_keys: set[Keypath] = set([])
-
-        # TODO:
-        # Merge device_config and source_config
-        # but only using source_config for a while...
-
+        # Prepare source configs
         for source_key, state in source_updates:
             source_config_updates[source_key] = state if state is not None and isinstance(state, TNode) else tnode_empty()
-            get_or_create(updated_source_dev_subs, source_key, lambda: {})
 
+        # Update sinks
         if sink_updates:
             for sink_key, state in sink_updates:
                 _update_sink(sink_key, state)
 
+        # Prepare subscriptions
         for dev_sub_key, state in subscription_updates:
             if state is not None and isinstance(state, TNode):
                 source_key = _get_subscription_source_key(state)
                 subscription_sources[dev_sub_key] = source_key
-                sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
+                sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
                 sub_update.config = state
+                dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
             else:
-                deleted_dev_sub_keys.add(dev_sub_key)
+                source_key = try_pop(subscription_sources, dev_sub_key)
+                if source_key is not None:
+                    dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
 
+        # Prepare subscription sinks
         for dev_sub_sink_key, state in subscription_sink_updates:
             dev_sub_key = dev_sub_sink_key.try_slice(0, 2)
             sink_key = dev_sub_sink_key.try_slice(2, 3)
             if dev_sub_key is not None and sink_key is not None:
-                source_key = try_get(subscription_sources, dev_sub_key)
-                if source_key is not None:
-                    sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
+                if dev_sub_key in subscription_sources:
+                    sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
                     sub_sink: ?SubscriptionSink = None
                     if state is not None and isinstance(state, TNode):
                         sub_sink = _create_subscription_sink(sink_key, state)
                     sub_update.sinks.append((sink_key, sub_sink))
 
-        for dev_sub_key in deleted_dev_sub_keys:
-            source_key = try_pop(subscription_sources, dev_sub_key)
-            if source_key is not None:
-                # sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
-                # sub_update.config = None
-                get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
-
-        for source_key, sub_updates in updated_source_dev_subs.items():
+        # Update sources / subscriptions
+        for source_key, dev_sub_keys in updated_source_dev_sub_keys.items():
             source = _get_or_create_source(source_key)
-            source.update_config(try_get(source_config_updates, source_key), sub_updates)
+            source_sub_updates: list[(Keypath, ?SubscriptionUpdate)] = []
+            for dev_sub_key in dev_sub_keys:
+                source_sub_updates.append((dev_sub_key, try_get(dev_sub_updates, dev_sub_key)))
+
+            source.update_config(try_get(source_config_updates, source_key), source_sub_updates)
             if not source.has_subscriptions():
                 source.close()
                 del sources[source_key]
