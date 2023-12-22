@@ -475,10 +475,11 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
     def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
         sub_config = sub_update.config
         if sub_config is not None:
-            if sub_config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
+            _config = sub_config.config
+            if _config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
                 sub_act = NetconfRpcPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
-            elif sub_config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
+            elif _config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
                 sub_act = NetconfGetPollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
@@ -578,8 +579,6 @@ def _source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath
         sub_name = _sub_name_key[0]
         source_params.leaf(None, PTag(None, 'subscription-name'), sub_name)
 
-#actor NetconfRpcPollSubscription(source: NetconfSource, path: str, period_ms: int):
-#actor NetconfRpcPollSubscription(source: NetconfSource, config: TNode, sinks: SubscriptionSinkCollection):
 actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
     var logh = logging.Handler("netconf-rpc-poll-subscription")
     if log_handler is not None:
@@ -589,9 +588,6 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
-
-    #var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
-    var ned_id: ?HTag = HTag(817033024, 1122118695) # ('http://tail-f.com/ns/ned-id/ned-junos-23.1-yang-nc-1.0', 'ned-junos-23.1-yang-nc-1.0')  # TODO: Receive NED-ID config
 
     var poller_seqno: int = 0
     var rpc_xml: ?xml.Node = None
@@ -674,12 +670,13 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
     def update_config(update: SubscriptionUpdate):
         sinks.update(update.sinks)
 
-        _config = update.config
-        if _config is not None:
+        __config = update.config
+        if __config is not None:
+            _config: SubscriptionSourceConfig = __config
             _stop_poller()
             log.debug("SUBSCRIBER netconf-rpc-poll CONFIG", {"config": _config})
 
-            poll = _config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER]
+            poll = _config.config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
             period_ms = poll[PTag('tlm', 'period')].try_int()
 
@@ -688,7 +685,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                 #_tag = schema.QName.netconf_to_value(path, None)
                 _tag = QName.netconf_to_value(path, None)
                 if _tag is not None:
-                    _update_rpc_params(Keypath([_tag]))
+                    _update_rpc_params(Keypath([_tag]), _config.schema_settings)
 
             if period_ms is not None and rpc_xml is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
@@ -698,7 +695,7 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             else:
                 pass # TODO: Indicate config error
 
-    def _update_rpc_params(rpc_path: Keypath):
+    def _update_rpc_params(rpc_path: Keypath, schema_settings: SchemaSettings):
         _rpc_xml: ?xml.Node = None
         _is_action = False
         _schema_path: ?SchemaPath = None
@@ -710,31 +707,25 @@ actor NetconfRpcPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             if rpc_path_len == 1:
                 # NED-RPC
                 if cursor.push(PTag('ncs', 'rpc')):
-                    if ned_id is not None and cursor.node().is_mount_point():
-                        cursor.set_mount_id(ned_id)
+                    # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                    if cursor.node().is_mount_point():
+                        ned_id = schema_settings.live_status_ned_id
+                        if ned_id is not None:
+                            cursor.set_mount_id(ned_id)
                     unmangled_rpc_tag = rpc_path[0]
                     if isinstance(unmangled_rpc_tag, PTag):
                         prefix = unmangled_rpc_tag.prefix
                         name = unmangled_rpc_tag.name
                         if cursor.push(PTag(prefix, 'rpc-' + name)) and cursor.push(unmangled_rpc_tag):
                             is_cursor_ok = True
-                        # if cursor.push(PTag(prefix, 'rpc-' + name)):
-                        #     if cursor.push(unmangled_rpc_tag):
-                        #         log.undecided("PING28", None)
-                        #         is_cursor_ok = True
-                        #     else:
-                        #         print(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)))
-                        #         for c in cursor.node().children:
-                        #             print("  " + optional_str(cursor.lookup_ptag(c), str(cursor.node().tag)))
-                        # else:
-                        #     print(optional_str(cursor.lookup_ptag(cursor.node().tag), str(cursor.node().tag)))
-                        #     for c in cursor.node().children:
-                        #         print("  " + optional_str(cursor.lookup_ptag(c), str(cursor.node().tag)))
             elif rpc_path_len > 1:
                 # NED-ACTION
                 if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
-                    if ned_id is not None and cursor.node().is_mount_point():
-                        cursor.set_mount_id(ned_id)
+                    # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                    if cursor.node().is_mount_point():
+                        ned_id = schema_settings.live_status_ned_id
+                        if ned_id is not None:
+                            cursor.set_mount_id(ned_id)
                     is_cursor_ok = True
                     for _id in rpc_path:
                         if isinstance(_id, Tag) and not cursor.push(_id):
@@ -847,7 +838,8 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
     def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
         sub_config = sub_update.config
         if sub_config is not None:
-            if sub_config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
+            _config = sub_config.config
+            if _config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
                 sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema, logh)
                 return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
 
@@ -1024,7 +1016,7 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
         if _config is not None:
             _stop_poller()
 
-            poll = _config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER]
+            poll = _config.config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
             period_ms = poll[PTag('tlm', 'period')].try_int()
 
@@ -1034,17 +1026,22 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                 #_tag = schema.QName.netconf_to_value(path, None)
                 _tag = QName.netconf_to_value(path, None)
                 if _tag is not None:
-                    _update_schema_cursor(Keypath([_tag]))
+                    _update_schema_cursor(Keypath([_tag]), _config.schema_settings)
 
             if period_ms is not None and poll_path is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
                 if is_running:
                     _try_start_poller()
 
-    def _update_schema_cursor(kpath: Keypath):
+    def _update_schema_cursor(kpath: Keypath, schema_settings: SchemaSettings):
         cursor = schema.Cursor(_schema)
         if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
             if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
+                # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                if cursor.node().is_mount_point():
+                    ned_id = schema_settings.live_status_ned_id
+                    if ned_id is not None:
+                        cursor.set_mount_id(ned_id)
                 schema_path = cursor.get_schema_path()
 
     def _try_start_poller():
@@ -1080,9 +1077,6 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
     _schema = schema.unsafe_get_shared_schema(shared_schema)
     sinks = SubscriptionSinkCollection()
-
-    #var ned_id: ?HTag = HTag(710232548, 525139965) # ('http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11', 'http://tail-f.com/ns/ned-id/juniper-junos-nc-4.11')  # TODO: Receive NED-ID config
-    var ned_id: ?HTag = HTag(1503593780, 92759342) # ('http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11', 'ned-ios-xe-yang-nc-17.11')  # TODO: Receive NED-ID config
 
     var poller_seqno: int = 0
     var get_xml: ?xml.Node = None
@@ -1248,12 +1242,13 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
     def update_config(update: SubscriptionUpdate):
         sinks.update(update.sinks)
 
-        _config = update.config
-        if _config is not None:
+        __config = update.config
+        if __config is not None:
+            _config: SubscriptionSourceConfig = __config
             _stop_poller()
             log.debug("SUBSCRIBER netconf-get-poll CONFIG", {"_config": _config})
 
-            poll = _config[SUBSCRIPTION_TYPE_KEY_GET_POLLER]
+            poll = _config.config[SUBSCRIPTION_TYPE_KEY_GET_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
             period_ms = poll[PTag('tlm', 'period')].try_int()
 
@@ -1262,7 +1257,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
                 #_tag = schema.QName.netconf_to_value(path, None)
                 _tag = QName.netconf_to_value(path, None)
                 if _tag is not None:
-                    _update_get_params(Keypath([_tag]))
+                    _update_get_params(Keypath([_tag]), _config.schema_settings)
 
             if period_ms is not None and get_xml is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
@@ -1272,7 +1267,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
             else:
                 pass # TODO: Indicate config error
 
-    def _update_get_params(get_path: Keypath):
+    def _update_get_params(get_path: Keypath, schema_settings: SchemaSettings):
         _get_xml: ?xml.Node = None
         _is_action = False
         _schema_path: ?SchemaPath = None
@@ -1284,8 +1279,11 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
             # NED-GET
             if cursor.push(PTag('ncs', 'live-status')):
-                if ned_id is not None and cursor.node().is_mount_point():
-                    cursor.set_mount_id(ned_id)
+                # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                if cursor.node().is_mount_point():
+                    ned_id = schema_settings.live_status_ned_id
+                    if ned_id is not None:
+                        cursor.set_mount_id(ned_id)
                 is_cursor_ok = True
                 for _id in get_path:
                     if isinstance(_id, Tag) and not cursor.push(_id):
@@ -1364,7 +1362,7 @@ actor NetconfGetPollSubscription(source: NetconfSource, dev_sub_key: Keypath, sh
 
 class SubscriptionUpdate(object):
     @property
-    config: ?TNode
+    config: ?SubscriptionSourceConfig
     @property
     sinks: list[(Keypath, ?SubscriptionSink)]
 
@@ -1438,11 +1436,12 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
 
         # Prepare subscriptions
         for dev_sub_key, state in subscription_updates:
-            if state is not None and isinstance(state, TNode):
-                source_key = _get_subscription_source_key(state)
+            if state is not None and isinstance(state, SubscriptionSourceConfig):
+                config: SubscriptionSourceConfig = state
+                source_key = _get_subscription_source_key(config.config)
                 subscription_sources[dev_sub_key] = source_key
                 sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
-                sub_update.config = state
+                sub_update.config = config
                 dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
             else:
                 source_key = try_pop(subscription_sources, dev_sub_key)
@@ -1473,15 +1472,15 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
                 source.close()
                 del sources[source_key]
 
-    def _get_subscription_source_key(state: TNode) -> Keypath:
-        if state[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
+    def _get_subscription_source_key(config: TNode) -> Keypath:
+        if config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
             return SOURCE_KEY_NETCONF
-        if state[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
+        if config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
             return SOURCE_KEY_NETCONF
-        if state[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
+        if config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
             return SOURCE_KEY_VMANAGE_HTTP
 
-        raise Exception("Unknown subscription type: " + str(state))
+        raise Exception("Unknown subscription type: " + str(config))
 
     def _get_or_create_source(source_key: Keypath) -> Source:
         _source = try_get(sources, source_key)
@@ -1637,10 +1636,12 @@ actor main(env):
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
                 DeviceSettingsRefiner,
+                DeviceNedIdBaseRefiner,
+                DeviceStreamerRefiner,
                 DeviceSourceNetconfRefiner,
                 DeviceSourceVmanageRefiner,
                 DeviceSourceRefiner,
-                DeviceStreamerRefiner,
+                DeviceSubscriptionSourceBaseRefiner,
                 DeviceSubscriptionSourceRefiner,
                 DeviceSubscriptionSinkBaseRefiner,
                 DeviceSubscriptionSinkRefiner,
@@ -1650,10 +1651,12 @@ actor main(env):
             ],
             [([
                 #DeviceSettingsRefiner.id(), # For DEBUG printouts only
+                #DeviceNedIdBaseRefiner.id(), # For DEBUG printouts only
                 DeviceStreamerRefiner.id(),
                 #DeviceSourceNetconfRefiner.id(), # For DEBUG printouts only
                 #DeviceSourceVmanageRefiner.id(), # For DEBUG printouts only
                 DeviceSourceRefiner.id(),
+                #DeviceSubscriptionSourceBaseRefiner.id(), # For DEBUG printouts only
                 DeviceSubscriptionSourceRefiner.id(),
                 #DeviceSubscriptionSinkBaseRefiner.id(), # For DEBUG printouts purposes
                 DeviceSubscriptionSinkRefiner.id(),
