@@ -83,7 +83,7 @@ class Refiner(object):
     def id() -> int:
         raise Exception("Not Implemented")
 
-    mut def update(self, tree: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+    mut def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         raise Exception("Not Implemented")
 
     def state(self, keys: Keypath) -> ?value:
@@ -196,6 +196,21 @@ class PassthroughRefiner(Refiner):
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.subtrees, keys)
 
+def make_base_path(subscription_specs: list[SubscriptionSpec], base_path: ?Keypath):
+    if len(subscription_specs) >= 1:
+        common_path = subscription_specs[0].identity.path
+        for other_spec in subscription_specs[1:]:
+            common_path = common_path.get_common_base_path(other_spec.identity.path)
+
+        if base_path is not None:
+            if not base_path.is_sub_path(common_path):
+                raise ValueError("Subscriptions: " + list_str(subscription_specs) + " are not decendents of base_path: " + str(base_path))
+            return base_path
+        else:
+            return common_path
+    else:
+        return base_path if base_path is not None else Keypath([])
+
 class MirrorRefiner(Refiner):
     @property
     subtrees: dict[Keypath, TNode]
@@ -207,21 +222,7 @@ class MirrorRefiner(Refiner):
     def __init__(self, subscription_specs: list[SubscriptionSpec], base_path: ?Keypath):
         Refiner.__init__(self, subscription_specs, [])
         self.subtrees = {}
-
-        if len(subscription_specs) >= 1:
-            common_path = subscription_specs[0].identity.path
-            for other_spec in subscription_specs[1:]:
-                common_path = common_path.get_common_base_path(other_spec.identity.path)
-
-            if base_path is not None:
-                self.base_path = base_path
-                if not base_path.is_sub_path(common_path):
-                    raise ValueError("Subscriptions: " + list_str(subscription_specs) + " are not decendents of base_path: " + str(base_path))
-            else:
-                self.base_path = common_path
-        else:
-            self.base_path = base_path if base_path is not None else Keypath([])
-
+        self.base_path = make_base_path(subscription_specs, base_path)
         self.num_keys = _get_path_num_keys(self.base_path)
 
     mut def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
@@ -324,7 +325,7 @@ class SubscriptionParams(object):
 actor CdbCache(cdb_sub_conn: CdbConnection,
             cdb_cmd_conn: CdbConnection,
             shared_schema: SharedSchema,
-            refiner_ctors: list[mut() -> Refiner],
+            refiner_ctors: list[() -> Refiner],
             callbacks: list[(list[int], action(dict[int, list[(Keypath, ?value)]]) -> None)],
             on_error: action(Exception) -> None,
             log_handler: ?logging.Handler):
