@@ -212,7 +212,7 @@ class IpPerformanceBidirectionalRefiner(PassthroughRefiner):
     @property
     _workaround_actonc_issue_1598: bool
 
-    mut def __init__(self):
+    def __init__(self):
         self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
         PassthroughRefiner.__init__(self, SubscriptionSpec(SubscriptionIdentity(Keypath([
                 PTag('dt-l3vpn-svc', 'ip-performance'),
