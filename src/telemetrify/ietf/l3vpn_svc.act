@@ -11,6 +11,7 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
 import time
 
 import telemetrify.nso.subscriber
@@ -22,7 +23,12 @@ from telemetrify.common.utils import *
 from telemetrify.nso.subscriber import *
 from telemetrify.nsoapi.cdb import *
 
-actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
+actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("l3vpn-svc-tracker")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
     var site_access_path_params: dict[Keypath, L3vpnSvcParams] = {}
     var wan_interface_ipv4_address_params: dict[IPv4Address, L3vpnSvcParams] = {}
@@ -32,14 +38,14 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
     def lookup_by_wan_interface_ipv4_addresses(ipv4_addresses: set[IPv4Address], result_cb: action(dict[IPv4Address, L3vpnSvcParams]) -> None):
         result: dict[IPv4Address, L3vpnSvcParams] = {}
 
-        print("ietf.l3vpn_svc.lookup_by_wan_interface_ipv4_addresses: lookup ", set_str(ipv4_addresses))
+        log.debug("lookup", {"ipv4_addresses": set_str(ipv4_addresses)})
 
         for ipv4_address in ipv4_addresses:
             params = try_get(wan_interface_ipv4_address_params, ipv4_address)
             if params is not None:
                 result[ipv4_address] = params
 
-        print("ietf.l3vpn_svc.lookup_by_wan_interface_ipv4_addresses: found ", mapping_str(result))
+        log.debug("found ", {"result": mapping_str(result)})
 
         result_cb(result)
 
@@ -47,7 +53,7 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
         hostname_result: dict[str, L3vpnSvcParams] = {}
         ipv4_address_result: dict[IPv4Address, L3vpnSvcParams] = {}
 
-        print("ietf.l3vpn_svc.lookup_by_hostnames_and_lan_interface_addresses: lookup ", set_str(hostnames), set_str(ipv4_addresses))
+        log.debug("lookup ", {"hostnames": set_str(hostnames), "ipv4_addresses": set_str(ipv4_addresses)})
 
         for hostname in hostnames:
             params = try_get(hostname_params, hostname)
@@ -59,7 +65,7 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
             if params is not None:
                 ipv4_address_result[ipv4_address] = params
 
-        print("ietf.l3vpn_svc.lookup_by_hostnames_and_lan_interface_addresses: found ", mapping_str(hostname_result), mapping_str(ipv4_address_result))
+        log.debug("found ", {"hostnames": mapping_str(hostname_result), "ipv4_addresses": mapping_str(ipv4_address_result)})
 
         result_cb(hostname_result, ipv4_address_result)
 
@@ -67,17 +73,17 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
         pass # TODO
 
     def _on_cdb_connect_error(e):
-        print("ietf.l3vpn_svc - CDB connect failed:", e)
+        log.error("CDB connect failed", {"error": e})
         # TODO
         # await async env.exit(1)
 
     def _on_cdb_sub_connect(sc, s):
-        print("ietf.l3vpn_svc - CDB (sub) connected!!!!")
+        log.debug("CDB (sub) connected", None)
         cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None)
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, logh, None)
 
     def _on_cdb_cmd_connect(sc, cc, s):
-        print("ietf.l3vpn_svc - CDB (cmd) connected!!!!")
+        log.debug("CDB (cmd) connected", None)
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
                 SiteNetworkAccessRefiner,
@@ -92,19 +98,21 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
                 L3vpnSvcParamsRefiner.id()
             ],
             lambda r: _on_config_update(r, s))], _on_config_cache_error,
-            None)
+            logh)
 
     def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
         for refiner_id, updates in refiner_updates.items():
-            print("ietf.l3vpn_svc - refiner_id: " + str(refiner_id))
-            for k, v in updates:
-                print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
+            if log.output_level >= logging.TRACE:
+                log.trace("refiner_id: " + str(refiner_id), None)
+                for k, v in updates:
+                    log.trace("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"), None)
 
             l3vpn_svc_params: list[(Keypath, ?value)] = refiner_updates[L3vpnSvcParamsRefiner.id()]
 
             for site_access_path_key, state in l3vpn_svc_params:
                 if state is not None and isinstance(state, L3vpnSvcParams):
                     params: L3vpnSvcParams = state
+                    site_access_path_params[site_access_path_key] = params
                     hostname_params[params.hostname] = params
                     wan_interface_ipv4_address = params.wan_interface_ipv4_address
                     if wan_interface_ipv4_address is not None:
@@ -124,11 +132,11 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema):
                             try_pop(lan_interface_ipv4_address_params, lan_interface_ipv4_address)
 
     def _on_config_cache_error(e):
-        print("ietf.l3vpn_svc - CdbCache failed:", optional_str(e.error_message, ""))
+        log.error("CdbCache failed", {"error_message": optional_str(e.error_message, "")})
         # TODO
 
     cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-        action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
+        action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
 
 class SiteNetworkAccessRefiner(MirrorRefiner):
     @property
@@ -294,13 +302,16 @@ class L3vpnSvcParams(object):
             + ", " + optional_str(self.customer_name, "None") \
             + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 class L3vpnSvcParamsRefiner(Refiner):
     @property
     params_by_site_access_path_key: dict[Keypath, L3vpnSvcParams]
     @property
     site_access_path_key_by_monitor_endpoint_path_key: BiDict[Keypath, Keypath]
     @property
-    site_access_path_key_by_vpn_service_path_key: BiDict[Keypath, Keypath]
+    site_access_path_key_by_vpn_service_path_key: BiMultiDict[Keypath, Keypath]
 
     def __init__(self):
         self.priority = 0
@@ -313,14 +324,14 @@ class L3vpnSvcParamsRefiner(Refiner):
             ]
         self.params_by_site_access_path_key = {}
         self.site_access_path_key_by_monitor_endpoint_path_key = BiDict()
-        self.site_access_path_key_by_vpn_service_path_key = BiDict()
+        self.site_access_path_key_by_vpn_service_path_key = BiMultiDict()
 
     @staticmethod
     def id() -> int:
         return 4010
 
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        #print("ietf.l3vpn_svc - root:\n" + str(root))
+        #log.trace("update", {"root", root})
 
         _site_network_access_refiner, site_network_access_keys = input_refiners[SiteNetworkAccessRefiner.id()]
         bidirectional_refiner, bidirectional_keys = input_refiners[IpPerformanceBidirectionalRefiner.id()]
@@ -329,24 +340,30 @@ class L3vpnSvcParamsRefiner(Refiner):
         site_access_path_keys: set[Keypath] = set(site_network_access_keys)
 
         for monitor_endpoint_path_key in bidirectional_keys:
-            #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_get_val(monitor_endpoint_path_key) # actonc codegen error
-            site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
-            if site_access_path_key is not None:
-                site_access_path_keys.add(site_access_path_key)
+            site_access_path_key: ?Keypath = None
             _state = bidirectional_refiner.state(monitor_endpoint_path_key)
             if _state is None:
-                #self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_val(monitor_endpoint_path_key)
-                BiDict.try_pop_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
+                #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_val(monitor_endpoint_path_key)
+                site_access_path_key = BiDict.try_pop_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
+            else:
+                #site_access_path_key = self.site_access_path_key_by_monitor_endpoint_path_key.try_get_val(monitor_endpoint_path_key) # actonc codegen error
+                site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_monitor_endpoint_path_key, monitor_endpoint_path_key)
 
-        for vpn_service_path_key in customer_name_keys:
-            #site_access_path_key = self.site_access_path_key_by_vpn_service_path_key.try_get_val(vpn_service_path_key) # actonc codegen error
-            site_access_path_key = BiDict.try_get_val(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
             if site_access_path_key is not None:
                 site_access_path_keys.add(site_access_path_key)
+
+        for vpn_service_path_key in customer_name_keys:
+            _site_access_path_keys: ?set[Keypath] = None
             _state = customer_name_refiner.state(vpn_service_path_key)
             if _state is None:
-                #self.site_access_path_key_by_vpn_service_path_key.try_pop_val(vpn_service_path_key) # actonc codegen error
-                BiDict.try_pop_val(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+                #_site_access_path_keys = self.site_access_path_key_by_vpn_service_path_key.try_pop_vals(vpn_service_path_key) # actonc codegen error
+                _site_access_path_keys = BiMultiDict.try_pop_vals(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+            else:
+                #_site_access_path_keys = self.site_access_path_key_by_vpn_service_path_key.try_get_vals(vpn_service_path_key) # actonc codegen error
+                _site_access_path_keys = BiMultiDict.try_get_vals(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key)
+
+            if _site_access_path_keys is not None:
+                set_update(site_access_path_keys, _site_access_path_keys)
 
         prefix = 'l3vpn-svc'
         dt_prefix = 'dt-l3vpn-svc'
@@ -395,7 +412,7 @@ class L3vpnSvcParamsRefiner(Refiner):
                 # self.site_access_path_key_by_monitor_endpoint_path_key.try_pop_key(site_access_path_key) # actonc codegen error
                 BiDict.try_pop_key(self.site_access_path_key_by_monitor_endpoint_path_key, site_access_path_key)
                 # self.site_access_path_key_by_vpn_service_path_key.try_pop_key(site_access_path_key) # actonc codegen error
-                BiDict.try_pop_key(self.site_access_path_key_by_vpn_service_path_key, site_access_path_key)
+                BiMultiDict.try_pop_key(self.site_access_path_key_by_vpn_service_path_key, site_access_path_key)
 
             if params is not None:
                 self.params_by_site_access_path_key[site_access_path_key] = params
@@ -406,7 +423,7 @@ class L3vpnSvcParamsRefiner(Refiner):
 
                 vpn_service_path_key = Keypath([Key([params.vpn_id])])
                 #self.site_access_path_key_by_vpn_service_path_key.set(vpn_service_path_key, site_access_path_key) # actonc codegen error
-                BiDict.set(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key, site_access_path_key)
+                BiMultiDict.add(self.site_access_path_key_by_vpn_service_path_key, vpn_service_path_key, site_access_path_key)
 
         return list(iter(site_access_path_keys))
 

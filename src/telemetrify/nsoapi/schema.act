@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 import telemetrify.nsoapi.conf as conf
 from telemetrify.common.mod import Tag, ITag, HTag, PTag, MTag, Keypath, Key
 from telemetrify.common.utils import *
@@ -72,6 +74,9 @@ class TypeId:
 
     def __str__(self) -> str:
         return str(self.ns_hash) + ":" + self.name
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     def str_pretty(self, hash_to_name: dict[int, str]) -> str:
         cns = try_get(hash_to_name, self.ns_hash)
@@ -508,6 +513,9 @@ class NamespaceDescription:
             + self.cns + "," + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
             + optional_str(self.revision, "") + "," + self.module + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_tuple(elems: list[EObject]) -> ?NamespaceDescription:
         if len(elems) >= 6:
@@ -804,6 +812,9 @@ class Type(object):
     def __str__(self) -> str:
         return "Type(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     def __str_common(self) -> str:
         parent_type_id = "None"
         _parent_type = self.parent_type
@@ -1003,13 +1014,8 @@ class Type(object):
             retval = Any.value_to_eobject(v, cursor, use_ikp)
         return retval
 
-    def eobject_to_value(self, obj: ?EObject, cursor: Cursor) -> ?value:
-        conf_type: int, _value: ?value = Any.eobject_to_conf_type_and_value(obj, cursor)
-
-        self_conf_type = self.conf_type
-        if self_conf_type is not None and conf_type == self_conf_type or conf_type == cursor.node().conf_type:
-            return _value
-        return None
+    def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
+        return Any.eobject_to_conf_type_and_base_value(obj)
 
     # def netconf_to_eobject(self, node: Node, s: str) -> ?EObject:
     #     return netvalue_to_eobject(netconf_to_value(node, s))
@@ -1037,6 +1043,9 @@ class EnumType(Type):
     def __str__(self) -> str:
         return "EnumType(" + self.__str_common() + ", " + str(self.name_to_ordinal) + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         if isinstance(opaque, EList):
@@ -1062,7 +1071,7 @@ class EnumType(Type):
                 return ETuple([EInt(C_ENUM_VALUE), EInt(v)])
         return None
 
-    def eobject_to_value(self, obj: ?EObject, cursor: Cursor) -> ?value:
+    def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
         # if obj is not None and isinstance(obj, ETuple): # actonc: #### findAttr' fails for telemetrify.nsoapi.proto.EObject . elems
         #     _elems = obj.elems
         if obj is not None:
@@ -1075,8 +1084,8 @@ class EnumType(Type):
                     if isinstance(_conf_type, EInt) and _conf_type.val == C_ENUM_VALUE and isinstance(_ordinal, EInt):
                         ordinal = _ordinal.val
                         name = try_get(self.ordinal_to_name, ordinal)
-                        return name if name is not None else ordinal
-        return None
+                        return (C_ENUM_VALUE, name if name is not None else ordinal)
+        return (C_UNKNOWN, None)
 
     def validate_value(self, cursor: Cursor, v: ?value) -> bool:
         if v is not None:
@@ -1098,6 +1107,9 @@ class UnionType(Type):
 
     def __str__(self) -> str:
         return "UnionType(" + self.__str_common() + ", " + list_str(self.types) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
@@ -1131,12 +1143,12 @@ class UnionType(Type):
                 return res
         return None
 
-    def eobject_to_value(self, obj: ?EObject, cursor: Cursor) -> ?value:
+    def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
         for t in self.types:
-            res = t.eobject_to_value(obj, cursor)
-            if res is not None:
-                return res
-        return None
+            _conf_type, _value = t.eobject_to_conf_type_and_value(obj, cursor)
+            if _value is not None:
+                return (_conf_type, _value)
+        return (C_UNKNOWN, None)
 
 class RestrictedNumberType(Type):
     @property
@@ -1151,6 +1163,9 @@ class RestrictedNumberType(Type):
 
     def __str__(self) -> str:
         return "RestrictedNumberType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1176,6 +1191,9 @@ class BitsType(Type):
 
     def __str__(self) -> str:
         return "BitsType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1292,6 +1310,9 @@ class Decimal64Type(Type):
     def __str__(self) -> str:
         return "Decimal64Type(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         if isinstance(opaque, ETuple) and len(opaque.elems) == 2:
@@ -1323,6 +1344,9 @@ class ListType(Type):
 
     def __str__(self) -> str:
         return "ListType(" + self.__str_common() + ", " + str(self.elem_type) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
@@ -1393,6 +1417,9 @@ class ListRestrictionType(Type):
     def __str__(self) -> str:
         return "ListRestrictionType(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1410,6 +1437,9 @@ class DisplayHintType(Type):
 
     def __str__(self) -> str:
         return "DisplayHintType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1433,6 +1463,9 @@ class StringType(Type):
     def __str__(self) -> str:
         return "StringType(" + self.__str_common() + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         # TODO
@@ -1455,6 +1488,9 @@ class IdentityType(Type):
 
     def __str__(self) -> str:
         return "IdentityType(" + self.__str_common() + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
@@ -1492,7 +1528,12 @@ class TypeRange:
         self.hi = hi
         self.flags = flags
 
-actor SchemaBuilder():
+actor SchemaBuilder(log_handler: ?logging.Handler):
+    var logh = logging.Handler("schema-builder")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
     var raw_roots: set[int] = set([])
     var raw_nodes: dict[int, RawNode] = {}
     var raw_keys: dict[int, RawKeys] = {}
@@ -1520,7 +1561,7 @@ actor SchemaBuilder():
     def _for_schema_lists(term: EObject, on_elem: proc(EObject) -> None) -> value:
         if isinstance(term, EList):
             for e in term.elems:
-                #print(e)
+                #log.trace(e)
                 if isinstance(e, EAtom) and str(e) == 'eof':
                     return False
                 on_elem(e)
@@ -1543,13 +1584,13 @@ actor SchemaBuilder():
                             curr_ns = ns_descr
                             return
                     elif etype == 'type':
-                        #print(elem)
+                        #log.trace(elem)
                         type_descr = Type.from_ns_tuple(t, curr_ns, pending_type_resolves)
                         if type_descr is not None:
                             if type_descr.type_id not in types:
                                 types[type_descr.type_id] = type_descr
                             else:
-                                print("WARNING: Discarding duplicate type_id:", type_descr.type_id)
+                                log.warning("WARNING: Discarding duplicate type_id", {"type_id": type_descr.type_id})
                             return
                     elif etype == 'keys':
                         keys = RawKeys.from_ns_tuple(t)
@@ -1574,10 +1615,10 @@ actor SchemaBuilder():
                     elif etype == 'parent':
                         _assemble_node_trees()
                         return
-        print("WARNING: Unexpected schema ns elem:", elem)
+        log.warning("Unexpected schema ns elem", {"elem": elem})
 
     def _on_hash_elem(elem: EObject) -> None:
-        #print(elem)
+        #log.trace(elem)
         if isinstance(elem, ETuple):
             t = elem.elems
             if len(t) == 2:
@@ -1588,7 +1629,7 @@ actor SchemaBuilder():
                         hash_to_name[hash_nr.val] = name.val
                         name_to_hash[name.val] = hash_nr.val
                         return
-        #print("WARNING: Unexpected schema hash_db elem:", elem)
+        log.warning("Unexpected schema hash_db elem", {"elem": elem})
 
     def _on_mns_elem(elem: EObject) -> None:
         if isinstance(elem, ETuple):
@@ -1608,7 +1649,7 @@ actor SchemaBuilder():
                                     # ns = hash_to_name.get(_ns_hash.val, "")
                                     # name = hash_to_name.get(_name_hash.val, "")
                                     # if ns and name:
-                                    #     print("-- mount_id", ns + ":" + name)
+                                    #     log.trace("-- mount_id", ns + ":" + name)
                                     curr_mount_id = HTag(_ns_hash.val, _name_hash.val)
                                     return
                         elif isinstance(_mount_id, EList) and len(_mount_id.elems) == 0:
@@ -1639,9 +1680,10 @@ actor SchemaBuilder():
                                 else:
                                     mount_id_namespaces[curr_mount_id] = list([ns_descr])
                             else:
-                                print("WARNING: mount_id", curr_mount_id, "references unknown namespace:", ns_hash)
+                                #log.warning("mount_id", curr_mount_id, "references unknown namespace:", ns_hash)
+                                log.warning("mount_id references unknown namespace", {"mount_id": curr_mount_id, "ns_hash": ns_hash})
                             return
-        #print("WARNING: Unexpected schema hash_db elem:", elem)
+        log.warning("Unexpected schema hash_db elem", {"elem": elem})
 
     def _assemble_node_trees() -> None:
         for root_node_id in raw_roots:
@@ -1670,9 +1712,9 @@ actor SchemaBuilder():
                             if key_node is not None:
                                 keys.append(key_node)
                             else:
-                                print("WARNING: Invalid key hash:", key_hash, "for schema node_id:", node_id)
+                                log.warning("Invalid key hash for schema node:", {"key_hash": key_hash, "node_id": node_id})
                     else:
-                        print("WARNING: Invalid key node id for schema node_id:", node_id)
+                        log.warning("Invalid key node id for schema node", {"node_id": node_id})
                 tag = _make_tag(raw_node.ns_hash, raw_node.tag_hash)
                 type_id: ?TypeId = None
                 type_descr: ?Type = None
@@ -1698,7 +1740,7 @@ actor SchemaBuilder():
 
                 node_id = raw_node.next_node_id
             else:
-                print("WARNING: Invalid schema node_id ref:", node_id)
+                log.warning("Invalid schema node_id ref", {"node_id": node_id})
 
         return result
 
@@ -1720,13 +1762,17 @@ actor SchemaBuilder():
             if _type is not None:
                 resolve_cb(_type)
             else:
-                print("WARNING: Failed to resolve reference to type " + type_id.str_pretty(hash_to_name))
+                if log.output_level >= logging.WARNING:
+                    log.warning("Failed to resolve reference to type", {"type_name": type_id.str_pretty(hash_to_name)})
 
     def build() -> Schema:
+        log.trace("Build schema", None)
+
         _resolve_pending_types()
 
-        #_pretty_print_nodes(roots, "")
-        #_pretty_print_types(types, "")
+        if log.output_level >= logging.TRACE:
+            _pretty_print_nodes(roots, "")
+            _pretty_print_types(types, "")
 
         _roots: dict[HTag, Node] = {}
         _cns_to_namespace: dict[str, NamespaceDescription] = {}
@@ -1805,7 +1851,7 @@ actor SchemaBuilder():
             elif node.is_leaf():
                 type_str = " : CONF_" + str(node.conf_type)
             qname = hash_to_name[node.tag.ns_hash] + " " + hash_to_name[node.tag.name_hash]
-            print(indent + qname + keys + flags + type_str)
+            log.trace(indent + qname + keys + flags + type_str, None)
             _pretty_print_nodes(node.children, indent + "  ")
 
     def _pretty_print_types(types: dict[TypeId, Type], indent: str):
@@ -1813,7 +1859,7 @@ actor SchemaBuilder():
             _pretty_print_type(t, indent)
 
     def _pretty_print_type(t: Type, indent: str):
-        print(indent + str(t))
+        log.trace(indent + str(t), None)
         parent_type = t.parent_type
         if parent_type is not None:
             _pretty_print_type(parent_type, indent + "  ")
@@ -2572,15 +2618,14 @@ class Any:
         return None
 
     @staticmethod
-    def eobject_to_value(v: ?EObject, cursor: Cursor) -> ?value:
-        _conf_type, _value = Any.eobject_to_conf_type_and_value(v, cursor)
-        # TODO: How do we want to use this?
-        # if _conf_type == C_LIST:
-        #     ...
-        return _value
+    def eobject_to_conf_type_and_value(obj: ?EObject, cursor: Cursor) -> (int, ?value):
+        _value_type = cursor.node().value_type
+        if _value_type is not None:
+            return _value_type.eobject_to_conf_type_and_value(obj, cursor)
+        return Any.eobject_to_conf_type_and_base_value(obj)
 
     @staticmethod
-    def eobject_to_conf_type_and_value(v: ?EObject, cursor: Cursor) -> (int, ?value):
+    def eobject_to_conf_type_and_base_value(v: ?EObject) -> (int, ?value):
         """Schema-less mapping of Conf objects Telemetrify values"""
         if isinstance(v, ETuple):
             _elems = v.elems
@@ -2854,10 +2899,14 @@ class Any:
             # _l: list[(int, ?value)] = []
             # for _e in v.elems:
             #     unsafe_list_append(_l, Any.eobject_to_conf_type_and_value(_e, cursor))
-            _l: list[?value] = []
+            _l: list[value] = []
             for _e in v.elems:
-                unsafe_list_append(_l, Any.eobject_to_value(_e, cursor))
-            return (C_LIST, v.elems)
+                _inner_conf_type, _elem_base_val = Any.eobject_to_conf_type_and_base_value(_e)
+                if _elem_base_val is not None:
+                    unsafe_list_append(_l, _elem_base_val)
+                else:
+                    return (C_UNKNOWN, None)
+            return (C_LIST, _l)
 
         return (C_UNKNOWN, None)
 

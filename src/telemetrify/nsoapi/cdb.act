@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 import file
 import net
 from telemetrify.common.io import IncompleteReadError
@@ -98,6 +100,9 @@ class CdbException(ProtoError):
             + ", errmsg=" + error_msg \
             + ", path=" + conf_path + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 def addr_to_eobject(addr: str) -> EObject:
     if addr != "127.0.0.1":
         raise Exception("NOT IMPLEMENTED!") # NotImplementedError()
@@ -107,7 +112,17 @@ def addr_to_eobject(addr: str) -> EObject:
 # # TODO: Would be nice to inject a connection instance
 # #       e.g. for testing or session recording/replay.
 # #       Interfaces/protocols for actors?
-actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
+actor CdbConnection(env: Env, port: int, name: str,
+        on_connect: action(CdbConnection) -> None,
+        on_connect_error: action(Exception) -> None,
+        log_handler: ?logging.Handler,
+        record_to: ?file.WriteFile):
+
+    var logh = logging.Handler("cdb-connection")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
     listen_cap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
     input_stream: BufferReader = BufferReader()
     var recv_bytes_total: int = 0
@@ -119,7 +134,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
     var conn: ?net.TCPConnection = None
 
     def _write(data: bytes):
-        #print("CdbConnection TCP send:", data)
+        #log.trace("TCP send:", {"data": data})
         if conn is not None:
             conn.write(data)
             # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
@@ -172,9 +187,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
             _write(len_data)
             _write(payload_data)
 
-            #print("CdbConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
-            # TODO: restore this, hex currently not used due to bug in actonc
-            print("CdbConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", conf_vsn)
+            log.debug("CDB connected", {"proto_vsn": proto_vsn, "conf_vsn": conf_vsn})
             on_connect(self)
         else:
             on_connect_error(ProtoError())
@@ -208,16 +221,16 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
         # Name _loop is not in scope
         while True:
             if internal_recv_queue:
-                #print("_poll_recv: internal_recv_queue")
+                #log.trace("_poll_recv: internal_recv_queue")
                 if not _poll_recv_queue(internal_recv_queue):
                     break
             elif user_recv_queue:
-                #print("_poll_recv: user_recv_queue")
+                #log.trace("_poll_recv: user_recv_queue")
                 if not _poll_recv_queue(user_recv_queue):
                     break
             else:
                 break
-        #print("_poll_recv: Done")
+        #log.trace("_poll_recv: Done")
 
     def _post_poll_recv():
         # We really only want to do an async fire-and-forget call to ourselves ASAP
@@ -235,17 +248,17 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
             return True
 
     def _on_tcp_connect(c):
-        print("CdbConnection TCP connected")
+        log.debug("TCP connected", None)
         _connect_cdb()
 
     def _on_tcp_receive(c, data):
-        # print("CdbConnection TCP recv:", data)
+        # log.trace("TCP recv:", data)
         data_len: int = len(data)
         recv_bytes_total += data_len
         # if len(data) > 80:
-        #     print("CdbConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
+        #     log.trace("TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
         # else:
-        #     print("CdbConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
+        #     log.trace("TCP recv:", data, ", recv_total: ", recv_bytes_total)
         input_stream.append_data(data)
         # _post_poll_recv()
         if record_to is not None:
@@ -253,7 +266,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
         _poll_recv()
 
     def _on_tcp_error(c, msg):
-        print("CdbConnection TCP error:", msg)
+        log.error("TCP error", {"msg": msg})
         input_stream.consume()
         # TODO: (re)consider backoff
         after 1: _reconnect()
@@ -273,7 +286,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
     def _send_cdb_request(queue, op: ?int, read_op: bool, req: ?EObject, response_cb: action(?value) -> None):
         payload_writer = BufferWriter()
         if req is not None and isinstance(req, EObject):
-            #print("ENC EObject:", str(req))
+            #log.trace("ENC EObject:", str(req))
             payload_writer.write_tag(_ERL_EXTERN_FMT)
             req.encode(payload_writer)
         payload_data = payload_writer.to_bytes()
@@ -284,9 +297,9 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
         #     r.append_data(payload_data)
         #     d = EObject.decode_tagged(r)
         #     if isinstance(d, EObject):
-        #         print("DEC EObject:", str(d))
+        #         log.trace("DEC EObject:", str(d))
         #     else:
-        #         print("DEC EObject: <decode failed>")
+        #         log.trace("DEC EObject: <decode failed>")
         # # </DEBUG>
 
         header_writer = BufferWriter()
@@ -308,7 +321,7 @@ actor CdbConnection(env: Env, port: int, name: str, on_connect: action(CdbConnec
         _write(payload_data)
 
     def _cdb_response_cb(op: ?int, read_op: bool, response_cb: action(?value) -> None) -> ?value:
-        result: ?value = channel.read_response(input_stream, op, read_op)
+        result: ?value = channel.read_response(input_stream, op, read_op, log)
         if result is not None and isinstance(result, IncompleteReadError):
             return result
         response_cb(result)

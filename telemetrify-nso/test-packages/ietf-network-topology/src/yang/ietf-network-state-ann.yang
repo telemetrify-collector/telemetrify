@@ -1,0 +1,19 @@
+module ncs-augments {
+  namespace
+    "urn:dummy-ncs-augment-ietf-network";
+  prefix dummy-augment-ietf-nw-s;
+
+  import tailf-common {
+    prefix tailf;
+  }
+
+  description "This module includes augmentations of the IETF network.";
+
+  tailf:annotate-module ietf-network-state {
+    tailf:annotate-statement container[name='networks'] {
+      tailf:cdb-oper {
+        tailf:persistent "true";
+      }
+    }
+  }
+}

@@ -62,6 +62,9 @@ class MaapiProtoError(ProtoError):
     def __str__(self) -> str:
         return "MaapiProtoError(\"" + self.msg + "\")"
 
+    def __repr__(self):
+        return self.__str__()
+
 class BufferWriter(object):
     @property
     parts: list[bytes]
@@ -598,6 +601,9 @@ class EList(EObject):
             unsafe_list_append(sl, str(e))
         return "[" + ", ".join(sl) + "]"
 
+    def __repr__(self):
+        return "EList(" + repr(self.elems) + ", " + repr(self.is_proper) + ")"
+
     def encode(self, writer):
         size = len(self.elems)
         as_proper: bool = self.is_proper or size < 2
@@ -676,6 +682,9 @@ class ETuple(EObject):
             unsafe_list_append(sl, str(e))
         return "(" + ", ".join(sl) + ")"
 
+    def __repr__(self):
+        return "ETuple(" + repr(self.elems) + ")"
+
     def encode(self, writer: BufferWriter):
         size: int = len(self.elems)
         writer.write_tuple_header(size)
@@ -737,6 +746,9 @@ class EBinary(EObject):
     def __str__(self) -> str:
         return self.data.decode()
 
+    def __repr__(self):
+        return "EBinary(" + self.__str__() + ")"
+
     @staticmethod
     def from_str(s: str):
         return EBinary(s.encode())
@@ -760,6 +772,9 @@ class EAtom(EObject):
 
     def __str__(self) -> str:
         return self.val
+
+    def __repr__(self):
+        return "EAtom('" + self.__str__() + "')"
 
     @staticmethod
     def from_bool(b: bool):
@@ -798,6 +813,9 @@ class EInt(EObject):
     def __str__(self) -> str:
         return self.val.__str__()
 
+    def __repr__(self):
+        return "EInt(" + self.__str__() + ")"
+
     def encode(self, writer):
         writer.write_int(self.val)
 
@@ -817,6 +835,9 @@ class EString(EObject):
 
     def __str__(self) -> str:
         return self.data.decode()
+
+    def __repr__(self):
+        return "EString(\"" + self.__str__() + "\")"
 
     @staticmethod
     def from_str(s: str):
@@ -889,6 +910,9 @@ class ConfResponse(object):
             + ", err=" + str(self.is_error) \
             + ", errcode=" + str(self.error_code) \
             + ", errstr=" + error_msg + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 protocol ToEObject:
     to_eobject: () -> EObject

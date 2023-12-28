@@ -39,6 +39,9 @@ class Metric(object):
         # XXX including str(self.timestamp) in this repr triggers a segfault for reasons unknown
         return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
 
+    def __repr__(self):
+        return self.__str__()
+
 #actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
 actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
 

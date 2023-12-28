@@ -64,7 +64,7 @@ def keypath_to_ekeypath(kp: Keypath, cursor: Cursor, use_ikp: bool) -> ?EKeypath
 
 #
 
-def _parse_etagval(etv: EObject, cursor: Cursor) -> (?Tag, int, ?value):
+def _parse_etag(etv: EObject) -> (?Tag, ?EObject):
     if isinstance(etv, ETuple) and len(etv) == 2:
         tag: ?Tag = None
         _etag = etv[0]
@@ -80,37 +80,49 @@ def _parse_etagval(etv: EObject, cursor: Cursor) -> (?Tag, int, ?value):
             tag = PTag(None, str(_etag))
         elif isinstance(_etag, EInt):
             tag = HTag(0, _etag.val)
-        conf_type, val = Any.eobject_to_conf_type_and_value(_eval, cursor)
-        return (tag, conf_type, val)
-    return (None, C_UNKNOWN, None)
+        return (tag, _eval)
+    return (None, None)
 
-def _get_key_from_etagvals(etagvals: list[EObject], index: int, _len: int, cursor: Cursor) -> value: # (Key | Exception)
+def _get_key_from_etagvals(etagvals: list[EObject], index: int, _len: int, cursor: Cursor) -> Key:
     key_elems: list[value] = []
     key_s_nodes = cursor.node().keys
     if len(key_s_nodes) > _len - index:
-        return ValueError("Not enough keys left")
+        raise ValueError("Not enough keys left")
     for key_s_node in key_s_nodes:
         etv: EObject = etagvals[index]
-        _tag, conf_type, val = _parse_etagval(etv, cursor)
-        if _tag is not None:
-            htag: ?HTag = cursor.lookup_htag(_tag, True)
-            if htag is not None:
-                if htag == key_s_node.tag:
-                    # TODO: Validate key elem conf_type
-                    if val is not None:
-                        key_elems.append(val)
-                    else:
-                        return ValueError("Key value is None") # TODO: Show position indication
+        _tag: ?Tag, _eval: ?EObject = _parse_etag(etv)
+        if _tag is not None and cursor.push(_tag):
+            htag = cursor.node().tag
+            _conf_type: int, val: ?value = Any.eobject_to_conf_type_and_value(_eval, cursor)
+            if htag == key_s_node.tag:
+                if val is not None:
+                    key_elems.append(val)
                 else:
-                    return ValueError("Missmatching key tag") # TODO: Show position indication
+                    raise ValueError("Key value is None") # TODO: Show position indication
             else:
-                return ValueError("Unable to find key htag") # TODO: Show position indication
+                raise ValueError("Missmatching key tag") # TODO: Show position indication
+            cursor.pop()
         else:
-            return ValueError("Missing key tag") # TODO: Show position indication
+            raise ValueError("Missing key tag") # TODO: Show position indication
         index += 1
     return Key(key_elems)
 
-def etagvals_to_merge_ttree(etagvallist: EList, cursor: Cursor) -> value: # (TTree | Exception)
+def _get_marker_conf_type(v: ?EObject) -> int:
+    if isinstance(v, EAtom):
+        _s = v.val
+        if _s == _EV_NOEXISTS:
+            return C_NOEXISTS
+        elif _s == _EV_LEAF:
+            return C_LEAF
+        elif _s == _EV_START:
+            return C_START
+        elif _s == _EV_STOP:
+            return C_STOP
+        elif _s == _EV_DELETE:
+            return C_DELETE
+    return C_UNKNOWN
+
+def etagvals_to_merge_ttree(etagvallist: EList, cursor: Cursor) -> TTree:
     root = TTree(OP_MERGE, PTag.root(), None, {})
     path: list[TNode] = [root]
 
@@ -121,85 +133,83 @@ def etagvals_to_merge_ttree(etagvallist: EList, cursor: Cursor) -> value: # (TTr
 
     while i < etagvals_len:
         etv: EObject = etagvals[i]
-        tag, conf_type, val = _parse_etagval(etv, cursor)
+        tag, _eval = _parse_etag(etv)
         if tag is not None:
             ptag: ?PTag = cursor.lookup_ptag(tag)
             if ptag is not None:
-                if conf_type == C_STOP:
+                marker_conf_type = _get_marker_conf_type(_eval)
+
+                if marker_conf_type == C_STOP:
                     s_node = cursor.node()
                     if not cursor.pop_verify(tag):
-                        return ValueError("Unexpected etagval stop for: " + str(tag)) # TODO: Show full path
+                        raise ValueError("Unexpected etagval stop for: " + str(tag)) # TODO: Show full path
                     if s_node.is_container():
                         list_try_pop(path) # Tag
                     elif s_node.is_list():
                         list_try_pop(path) # Key
                         list_try_pop(path) # Tag
                     else:
-                        return ValueError("C_STOP on non-list/container")
+                        raise ValueError("C_STOP on non-list/container")
                 else:
                     if not cursor.push(tag):
-                        return ValueError("Tag not found in schema: " + str(tag)) # TODO: Show full path
+                        raise ValueError("Tag not found in schema: " + str(tag)) # TODO: Show full path
+
                     s_node = cursor.node()
 
-                    if conf_type == C_NOEXISTS:
+                    if marker_conf_type == C_NOEXISTS:
                         if s_node.is_leaf():
                             path[-1].leaf(OP_DELETE, ptag, None)
                         elif s_node.is_container() or s_node.is_leaf_list():
                             path[-1].tree(OP_DELETE, ptag)
                         else:
-                            return ValueError("C_NOEXISTS on non-leaf/leaf-list/container")
+                            raise ValueError("C_NOEXISTS on non-leaf/leaf-list/container")
                         cursor.pop()
-                    elif conf_type == C_LEAF: # elif conf_type in [C_LEAF, C_XML]:
+                    elif marker_conf_type == C_LEAF: # elif conf_type in [C_LEAF, C_XML]:
                         if s_node.is_empty_leaf():
                             path[-1].leaf(OP_MERGE, ptag, None)
                         else:
-                            return ValueError("Unexpected conf_type for non-empty-leaf: " + str(conf_type))
+                            raise ValueError("Unexpected conf_type for non-empty-leaf: " + str(marker_conf_type))
                         cursor.pop()
-                    elif conf_type == C_LIST:
-                        if s_node.is_leaf_list():
-                            if isinstance(val, list):
-                                leaf_list = path[-1].tree(OP_REPLACE, ptag)
-                                for elem in val:
-                                    leaf_list.leaf_elem(OP_MERGE, elem)
-                            else:
-                                return ValueError("C_LIST without list-value")
-                        else:
-                            return ValueError("C_LIST on non-leaf-list")
-                        cursor.pop()
-                    elif conf_type == C_START:
+                    elif marker_conf_type == C_START:
                         if s_node.is_list():
                             key = _get_key_from_etagvals(etagvals, i+1, etagvals_len, cursor)
-                            if isinstance(key, Key):
-                                path.append(path[-1].tree(OP_MERGE, ptag))
-                                path.append(path[-1].tree(OP_MERGE, key))
-                            else:
-                                return key # Error
+                            path.append(path[-1].tree(OP_MERGE, ptag))
+                            path.append(path[-1].tree(OP_MERGE, key))
                         elif s_node.is_container():
                             path.append(path[-1].tree(OP_MERGE, ptag))
                         else:
-                            return ValueError("C_START on non-list/container")
-                    elif conf_type == C_DELETE:
+                            raise ValueError("C_START on non-list/container")
+                    elif marker_conf_type == C_DELETE:
                         if s_node.is_list():
                             key = _get_key_from_etagvals(etagvals, i+1, etagvals_len, cursor)
-                            if isinstance(key, Key):
-                                # Won't need these key leafs anymore
-                                i += len(key)
-                                path.append(path[-1].tree(OP_NOCREATE, ptag))
-                                path.append(path[-1].tree(OP_DELETE, key))
-                            else:
-                                return key # Error
+                            # Won't need these key leafs anymore
+                            i += len(key)
+                            path.append(path[-1].tree(OP_NOCREATE, ptag))
+                            path.append(path[-1].tree(OP_DELETE, key))
                         else:
-                            return ValueError("C_DELETE on non-list")
+                            raise ValueError("C_DELETE on non-list")
                     else:
-                        if s_node.is_non_empty_leaf():
-                            path[-1].leaf(OP_MERGE, ptag, val)
+                        value_conf_type, val = Any.eobject_to_conf_type_and_value(_eval, cursor)
+                        if value_conf_type == C_LIST:
+                            if s_node.is_leaf_list():
+                                if isinstance(val, list):
+                                    leaf_list = path[-1].tree(OP_REPLACE, ptag)
+                                    for elem in val:
+                                        leaf_list.leaf_elem(OP_MERGE, elem)
+                                else:
+                                    raise ValueError("C_LIST without list-value")
+                            else:
+                                raise ValueError("C_LIST on non-leaf-list")
                         else:
-                            return ValueError("Unexpected conf_type for non-empty-leaf: " + str(conf_type))
+                            if s_node.is_non_empty_leaf():
+                                path[-1].leaf(OP_MERGE, ptag, val)
+                            else:
+                                raise ValueError("Unexpected conf_type for non-empty-leaf: " + str(value_conf_type))
                         cursor.pop()
             else:
-                return ValueError("Unable to get ptag for: " + str(tag))
+                raise ValueError("Unable to get ptag for: " + str(tag))
         else:
-            return ValueError("Invalid etagval element: " + str(etv))
+            raise ValueError("Invalid etagval element: " + str(etv))
         i += 1
 
     return root

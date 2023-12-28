@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 import file
 import net
 import telemetrify.nsoapi.channel as channel
@@ -83,6 +85,9 @@ class MaapiException(ProtoError):
             + ", errcode=" + str(self.error_code) \
             + ", errmsg=" + error_msg \
             + ", path=" + conf_path + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 def addr_to_eobject(addr: str) -> EObject:
     if addr != "127.0.0.1":
@@ -226,7 +231,17 @@ class UserSessionDescription:
 # TODO: Would be nice to inject a connection instance
 #       e.g. for testing or session recording/replay.
 #       Interfaces/protocols for actors?
-actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -> None, on_connect_error: action(Exception) -> None, record_to: ?file.WriteFile):
+actor MaapiConnection(env: Env, port: int,
+        on_connect: action(MaapiConnection) -> None,
+        on_connect_error: action(Exception) -> None,
+        log_handler: ?logging.Handler,
+        record_to: ?file.WriteFile):
+
+    var logh = logging.Handler("maapi-connection")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
     listen_cap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
     input_stream: BufferReader = BufferReader()
     var recv_bytes_total: int = 0
@@ -249,7 +264,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         pass
 
     def _write(data: bytes):
-        #print("MaapiConnection TCP send:", data)
+        #log.trace("MaapiConnection TCP send", {"data": data})
         if conn is not None:
             conn.write(data)
             # Looks like writes can be reordered unless we wait for them. E.g. actor -> actor ordering is violated?
@@ -281,9 +296,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             proto_vsn = _proto_vsn
             conf_vsn = _conf_vsn
 
-            #print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", hex(conf_vsn))
-            # TODO: restore this, hex currently not used due to bug in actonc
-            print("MaapiConnection MAAPI connected. proto_vsn: ", proto_vsn, ", conf_vsn: ", conf_vsn)
+            log.debug("MAAPI connected", {"proto_vsn": proto_vsn, "conf_vsn": conf_vsn})
             on_connect(self)
         else:
             on_connect_error(ProtoError())
@@ -337,16 +350,16 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         # Name _loop is not in scope
         while True:
             if internal_recv_queue:
-                #print("_poll_recv: internal_recv_queue")
+                #log.trace("_poll_recv: internal_recv_queue")
                 if not _poll_recv_queue(internal_recv_queue):
                     break
             elif user_recv_queue:
-                #print("_poll_recv: user_recv_queue")
+                #log.trace("_poll_recv: user_recv_queue")
                 if not _poll_recv_queue(user_recv_queue):
                     break
             else:
                 break
-        #print("_poll_recv: Done")
+        #log.trace("_poll_recv: Done")
 
     def _post_poll_recv():
         # We really only want to do an async fire-and-forget call to ourselves ASAP
@@ -364,17 +377,17 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
             return True
 
     def _on_tcp_connect(c):
-        print("MaapiConnection TCP connected")
+        log.debug("TCP connected", None)
         _connect_maapi()
 
     def _on_tcp_receive(c, data):
-        # print("MaapiConnection TCP recv:", data)
+        # log.trace("MaapiConnection TCP recv", data)
         data_len: int = len(data)
         recv_bytes_total += data_len
         # if len(data) > 80:
-        #     print("MaapiConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
+        #     log.trace("MaapiConnection TCP recv:", data[:80], " ... (len ", data_len, "), recv_total: ", recv_bytes_total)
         # else:
-        #     print("MaapiConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
+        #     log.trace("MaapiConnection TCP recv:", data, ", recv_total: ", recv_bytes_total)
         input_stream.append_data(data)
         # _post_poll_recv()
         if record_to is not None:
@@ -382,7 +395,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         _poll_recv()
 
     def _on_tcp_error(c, msg):
-        print("MaapiConnection TCP error:", msg)
+        log.error("TCP error", {"msg": msg})
         input_stream.consume()
         # TODO: (re)consider backoff
         after 1: _reconnect()
@@ -402,7 +415,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
     def _send_maapi_request(queue, op: ?int, read_op: bool, thandle: ?int, req: ?EObject, response_cb: action(?value) -> None):
         payload_writer = BufferWriter()
         if req is not None and isinstance(req, EObject):
-            #print("ENC EObject:", str(req))
+            #log.trace("ENC EObject:", str(req))
             payload_writer.write_tag(_ERL_EXTERN_FMT)
             req.encode(payload_writer)
         payload_data = payload_writer.to_bytes()
@@ -413,9 +426,9 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         #     r.append_data(payload_data)
         #     d = EObject.decode_tagged(r)
         #     if isinstance(d, EObject):
-        #         print("DEC EObject:", str(d))
+        #         log.trace("DEC EObject:", str(d))
         #     else:
-        #         print("DEC EObject: <decode failed>")
+        #         log.trace("DEC EObject: <decode failed>")
         # # </DEBUG>
 
         header_writer = BufferWriter()
@@ -439,7 +452,7 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         _write(payload_data)
 
     def _maapi_response_cb(op: ?int, read_op: bool, response_cb: action(?value) -> None) -> ?value:
-        result: ?value = channel.read_response(input_stream, op, read_op)
+        result: ?value = channel.read_response(input_stream, op, read_op, log)
         if result is not None and isinstance(result, IncompleteReadError):
             return result
         response_cb(result)
@@ -602,10 +615,10 @@ actor MaapiConnection(env: Env, port: int, on_connect: action(MaapiConnection) -
         _send_user_maapi_request(_MAAPI_GET_MOUNT_ID, True, None, e, lambda v: _some_result_cb(v, _transform_result, result_cb))
 
     action def load_schema(result_cb: action(MaapiConnection, ?Exception, ?telemetrify.nsoapi.schema.SharedSchema) -> None):
-        # sb = SchemaBuilder()
+        # sb = SchemaBuilder(logh)
         # ERROR: Error when compiling nsoapi.maapi module: Compilation error
         # Name 'SchemaBuilder$newact' is not in scope
-        sb = telemetrify.nsoapi.schema.SchemaBuilder()
+        sb = telemetrify.nsoapi.schema.SchemaBuilder(logh)
         # _request_schema_terms(_MAAPI_LOAD_ALL_NS, lambda e: sb.on_ns_term(e), lambda v: result_cb(self, v if v is not None else sb.build())) # Type inference conflict
         def _on_load_all_ns(v: ?value):
             _request_schema_terms(internal_recv_queue, _MAAPI_LOAD_HASH_DB, lambda e: sb.on_hash_term(e), _on_load_hash_db)

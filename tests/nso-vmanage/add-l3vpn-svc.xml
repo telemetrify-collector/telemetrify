@@ -33,6 +33,15 @@
               <svc-output-bandwidth>1000</svc-output-bandwidth>
               <svc-mtu>1500</svc-mtu>
             </service>
+            <routing-protocols>
+              <routing-protocol>
+                <type>bgp</type>
+                <bgp>
+                  <autonomous-system>65002</autonomous-system>
+                  <address-family>ipv4</address-family>
+                </bgp>
+              </routing-protocol>
+            </routing-protocols>
             <vpn-attachment>
               <vpn-id>2000000002</vpn-id>
             </vpn-attachment>

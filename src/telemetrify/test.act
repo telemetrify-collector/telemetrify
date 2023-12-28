@@ -175,7 +175,7 @@ actor test_maapi_session_schema(env: Env, opts: Opts):
 
     print("Current time:", time.now())
     print("Starting up...")
-    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, None, opts.record_to)
 
 actor test_set_values_ikp(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -248,7 +248,7 @@ actor test_set_values_ikp(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, None, opts.record_to)
 
 actor test_set_values_hkp(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -319,7 +319,7 @@ actor test_set_values_hkp(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, None, opts.record_to)
 
 actor test_writer(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -356,7 +356,7 @@ actor test_writer(env: Env, opts: Opts):
             print("MAAPI started transaction thandle:", thandle)
 
             #writer = MaapiWriter(c, v)
-            writer = telemetrify.nso.writer.MaapiWriter(c, schema)
+            writer = telemetrify.nso.writer.MaapiWriter(c, schema, None)
 
             tree = \
                 XTree(OP_MERGE, ITag('http://tail-f.com/ns/ncs', 'python-vm'), None, [
@@ -406,7 +406,7 @@ actor test_writer(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, None, opts.record_to)
 
 actor test_tsdb_writer(env: Env, opts: Opts):
 
@@ -486,7 +486,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
 
     def _on_tsdb_init(c, shared_schema):
         writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema)
-        vmx_sess = telemetrify.net.netconf.Client(env.auth, "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, shared_schema, writer), _on_nc_error, None)
+        vmx_sess = telemetrify.net.netconf.Client(env.auth, "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, shared_schema, writer), _on_nc_error, None, None)
 
     def _on_tsdb_error(c, e):
         log.error("TSDB client failed: " + str(e), None)
@@ -572,7 +572,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     #        await async env.exit(1)
 
     print("Starting up...")
-    nso_sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, opts.record_to)
+    nso_sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, None, opts.record_to)
 
 #     #tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, _schema), _on_tsdb_error)
 
@@ -614,7 +614,7 @@ actor test_netconf_client_nso(env: Env, opts: Opts):
         print("Received notif:\n", xml.encode(n))
 
     print("Starting up...")
-    sess = telemetrify.net.netconf.Client(env.cap, "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif)
+    sess = telemetrify.net.netconf.Client(env.cap, "127.0.0.1", 2022, "admin", "admin", None, _on_connect, _on_error, _on_notif, None)
 
 actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
     def _on_error(c, e):
@@ -647,7 +647,7 @@ actor test_netconf_client_vr_vmx(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    sess = telemetrify.net.netconf.Client(env.cap, "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None)
+    sess = telemetrify.net.netconf.Client(env.cap, "127.0.0.1", 10830, "vrnetlab", "VR-netlab9", None, _on_connect, _on_error, None, None)
 
 actor test_cdb_wait_start(env: Env, opts: Opts):
     def _on_connect_error(e):
@@ -665,7 +665,7 @@ actor test_cdb_wait_start(env: Env, opts: Opts):
             print("CDB wait start failed:", e)
             await async env.exit(1)
 
-    sess = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify", _on_connect, _on_connect_error, opts.record_to)
+    sess = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify", _on_connect, _on_connect_error, None, opts.record_to)
 
 actor test_tnode(env: Env, opts: Opts):
     root = TTree(OP_NONE, PTag.root(), None, {})
@@ -765,7 +765,7 @@ actor test_etv_tnode(env: Env, opts: Opts):
             await async env.exit(1)
 
     print("Starting up...")
-    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, opts.record_to)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None, opts.record_to)
 
 actor test_subscriber(env: Env, opts: Opts):
     def _on_maapi_connect_error(e):
@@ -779,7 +779,7 @@ actor test_subscriber(env: Env, opts: Opts):
         if e is None and shared_schema is not None:
             print("MAAPI loaded schema!!!!")
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, opts.record_to)
+                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None, opts.record_to)
         else:
             print("MAAPI load schema failed:", optional_str(e, "None"))
             await async env.exit(1)
@@ -791,7 +791,7 @@ actor test_subscriber(env: Env, opts: Opts):
     def _on_cdb_sub_connect(sc, s):
         print("CDB (sub) connected!!!!")
         cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, opts.record_to)
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None, opts.record_to)
 
     def _on_cdb_cmd_connect(sc, cc, s):
         print("CDB (cmd) connected!!!!")
@@ -811,4 +811,4 @@ actor test_subscriber(env: Env, opts: Opts):
         await async env.exit(1)
 
     print("Starting up...")
-    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, opts.record_to)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None, opts.record_to)

@@ -126,6 +126,8 @@ class BiDict[K(Hashable), V(Hashable)](object):
         self.val_to_key = {}
 
     def set(self, k: K, v: V):
+        BiDict.try_pop_val(self, k)
+        BiDict.try_pop_key(self, v)
         self.key_to_val[k] = v
         self.val_to_key[v] = k
 
@@ -145,6 +147,46 @@ class BiDict[K(Hashable), V(Hashable)](object):
         k = try_pop(self.val_to_key, v)
         if k is not None:
             del self.key_to_val[k]
+        return k
+
+    def clear(self):
+        # self.key_to_val.clear()
+        # self.val_to_key.clear()
+        self.key_to_val = {}
+        self.val_to_key = {}
+
+class BiMultiDict[K(Hashable), V(Hashable)](object):
+    @property
+    key_to_val: dict[K, set[V]]
+    @property
+    val_to_key: dict[V, K]
+
+    def __init__(self):
+        self.key_to_val = {}
+        self.val_to_key = {}
+
+    def add(self, k: K, v: V):
+        vk = BiMultiDict.try_pop_key(self, v)
+        dict_set_add(self.key_to_val, k, v)
+        self.val_to_key[v] = k
+
+    def try_get_vals(self, k: K) -> ?set[V]:
+        return try_get(self.key_to_val, k)
+
+    def try_get_key(self, v: V) -> ?K:
+        return try_get(self.val_to_key, v)
+
+    def try_pop_vals(self, k: K) -> ?set[V]:
+        vals = try_pop(self.key_to_val, k)
+        if vals is not None:
+            for v in vals:
+                del self.val_to_key[v]
+        return vals
+
+    def try_pop_key(self, v: V) -> ?K:
+        k = try_pop(self.val_to_key, v)
+        if k is not None:
+            dict_set_discard(self.key_to_val, k, v)
         return k
 
     def clear(self):
@@ -711,6 +753,9 @@ class Decimal64:
             s += to_n_dec_str(f.significand, -f.exponent)
         return s
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?Decimal64:
         parts = try_parse_float_parts(s)
@@ -778,6 +823,9 @@ class IPv4Address:
         d = self.data
         return str(d.0) + "." + str(d.1) + "." + str(d.2) + "." + str(d.3)
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Address:
         #return IPv4Address((1,2,3,4))
@@ -811,6 +859,9 @@ class IPv6Address:
         d = self.data
         return hex(d.0) + ":" + hex(d.1) + ":" + hex(d.2) + ":" + hex(d.3) \
             + ":" + hex(d.4) + ":" + hex(d.5) + ":" + hex(d.6) + ":" + hex(d.7)
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Address:
@@ -850,6 +901,9 @@ class IPv4Network:
     def __str__(self) -> str:
         return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?IPv4Network:
         p = s.strip(" \t").split("/", -1)
@@ -883,6 +937,9 @@ class IPv6Network:
 
     def __str__(self) -> str:
         return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?IPv6Network:
@@ -955,6 +1012,9 @@ class DateTime:
         return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + "T" \
             + to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) \
             + tz
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?DateTime:
@@ -1106,6 +1166,9 @@ class Date:
 
         return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + tz
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?Date:
         s = s.strip(" ")
@@ -1228,6 +1291,9 @@ class Time:
                     tz = str(tz_h) + ":" + str(tz_m)
 
         return to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) + tz
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     @staticmethod
     def try_parse(s: str) -> ?Time:
@@ -1365,6 +1431,9 @@ class Duration:
                 unsafe_list_append(sl, "S")
         return "".join(sl)
 
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
+
     @staticmethod
     def try_parse(s: str) -> ?Duration:
         fmt = "PYMDTHMS"
@@ -1458,6 +1527,9 @@ class Oid:
         for _id in self._ids:
             unsafe_list_append(sl, str(_id))
         return ".".join(sl)
+
+    def __repr__(self):
+        return self.__str__() # TODO: Proper repr
 
     def ids(self) -> list[int]:
         return self._ids

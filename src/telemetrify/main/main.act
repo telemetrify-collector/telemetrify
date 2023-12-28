@@ -72,7 +72,7 @@ class Sink(object):
 
 class Source(object):
     @property
-    update_config_fn: action(?TNode, dict[Keypath, SubscriptionUpdate]) -> None
+    update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None
     @property
     close_fn: action() -> None
     @property
@@ -81,7 +81,7 @@ class Source(object):
     def __init__(
             self,
             key: Keypath,
-            update_config_fn: action(?TNode, dict[Keypath, SubscriptionUpdate]) -> None,
+            update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None,
             close_fn: action() -> None
             ):
         self.key = key
@@ -92,11 +92,9 @@ class Source(object):
     def has_subscriptions(self) -> bool:
         return bool(self.subscription_keys)
 
-    def update_config(self, source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
-        for dev_sub_key, sub_update in subscription_updates.items():
-            #if sub_update.config is not None:
-            _config = sub_update.config
-            if _config is not None:
+    def update_config(self, source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
+        for dev_sub_key, sub_update in subscription_updates:
+            if sub_update is not None:
                 self.subscription_keys.add(dev_sub_key)
             else:
                 self.subscription_keys.discard(dev_sub_key)
@@ -178,6 +176,9 @@ class SubscriptionSink(object):
 
     def __str__(self) -> str:
         return "SubscriptionSink(" + str(self.config) + ", " + str(self.sink) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     def write(self, node: Node, source_params: TNode) -> None:
         self.head_cb(node, source_params)
@@ -285,7 +286,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
     def _on_user_session(c, e):
         m = maapi_connection
         if m is not None:
-            writer = telemetrify.nso.writer.MaapiWriter(m, shared_schema)
+            writer = telemetrify.nso.writer.MaapiWriter(m, shared_schema, logh)
 
     def _on_maapi_connect_error(e):
         log.error("SINK nso-cdb MAAPI connect failed:", {"error": e})
@@ -304,7 +305,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
         tasks.clear()
         log.info("SINK nso-cdb CLOSED", None)
 
-    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)
 
 actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var logh = logging.Handler("m3db-sink")
@@ -432,9 +433,9 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         #     return
         pass
 
-    def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
+    def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
         log.debug("SOURCE netconf CONFIG update", {"source_update": optional_str(source_update, "None")})
-        log.debug("SOURCE netconf SUBSCRIPTION update", {"subscription_updates": mapping_str(subscription_updates)})
+        log.debug("SOURCE netconf SUBSCRIPTION update", {"subscription_updates": subscription_updates})
 
         restart = False
 
@@ -446,7 +447,7 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
 
             _connect_client()
 
-        for dev_sub_key, sub_update in subscription_updates.items():
+        for dev_sub_key, sub_update in subscription_updates:
             if sub_update is not None:
                 log.trace("SOURCE netconf SUBSCRIPTION update", {"sub_update": sub_update})
                 sub = try_get(subscribers, dev_sub_key)
@@ -509,7 +510,8 @@ actor NetconfSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
                 # lambda _c, e: _on_client_error(e, client_seqno),
                 __on_client_error,
                 # lambda _c, n: _on_client_notif(n, client_seqno))
-                __on_client_notif)
+                __on_client_notif,
+                logh)
 
             client = new_client
 
@@ -809,9 +811,9 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
         #     return
         pass
 
-    def update_config(source_update: ?TNode, subscription_updates: dict[Keypath, SubscriptionUpdate]):
+    def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
         log.debug("SOURCE vmanage CONFIG update", {"source_update": optional_str(source_update, "None")})
-        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": mapping_str(subscription_updates)})
+        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": subscription_updates})
 
         restart = False
 
@@ -823,7 +825,7 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
 
             _connect_client()
 
-        for dev_sub_key, sub_update in subscription_updates.items():
+        for dev_sub_key, sub_update in subscription_updates:
             if sub_update is not None:
                 sub = try_get(subscribers, dev_sub_key)
                 if sub is not None:
@@ -976,7 +978,6 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
             # response = http.Response(bytes([]), 200, {}, body)
             # after 0: _on_poll_reply(seqno, poll_ts, request_ts, response)
             # # </TEST>
-
 
     def _on_poll_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, reply: ?http.Response):
         if seqno != poller_seqno:
@@ -1377,6 +1378,9 @@ class SubscriptionUpdate(object):
             unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink, "None") + ")")
         return "SubscriptionUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources, log_handler: ?logging.Handler):
     var logh = logging.Handler("device-streamer")
     if log_handler is not None:
@@ -1420,53 +1424,51 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         log.trace("SINKS", _sink_updates)
 
         source_config_updates: dict[Keypath, TNode] = {}
-        updated_source_dev_subs: dict[Keypath, dict[Keypath, SubscriptionUpdate]] = {}
+        updated_source_dev_sub_keys: dict[Keypath, set[Keypath]] = {}
+        dev_sub_updates: dict[Keypath, SubscriptionUpdate] = {}
 
-        deleted_dev_sub_keys: set[Keypath] = set([])
-
-        # TODO:
-        # Merge device_config and source_config
-        # but only using source_config for a while...
-
+        # Prepare source configs
         for source_key, state in source_updates:
             source_config_updates[source_key] = state if state is not None and isinstance(state, TNode) else tnode_empty()
-            get_or_create(updated_source_dev_subs, source_key, lambda: {})
 
+        # Update sinks
         if sink_updates:
             for sink_key, state in sink_updates:
                 _update_sink(sink_key, state)
 
+        # Prepare subscriptions
         for dev_sub_key, state in subscription_updates:
             if state is not None and isinstance(state, TNode):
                 source_key = _get_subscription_source_key(state)
                 subscription_sources[dev_sub_key] = source_key
-                sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
+                sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
                 sub_update.config = state
+                dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
             else:
-                deleted_dev_sub_keys.add(dev_sub_key)
+                source_key = try_pop(subscription_sources, dev_sub_key)
+                if source_key is not None:
+                    dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
 
+        # Prepare subscription sinks
         for dev_sub_sink_key, state in subscription_sink_updates:
             dev_sub_key = dev_sub_sink_key.try_slice(0, 2)
             sink_key = dev_sub_sink_key.try_slice(2, 3)
             if dev_sub_key is not None and sink_key is not None:
-                source_key = try_get(subscription_sources, dev_sub_key)
-                if source_key is not None:
-                    sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
+                if dev_sub_key in subscription_sources:
+                    sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
                     sub_sink: ?SubscriptionSink = None
                     if state is not None and isinstance(state, TNode):
                         sub_sink = _create_subscription_sink(sink_key, state)
                     sub_update.sinks.append((sink_key, sub_sink))
 
-        for dev_sub_key in deleted_dev_sub_keys:
-            source_key = try_pop(subscription_sources, dev_sub_key)
-            if source_key is not None:
-                # sub_update = get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
-                # sub_update.config = None
-                get_or_create(get_or_create(updated_source_dev_subs, source_key, lambda: {}), dev_sub_key, SubscriptionUpdate)
-
-        for source_key, sub_updates in updated_source_dev_subs.items():
+        # Update sources / subscriptions
+        for source_key, dev_sub_keys in updated_source_dev_sub_keys.items():
             source = _get_or_create_source(source_key)
-            source.update_config(try_get(source_config_updates, source_key), sub_updates)
+            source_sub_updates: list[(Keypath, ?SubscriptionUpdate)] = []
+            for dev_sub_key in dev_sub_keys:
+                source_sub_updates.append((dev_sub_key, try_get(dev_sub_updates, dev_sub_key)))
+
+            source.update_config(try_get(source_config_updates, source_key), source_sub_updates)
             if not source.has_subscriptions():
                 source.close()
                 del sources[source_key]
@@ -1547,13 +1549,15 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             transform_act = telemetrify.vmanage.transform.Transform(
                 next_cb,
                 shared_resources.request_l3vpn_svc_tracker,
-                shared_resources.release_l3vpn_svc_tracker)
+                shared_resources.release_l3vpn_svc_tracker,
+                logh)
             return Transform(transform_act.transform, transform_act.close)
         elif eq_optional(config[PTag('tlm', 'name')].try_str(), "cat8k-ip-sla"):
             transform_act = telemetrify.ietf.cat8k.IpSlaTransform(
                 next_cb,
                 shared_resources.request_l3vpn_svc_tracker,
-                shared_resources.release_l3vpn_svc_tracker)
+                shared_resources.release_l3vpn_svc_tracker,
+                logh)
             return Transform(transform_act.transform, transform_act.close)
         return None
 
@@ -1568,7 +1572,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         sinks = {}
         log.info("DEVICE CLOSED", {"name": name})
 
-actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
+actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
 
     # def request_l3vpn_svc_tracker(cb: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
@@ -1584,7 +1588,7 @@ actor SharedResources(env: Env, shared_schema: schema.SharedSchema):
         if r is not None:
             cb(r)
         else:
-            n = telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker(env, shared_schema)
+            n = telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker(env, shared_schema, log_handler)
             l3vpn_svc_tracker = n
             cb(n)
 
@@ -1612,9 +1616,9 @@ actor main(env):
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
             log.info("MAAPI loaded schema!!!!", None)
-            shared_resources = SharedResources(env, shared_schema)
+            shared_resources = SharedResources(env, shared_schema, logh)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None)
+                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
         else:
             log.error("MAAPI load schema failed:" + optional_str(e, ""), None)
             await async env.exit(1)
@@ -1626,7 +1630,7 @@ actor main(env):
     def _on_cdb_sub_connect(sc, s):
         log.info("CDB (sub) connected!!!!", None)
         cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, None)
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, logh, None)
 
     def _on_cdb_cmd_connect(sc, cc, s):
         log.info("CDB (cmd) connected!!!!", None)
@@ -1642,6 +1646,7 @@ actor main(env):
                 DeviceSubscriptionSinkRefiner,
                 SinkRefiner,
                 DeviceSinksRefiner,
+                LoggingLevelRefiner,
             ],
             [([
                 #DeviceSettingsRefiner.id(), # For DEBUG printouts only
@@ -1653,7 +1658,8 @@ actor main(env):
                 #DeviceSubscriptionSinkBaseRefiner.id(), # For DEBUG printouts purposes
                 DeviceSubscriptionSinkRefiner.id(),
                 #SinkRefiner.id(), # For DEBUG printouts purposes
-                DeviceSinksRefiner.id()
+                DeviceSinksRefiner.id(),
+                LoggingLevelRefiner.id()
             ],
             lambda r: _on_config_update(r, s))], _on_config_cache_error,
             logh)
@@ -1734,14 +1740,55 @@ actor main(env):
                     updated_device_sources.get(updated_device_key, []),
                     updated_device_sinks.get(updated_device_key, []))
 
+        # Logging
+        _on_logging_level(refiner_updates[LoggingLevelRefiner.id()])
+
     def _remove_device_streamer(device_key):
         entry = try_pop(device_streamers, device_key)
         if entry is not None:
             entry.close()
+
+    def _on_logging_level(updates: list[(Keypath, ?value)]):
+        level: ?int = None
+        for _keypath, state in updates:
+            if state is not None and isinstance(state, TNode):
+                #_val = state.try_str()
+                _leaf: TNode = state
+                _val = _leaf.try_str()
+                if _val is not None:
+                    if _val == 'off':
+                        level = logging.OFF
+                    elif _val == 'emergency':
+                        level = logging.EMERGENCY
+                    elif _val == 'alert':
+                        level = logging.ALERT
+                    elif _val == 'critical':
+                        level = logging.CRITICAL
+                    elif _val == 'error':
+                        level = logging.ERROR
+                    elif _val == 'warning':
+                        level = logging.WARNING
+                    elif _val == 'info':
+                        level = logging.INFO
+                    elif _val == 'notice':
+                        level = logging.NOTICE
+                    elif _val == 'debug':
+                        level = logging.DEBUG
+                    elif _val == 'verbose':
+                        level = logging.VERBOSE
+                    elif _val == 'trace':
+                        level = logging.TRACE
+                    elif _val == 'all':
+                        level = logging.ALL
+                    else:
+                        raise Exception("Unimplemented logging level value: " + str(_val))
+
+        if level is not None:
+            logh.set_output_level(level)
 
     def _on_config_cache_error(e):
         log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
         await async env.exit(1)
 
     log.info("Starting up...", None)
-    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)

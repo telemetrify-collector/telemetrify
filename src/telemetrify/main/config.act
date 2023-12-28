@@ -28,6 +28,9 @@ class DeviceSettings(object):
     def __str__(self) -> str:
         return "DeviceSettings(username=" + optional_str(self.username, "") + ", password=" + optional_str(self.password, "") + ")"
 
+    def __repr__(self):
+        return self.__str__()
+
 class DeviceSettingsRefiner(Refiner):
     @property
     _device_authgroup: dict[Keypath, Keypath]
@@ -246,6 +249,9 @@ class DeviceStreamerConfig(object):
 
     def __str__(self) -> str:
         return "DeviceStreamerConfig(" + optional_str(self.device_settings, "None") + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
 class DeviceStreamerRefiner(Refiner):
     @property
@@ -504,3 +510,23 @@ class DeviceSubscriptionSinkRefiner(Refiner):
 
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.dev_sub_sinks, keys)
+
+class LoggingLevelRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'logging'),
+                PTag('tlm', 'level')
+                ]),
+            SUB_TYPE_RUNNING), True)
+        )
+
+    @staticmethod
+    def id() -> int:
+        return 1101

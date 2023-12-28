@@ -36,7 +36,8 @@ def op_str(op: int) -> str:
         raise Exception("Not Implemented")
 
 class Id:
-    pass
+    def __repr__(self):
+        return self.__str__()
 
 class Tag(Id):
     def is_root(self) -> bool:
@@ -223,7 +224,7 @@ def _eq_value(a: value, b: value) -> bool:
         return a == b
     elif isinstance(a, Oid) and isinstance(b, Oid):
         return a == b
-    raise Exception("_eq_value: Not Implemented")
+    raise Exception("_eq_value: Not Implemented for types " + str(type(a)) + " == " + str(type(b)))
 
 def _hash_value(v: value) -> int:
     # Looks like we need to do this for now?
@@ -265,7 +266,9 @@ def _hash_value(v: value) -> int:
         return hash(v)
     elif isinstance(v, Oid):
         return hash(v)
-    raise Exception("_hash_value: Not Implemented")
+    elif isinstance(v, list): # Leaf-list for completeness although not valid for keys
+        return list_hash(v)
+    raise Exception("_hash_value: Not Implemented for type: " + str(type(v)) + " of value: " + str(v))
 
 class Key(Id):
     _keys: list[value]
@@ -275,6 +278,9 @@ class Key(Id):
 
     def __str__(self) -> str:
         return "Key(" + list_str(self._keys) + ")"
+
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def wildcard() -> Key:
@@ -336,6 +342,9 @@ class Keypath:
 
     def __str__(self) -> str:
         return list_str(self.path)
+
+    def __repr__(self):
+        return "Keypath(" + self.__str__() + ")"
 
     def try_get_key(self, index: int) -> ?Key:
         if index < len(self):
@@ -438,6 +447,9 @@ class KeypathBuilder(object):
 class Node(object):
     def __str__(self) -> str:
         return self._str_compact("Node")
+
+    def __repr__(self):
+        return self.__str__()
 
     def _str_compact(self, name: str) -> str:
         _tag = self.tag()

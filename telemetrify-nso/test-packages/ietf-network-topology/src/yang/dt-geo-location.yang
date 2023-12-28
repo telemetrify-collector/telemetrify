@@ -1,0 +1,99 @@
+//-*- coding: utf-8; fill-column: 69; evil-shift-width: 2; -*-
+//
+module dt-geo-location {
+  yang-version 1.1;
+  namespace "https://telekom.com/ns/yang/dt-geo-location";
+  prefix geo;
+  import ietf-inet-types { prefix inet; }
+  import ietf-yang-types { prefix types; }
+
+  description
+      "A module describing location of nodes.";
+
+  revision 2023-06-19 {
+    description "Initial Draft";
+  }
+
+  typedef coord {
+    type decimal64 {
+      fraction-digits 16;
+    }
+    units "decimal degrees";
+    description "Coordinate value.";
+  }
+
+  /* Typedefs */
+  typedef svc-id {
+    type string;
+    description "Defines a type of service component identifier.";
+  }
+
+  grouping geo-location-extensions {
+    container geo-location {
+      presence "geo-location";
+      leaf system {
+        type inet:uri;
+        default "WGS84";
+        description
+        "The system of measurement these coordinate values belong to.";
+      }
+      leaf latitude {
+        type coord;
+        description "The latitude";
+      }
+      leaf longitude {
+        type coord;
+        description "The longitude";
+      }
+      leaf height {
+        type coord;
+        units "meters";
+        description
+        "Height from a reference value of the object";
+      }
+      leaf timestamp {
+        type types:date-and-time;
+        description "Reference time when location was recorded.";
+      }
+    }
+  }
+  grouping dt-geo-location {
+    container location {
+      leaf address {
+        type string;
+        description
+        "Address (number and street) of the site.";
+      }
+      leaf postal-code {
+        type string;
+        description
+        "Postal code of the site.";
+      }
+      leaf state {
+        type string;
+        description
+        "State of the site.  This leaf can also be
+        used to describe a region for a country that
+        does not have states.";
+      }
+      leaf city {
+        type string;
+        description
+        "City of the site.";
+      }
+      leaf country-code {
+        type string {
+          pattern '[A-Z]{2}';
+        }
+        description
+        "Country of the site.
+        Expressed as ISO ALPHA-2 code.";
+      }
+      uses geo-location-extensions;
+      description
+      "Location of the site.";
+    }
+    description
+    "This grouping defines customer location parameters.";
+  }
+}

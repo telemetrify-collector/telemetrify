@@ -11,6 +11,7 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
 import net
 import process
 import xml
@@ -39,7 +40,17 @@ CAP_NC_1_1 = "urn:ietf:params:netconf:base:1.1"
 NS_NC_1_1 = "urn:ietf:params:xml:ns:netconf:base:1.0"
 NS_YANG_ACTION = "urn:ietf:params:xml:ns:yang:1"
 
-actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?str, key: ?str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, on_notif: ?action(Client, xml.Node) -> None):
+actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?str, key: ?str,
+        on_connect: action(Client) -> None,
+        on_error: action(Client, str) -> None,
+        on_notif: ?action(Client, xml.Node) -> None,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("netconf")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
     var framing = SEPARATOR_FRAMING
     var recv_buf = Buffer()
     var chunk_buf = Buffer()
@@ -53,13 +64,13 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
     var p: ?process.Process = None
 
     def p_on_stderr(p, data):
-        print("STDERR: ", data)
+        log.debug("STDERR", {"data": data})
 
     def p_on_exit(p, exit_code, term_signal):
-        print("SSH process exited with code:", exit_code, " and termination signal:", term_signal)
+        log.debug("SSH process exited", {"exit_code": exit_code, "term_signal": term_signal})
 
     def p_on_error(p, error):
-        print("Error from process:", error)
+        log.debug("Error from process", {"error": error})
 
     cmd_env = None
     if key is not None:
@@ -73,7 +84,7 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
     else:
         cmd = ["/usr/bin/ssh", "-p", str(port), "-l", username]
     cmd += [address, "-s", "netconf"]
-    #print("Try process: " + str(cmd))
+    #log.trace("Try process: " + str(cmd))
 
     def close() -> None:
         _p = p
@@ -141,7 +152,7 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
         _send_message(buf)
 
     def handle_msg(msg: str) -> None:
-        print("MSG:", msg)
+        log.trace("MSG:", {"msg": msg})
         # try:
         root = xml.decode(msg) # TODO: Modify xml.decode to return error OR catch exception when supported by actonc
         # except Exception:
@@ -153,7 +164,7 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
         elif root.tag == "hello": # TODO: check namespace as well?
             _on_msg_hello(root)
         else:
-            print("WARNING: Unhandled message type:", root.tag)
+            log.warning("Unhandled message type:", {"root.tag": root.tag})
 
     def _on_msg_hello(root: xml.Node) -> None:
         for n in root.children:
@@ -188,9 +199,9 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
             if _cb is not None:
                 _cb(self, root)
             else:
-                print("WARNING: Received rpc-reply with unexpected message-id:", _msg_id)
+                log.debug("Received rpc-reply with unexpected message-id", {"msg_id": _msg_id})
         else:
-            print("WARNING: Received rpc-reply without message-id")
+            log.debug("Received rpc-reply without message-id", None)
 
     def _on_msg_notification(root: xml.Node) -> None:
         _on_notif = on_notif
@@ -198,7 +209,7 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
             _on_notif(self, root)
 
     def p_on_stdout(p, data: bytes) -> None:
-        #print("DATA:", data)
+        #log.trace("DATA:", {"data": data})
         recv_buf.write_bytes(data)
         try_read: bool = True
         # while recv_buf.has_unread_bytes() and try_read: # actonc: Name try_read is not in scope

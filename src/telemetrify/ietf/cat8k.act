@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 import telemetrify.ietf.l3vpn_svc
 
 from telemetrify.common.mod import *
@@ -43,7 +45,13 @@ class OnewayStats(object):
 actor IpSlaTransform(
         output_cb: action(Node, TNode) -> None,
         fetch_l3vpn_svc_tracker: action(action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None) -> None,
-        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
+        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("cat8k-transform")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
 
     tasks: Wardrobe[(IpSlaStats, TNode)] = Wardrobe()
     l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
@@ -180,11 +188,11 @@ actor IpSlaTransform(
                     fetch_l3vpn_svc_tracker(_on_fetched_l3vpn_svc_tracker)
 
         else:
-            print("cat8k.ip-sla-transform - WARNING: missing source_params 'device-name'.")
+            log.warning("Missing source_params 'device-name'", None)
 
     def _on_lookup_result(hostnames_lookup: dict[str, L3vpnSvcParams], ipv4_addresses_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
 
-        print("cat8k.ip-sla-transform - lookup result:", mapping_str(hostnames_lookup), mapping_str(ipv4_addresses_lookup))
+        log.debug("lookup", {"hostnames": mapping_str(hostnames_lookup), "ipv4_addresses": mapping_str(ipv4_addresses_lookup)})
 
         try:
             _ip_sla_stats, source_params = tasks.pop(task_id)
@@ -207,7 +215,8 @@ actor IpSlaTransform(
                         is_bidirectional = _is_bidirectional is not None and _is_bidirectional
                         _create_network_node(root, dst_svc, None if is_bidirectional else dst_stats, src_svc)
 
-            #print("cat8k.ip-sla-transform - output:\n", root.pretty_format_node_tree())
+            # if log.output_level >= logging.TRACE:
+            #     log.trace("output", root.pretty_format_node_tree())
 
             output_cb(root, source_params)
 
