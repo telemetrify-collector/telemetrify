@@ -19,6 +19,10 @@ module telemetrify {
     prefix ncs;
   }
 
+  import tailf-ncs-ned {
+    prefix ned;
+  }
+
   description
       "Telemetry streaming implemented in Acton";
 
@@ -99,6 +103,13 @@ module telemetrify {
             }
           }
 
+          container schema {
+            description "Schema settings for source (pre-transform).";
+            when "../netconf-rpc-poll
+                or ../netconf-get-poll";
+            uses schema-settings-g;
+          }
+
           // TODO: Transform at source
           // uses transform-g;
         }
@@ -148,7 +159,13 @@ module telemetrify {
           // Per sink transform
           uses transform-g;
 
-          // Moar params? Translations, default namespaces etc...
+          // TODO
+          // container schema {
+          //   description "Schema settings for sink (post-transform).";
+          //   uses schema-settings-g;
+          // }
+
+          // Moar params? default namespaces etc...
         }
       }
 
@@ -222,6 +239,18 @@ module telemetrify {
         type string;
       }
       // TODO: Transformation language?
+    }
+  }
+
+  grouping schema-settings-g {
+    leaf ned-id {
+      description
+        "Override ned-id otherwise gathered from /devices/device/device-type/*/ned-id or from
+        /devices/device/live-status-protocol/device-type/*/ned-id.";
+
+      type identityref {
+        base ned:ned-id;
+      }
     }
   }
 
