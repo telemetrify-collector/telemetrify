@@ -198,8 +198,6 @@ class PassthroughRefiner(Refiner):
         self.subtrees = {}
 
     mut def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        _subtrees: dict[Keypath, TNode] = {}
-
         sub_identity = self.subscription_dependencies[0].identity
         keypaths = input_subs[sub_identity]
 
@@ -209,7 +207,6 @@ class PassthroughRefiner(Refiner):
 
             node = root
             sub_path = sub_identity.path
-            #for _id in sub_path:
             for path_index in range(0, len(sub_path), 1):
                 _id: Id = sub_path[path_index]
                 if isinstance(_id, Key) and _id.is_wildcard():
@@ -222,11 +219,9 @@ class PassthroughRefiner(Refiner):
                     break
 
             if node.exists():
-                _subtrees[keypath] = node
+                self.subtrees[keypath] = node
             else:
-                try_pop(_subtrees, keypath)
-
-        self.subtrees = _subtrees
+                try_pop(self.subtrees, keypath)
 
         return keypaths
 
