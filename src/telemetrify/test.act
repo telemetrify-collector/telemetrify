@@ -105,9 +105,7 @@ actor main(env):
     def run_test_subscriber(env: Env, opts: Opts):
         test_subscriber(env, opts)
 
-    # Pending actonc >0.18.5
-    # tests: dict[str, proc(env: Env, opts: Opts) -> None] = {
-    tests: dict[str, proc(Env, Opts) -> None] = {
+    tests: dict[str, proc(env: Env, opts: Opts) -> None] = {
         "maapi-schema": run_test_maapi_session_schema,
         "set-values-ikp": run_test_set_values_ikp,
         "set-values-hkp": run_test_set_values_hkp,
@@ -135,9 +133,7 @@ actor main(env):
             if not opts.parse(env, cmd, args[2:]):
                 print_help_and_exit()
             t = tests[cmd]
-            # Pending actonc >0.18.5
-            # t(env=env, opts=opts)
-            t(env, opts)
+            t(env=env, opts=opts)
         else:
             print_help_and_exit()
     else:
