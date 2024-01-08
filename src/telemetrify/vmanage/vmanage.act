@@ -103,17 +103,7 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
 #            conn.close()
 
     log.debug("VManageHTTPClient", {"host": host, "port": optional_str(port, "None"), "username": username})
-    conn = http.Client(cap, "https", host, port, False, _on_http_connect, _on_http_error, log_handler)
-
-
-actor VManagePoller(tcpccap: net.TCPConnectCap, log_handler: logging.Handler):
-    def _on_http_connect(c):
-        pass
-    def _on_http_error(c, errmsg):
-        pass
-    def _on_http_receive(c, data):
-        pass
-    hc = http.Client(tcpccap, "https", "127.0.0.1", 1234, False, _on_http_connect, _on_http_error, log_handler)
+    conn = http.Client(cap, host, _on_http_connect, _on_http_error, port=port, tls_verify=False, log_handler=log_handler)
 
 
 ##############
