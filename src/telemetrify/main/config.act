@@ -209,29 +209,46 @@ class DeviceNedIdBaseRefiner(MirrorRefiner):
         return 1012
 
 class DeviceSourceNetconfRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        #super().__init__([Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'sources'), PTag('tlm', 'netconf')])]))
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'sources'), PTag('tlm', 'netconf')]), SUB_TYPE_RUNNING), True)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('ncs', 'devices'),
+                PTag('ncs', 'device'),
+                Key.wildcard(),
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'sources'),
+                PTag('tlm', 'netconf')]),
+                SUB_TYPE_RUNNING), True))
 
     @staticmethod
     def id() -> int:
         return 1002
 
 class DeviceSourceVmanageRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
     def __init__(self):
-        #super().__init__([Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'sources'), PTag('tlm', 'netconf')])]))
-        self.priority = 0
-        self.subscription_dependencies = [SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify'), PTag('tlm', 'sources'), PTag('tlm', 'vmanage-http')]), SUB_TYPE_RUNNING), True)]
-        self.refiner_dependencies = []
-        self.subtrees = {}
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('ncs', 'devices'),
+                PTag('ncs', 'device'),
+                Key.wildcard(),
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'sources'),
+                PTag('tlm', 'vmanage-http')]),
+                SUB_TYPE_RUNNING), True))
 
     @staticmethod
     def id() -> int:
         return 1019
-
 
 SOURCE_KEY_NETCONF = Keypath([Key(['netconf'])])
 SOURCE_KEY_VMANAGE_HTTP = Keypath([Key(['vmanage-http'])])
@@ -259,7 +276,7 @@ class DeviceSourceRefiner(Refiner):
             self,
             [],
             [
-                DeviceSubscriptionSourceRefiner.id(),
+                DeviceSubscriptionSourceBaseRefiner.id(),
                 DeviceSourceNetconfRefiner.id(),
                 DeviceSourceVmanageRefiner.id(),
             ])
@@ -275,7 +292,7 @@ class DeviceSourceRefiner(Refiner):
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         updated: set[Keypath] = set([])
 
-        dev_sub_source_refiner, dev_sub_keys = input_refiners[DeviceSubscriptionSourceRefiner.id()]
+        dev_sub_source_refiner, dev_sub_keys = input_refiners[DeviceSubscriptionSourceBaseRefiner.id()]
 
         for dev_sub_key in dev_sub_keys:
             dev_key = dev_sub_key.try_slice(0, 1)
@@ -365,7 +382,7 @@ class DeviceStreamerRefiner(Refiner):
                 #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify')]), SUB_TYPE_RUNNING), True)
             ],
             [
-                DeviceSubscriptionSourceRefiner.id(),
+                DeviceSubscriptionSourceBaseRefiner.id(),
                 DeviceSettingsRefiner.id()
             ])
 
@@ -378,7 +395,7 @@ class DeviceStreamerRefiner(Refiner):
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
         updated: set[Keypath] = set([])
 
-        sub_refiner, sub_keys = input_refiners[DeviceSubscriptionSourceRefiner.id()]
+        sub_refiner, sub_keys = input_refiners[DeviceSubscriptionSourceBaseRefiner.id()]
         device_settings_refiner, device_settings_keys = input_refiners[DeviceSettingsRefiner.id()]
 
         update_device_settings_keys = set(device_settings_keys)
