@@ -85,7 +85,7 @@ actor M3dbSink(auth: WorldCap, config: TNode, shared_schema: schema.SharedSchema
         log.info("SINK m3db CONNECTED", None)
 
     def _on_tsdb_init(c: tsdb.m3.Client, success: bool):
-        writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema)
+        writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema, logh)
         log.info("SINK m3db INITIALIZED", None)
 
     def _on_tsdb_error(c: tsdb.m3.Client, e):

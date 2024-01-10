@@ -485,7 +485,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         c.quick_init(lambda c, s: _on_tsdb_init(c, shared_schema))
 
     def _on_tsdb_init(c, shared_schema):
-        writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema)
+        writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema, None)
         vmx_sess = telemetrify.net.netconf.Client(env.auth, "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, shared_schema, writer), _on_nc_error, None, None)
 
     def _on_tsdb_error(c, e):

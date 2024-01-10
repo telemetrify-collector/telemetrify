@@ -11,6 +11,7 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
 import xml
 import re
 from telemetrify.common.mod import *
@@ -47,58 +48,63 @@ def flatten_tags(tag_stack: list[list[(str, str)]]) -> dict[str, str]:
 
     return ret
 
-def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, path: list[str], tags: list[list[(str, str)]]) -> list[tsdb.m3.Metric]:
+def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, path: list[str], tags: list[list[(str, str)]], log: logging.Logger) -> list[tsdb.m3.Metric]:
     s_node = cursor.node()
 
-    print("Metric conversion at tags:", node.tag(), cursor.lookup_itag(s_node.tag))
-    if len(s_node.keys) > 0:
-        print("Metric conversion schema keys", cursor.lookup_itag(s_node.tag), "-", s_node.keys, cursor.lookup_itag(s_node.keys[0].tag))
-    if isinstance(node, XLeaf):
-        print("Metric conversion data node is XLeaf")
-        leafval = node.value()
+    if node.op() in [OP_NOCREATE, OP_DELETE]:
+        return []
+
+    if log.output_level >= logging.TRACE:
+        log.trace("Metric conversion at tags:", {"tag": optional_str(node.tag(), "None"), "itag": optional_str(cursor.lookup_itag(s_node.tag), "None")})
+        if len(s_node.keys) > 0:
+            log.trace("Metric conversion schema keys " + optional_str(cursor.lookup_itag(s_node.tag), "None") + " - " + list_str(s_node.keys) + " " + optional_str(cursor.lookup_itag(s_node.keys[0].tag), "None"), None)
+    leafval = node.value()
+    if leafval is not None:
+        log.trace("Metric conversion data node is LEAF", None)
         floatval = None
         _tag = node.tag()
 
         if _tag is not None:
             _itag = cursor.lookup_itag(_tag)
             if _itag is not None:
-                if leafval is not None:
-                    print("Metric conversion data node XLeaf", _itag.name, "str value", str(leafval).strip("\n"))
-                    _type = s_node.value_type
-                    if _type is not None:
-                        print("Metric conversion", _itag.name, "schema type is", str(_type))
-                        if isinstance(leafval, str):
-                            nativeval = _type.netconf_to_value(leafval.strip("\n"), cursor, node.namespaces())
-                            if nativeval is not None:
-                                print("Metric conversion data node XLeaf type native value", str(nativeval))
-                                if isinstance(nativeval, int):
-                                    print("Metric conversion data node XLeaf type int")
-                                    return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), float(nativeval), timestamp)]
-                                elif isinstance(nativeval, float):
-                                    print("Metric conversion data node XLeaf type float")
-                                    return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), nativeval, timestamp)]
-                        else:
-                            print("leafval is not a str, skipping...")
+                if log.output_level >= logging.TRACE:
+                    log.trace("Metric conversion data node LEAF", {"name": _itag.name, "str_value": str(leafval).strip("\n")})
+                _type = s_node.value_type
+                if _type is not None:
+                    log.trace("Metric conversion", {"name": _itag.name, "schema_type": _type})
+                    if isinstance(leafval, str):
+                        nativeval = _type.netconf_to_value(leafval.strip("\n"), cursor, node.namespaces())
+                        if nativeval is not None:
+                            if log.output_level >= logging.TRACE:
+                                log.trace("Metric conversion data node LEAF type native", {"value": str(nativeval)})
+                            if isinstance(nativeval, int):
+                                log.trace("Metric conversion data node LEAF type int", None)
+                                return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), float(nativeval), timestamp)]
+                            elif isinstance(nativeval, float):
+                                log.trace("Metric conversion data node LEAF type float", None)
+                                return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), nativeval, timestamp)]
                     else:
-                        print("Metric conversion", _itag.name, "schema type is None")
+                        log.trace("leafval is not a str, skipping...", None)
+                else:
+                    log.trace("Metric conversion schema type is None", {"name": _itag.name})
 
-                        trimmed_strval = str(leafval).strip("\n")
-                        floatval = try_parse_float(trimmed_strval)
-                        if floatval is not None:
-                            return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
-                        else:
-                            print("Metric conversion", _itag.name, "value cannot convert to float.")
+                    trimmed_strval = str(leafval).strip("\n")
+                    floatval = try_parse_float(trimmed_strval)
+                    if floatval is not None:
+                        return [tsdb.m3.Metric("_".join(path).replace("-", "_", None), flatten_tags(tags), floatval, timestamp)]
+                    else:
+                        log.trace("Metric conversion value cannot convert to float.", {"name": _itag.name})
         return []
-    elif isinstance(node, XTree):
-        print("Metric conversion data node is XTree")
+    else:
+        log.trace("Metric conversion data node is TREE", None)
         ret = []
         key_names = []
         for key in s_node.keys:
             itag = cursor.lookup_itag(key.tag)
             if isinstance(itag, ITag):
-                print("Metric conversion key itag:", itag)
+                log.trace("Metric conversion key itag:", {"itag": itag})
                 key_names.append(itag.name)
-        print("Metric conversion key names", key_names)
+        log.trace("Metric conversion key names", {"key_names": key_names})
         keyval_pairs = []
         non_key_children = []
         for child in node.children():
@@ -121,19 +127,21 @@ def get_metrics_from_tree(node: Node, cursor: schema.Cursor, timestamp: int, pat
                 if itag is not None:
                     if dumb_push(cursor, itag.name):
                         path.append(itag.name)
-                        ret += get_metrics_from_tree(child, cursor, timestamp, path, tags)
+                        ret += get_metrics_from_tree(child, cursor, timestamp, path, tags, log)
                         path.pop(-1)
                         cursor.pop()
                     else:
-                        print("Metric conversion tag not found in schema:", itag.name)
+                        log.trace("Metric conversion tag not found in schema:", {"name": itag.name})
         tags.pop(-1)
 
         return ret
-    else:
-        print("Metric conversion data node not XTree or XLeaf")
-        return []
 
-actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
+actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("tsdb-writer")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
 
     var write_tasks = Queue()
 
@@ -152,7 +160,7 @@ actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
         cursor: schema.Cursor = schema.Cursor(_schema)
         if schema_path is not None:
             if not cursor.push_schema_path(schema_path):
-                print("Invalid schema path:", schema_path)
+                log.trace("Invalid schema path:", {"schema_path": schema_path})
                 return
 
         path = []
@@ -165,30 +173,30 @@ actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
             if itag is not None:
                 path.append(itag.name)
 
-        metrics = get_metrics_from_tree(node, cursor, timestamp, path, [base_tags])
-        print("Metrics to write: ", metrics)
+        metrics = get_metrics_from_tree(node, cursor, timestamp, path, [base_tags], log)
+        log.trace("Metrics to write:", {"metrics": metrics})
         #if len(metrics) > 0:
-        #    print("First metric to write: ", metrics[0])
+        #    log.trace("First metric to write:", {"metric": metrics[0]})
         #else:
-        #    print("No metrics to write")
+        #    log.trace("No metrics to write", None)
 
         def _on_response(c, success):
             pass
 #            if success:
-#                print("Metric send successful")
+#                log.trace("Metric send successful", None)
 #            else:
-#                print("Metric send failed")
+#                log.trace("Metric send failed", None)
 
         def _on_last_response(c, success, cb: action(TSDBWriter, ?Exception) -> None):
             pass
 #            if success:
-#                print("Metric final send successful")
+#                log.trace("Metric final send successful", None)
 #            else:
-#                print("Metric final send failed")
+#                log.trace("Metric final send failed", None)
 
             cb(self, None)
 
-        print("About to iterate over metrics")
+        log.trace("About to iterate over metrics", None)
         _remaining_metrics = len(metrics)
 
         if _remaining_metrics == 0:
@@ -196,8 +204,8 @@ actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
 
         for metric in metrics:
             _remaining_metrics -= 1
-            #print("Metric iteration")
-            #print("Metric to write", metric)
+            #log.trace("Metric iteration", None)
+            #log.trace("Metric to write", {"metric": metric})
             # XXX This is really a race condition, to fix later
             if _remaining_metrics > 0:
                 m3c.send_metric(metric, _on_response)
@@ -217,14 +225,14 @@ actor TSDBWriter(m3c: tsdb.m3.Client, shared_schema: schema.SharedSchema):
         pending_mount_id = None
 
     def _poll():
-        print("writer: begin poll")
+        log.trace("writer: begin poll", None)
         while True:
             if state == _STATE_IDLE:
-                print("writer:   STATE_IDLE")
+                log.trace("writer:   STATE_IDLE", None)
                 if write_tasks:
-                    print("writer:     Setup write task")
+                    log.trace("writer:     Setup write task", None)
                     #_setup_next_task()
                 else:
-                    print("writer:     No tasks")
+                    log.trace("writer:     No tasks", None)
                     break
 
