@@ -324,7 +324,7 @@ actor main(env):
         p = argparse.Parser()
         p.add_bool("debug", "Enable debug logging")
         pp = p.add_cmd("poll", "Poll", _cmd_poll)
-        pp.add_arg("url", "URL of vManage server", "?")
+        pp.add_arg("url", "URL of vManage server", True, "?")
         pp.add_option("username", "str", "?", None, "Username")
         pp.add_option("password", "str", "?", None, "Password")
 
