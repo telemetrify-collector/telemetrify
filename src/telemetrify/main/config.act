@@ -14,22 +14,7 @@
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.nso.subscriber import Refiner, PassthroughRefiner, MirrorRefiner, SubscriptionSpec, SubscriptionIdentity, SUB_TYPE_RUNNING
-
-class DeviceSettings(object):
-    @property
-    username: ?str
-    @property
-    password: ?str
-
-    def __init__(self, username: ?str, password: ?str):
-        self.username = username
-        self.password = password
-
-    def __str__(self) -> str:
-        return "DeviceSettings(username=" + optional_str(self.username, "") + ", password=" + optional_str(self.password, "") + ")"
-
-    def __repr__(self):
-        return self.__str__()
+from telemetrify.main.common import *
 
 class DeviceSettingsRefiner(Refiner):
     @property
@@ -358,19 +343,6 @@ class DeviceSourceRefiner(Refiner):
                     return try_get(sources, source_key)
         return None
 
-class DeviceStreamerConfig(object):
-    @property
-    device_settings: ?DeviceSettings
-
-    def __init__(self, auth: ?DeviceSettings):
-        self.auth = auth
-
-    def __str__(self) -> str:
-        return "DeviceStreamerConfig(" + optional_str(self.device_settings, "None") + ")"
-
-    def __repr__(self):
-        return self.__str__()
-
 class DeviceStreamerRefiner(Refiner):
     @property
     device_configs: dict[Keypath, DeviceStreamerConfig]
@@ -424,79 +396,6 @@ class DeviceStreamerRefiner(Refiner):
 
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.device_configs, keys)
-
-class SchemaSettings(object):
-    @property
-    config_ned_id: ?HTag
-    @property
-    live_status_ned_id: ?HTag
-
-    def __init__(self, config_ned_id: ?HTag, live_status_ned_id: ?HTag):
-        self.config_ned_id = config_ned_id
-        self.live_status_ned_id = live_status_ned_id
-
-    def __str__(self) -> str:
-        return self.__repr__()
-
-    def __repr__(self):
-        return "SchemaSettings(" + optional_str(self.config_ned_id, "None") + ", " + optional_str(self.live_status_ned_id, "None") + ")"
-
-    @staticmethod
-    def from_device_config_and_schema_config(device_config: TNode, schema_config: TNode) -> SchemaSettings:
-        ned_id = SchemaSettings._get_schema_config_ned_id(schema_config)
-        if ned_id is not None:
-            return SchemaSettings(ned_id, ned_id)
-
-        base_ned_id = SchemaSettings._get_device_type_ned_id(device_config)
-        live_ned_id = base_ned_id
-
-        # TODO: How to (and do we want to) handle multiple live-status-protocol ned-ids?
-        # For now we require schema-setting override in case of many...
-        for live_status_protocol_elem in device_config[PTag('ncs', 'live-status-protocol')]:
-            _ned_id = SchemaSettings._get_device_type_ned_id(live_status_protocol_elem)
-            if _ned_id is not None:
-                live_ned_id = _ned_id
-                break
-
-        return SchemaSettings(base_ned_id, live_ned_id)
-
-    @staticmethod
-    def _get_device_type_ned_id(base_node: TNode) -> ?HTag:
-        device_type_node = base_node[PTag('ncs', 'device-type')]
-        ned_id: ?HTag = None
-        ned_id = device_type_node[PTag('ncs', 'netconf')][PTag('ncs', 'ned-id')].try_htag()
-        if ned_id is not None:
-            return ned_id
-        ned_id = device_type_node[PTag('ncs', 'generic')][PTag('ncs', 'ned-id')].try_htag()
-        if ned_id is not None:
-            return ned_id
-        ned_id = device_type_node[PTag('ncs', 'cli')][PTag('ncs', 'ned-id')].try_htag()
-        if ned_id is not None:
-            return ned_id
-        ned_id = device_type_node[PTag('ncs', 'snmp')][PTag('ncs', 'ned-id')].try_htag()
-        if ned_id is not None:
-            return ned_id
-        return None
-
-    @staticmethod
-    def _get_schema_config_ned_id(base_node: TNode) -> ?HTag:
-        return base_node[PTag('tlm', 'ned-id')].try_htag()
-
-class SubscriptionSourceConfig(object):
-    @property
-    config: TNode
-    @property
-    schema_settings: SchemaSettings
-
-    def __init__(self, config: TNode, schema_settings: SchemaSettings):
-        self.config = config
-        self.schema_settings = schema_settings
-
-    def __str__(self) -> str:
-        return "SubscriptionSourceConfig(config=" + optional_str(self.config, "") + ", schema_settings=" + optional_str(self.schema_settings, "") + ")"
-
-    def __repr__(self):
-        return self.__str__()
 
 class DeviceSubscriptionSourceRefiner(Refiner):
     @property
@@ -699,22 +598,6 @@ class DeviceSinksRefiner(Refiner):
                 if device_key in devices:
                     return try_get(self.sinks, sink_key)
         return None
-
-# class SubscriptionSinkConfig(object):
-#     @property
-#     config: TNode
-#     @property
-#     schema_settings: SchemaSettings
-
-#     def __init__(self, config: TNode, schema_settings: SchemaSettings):
-#         self.config = config
-#         self.schema_settings = schema_settings
-
-#     def __str__(self) -> str:
-#         return "SubscriptionSinkConfig(config=" + optional_str(self.config, "") + ", schema_settings=" + optional_str(self.schema_settings, "") + ")"
-
-#     def __repr__(self):
-#         return self.__str__()
 
 class DeviceSubscriptionSinkRefiner(Refiner):
     @property

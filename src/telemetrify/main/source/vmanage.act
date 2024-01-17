@@ -1,0 +1,312 @@
+import logging
+import http
+import net
+import time
+import xml
+
+import telemetrify.net.netconf as netconf
+import telemetrify.nsoapi.schema as schema
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nsoapi.schema import QName, SchemaPath
+from telemetrify.main.common import *
+from telemetrify.main.config import *
+import telemetrify.vmanage.vmanage as vmanage
+
+actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+    var logh = logging.Handler("vmanage-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    var config: TNode = tnode_empty()
+    var client: ?vmanage.VManageHTTPClient = None
+    var client_seqno: int = 0
+    var subscribers: dict[Keypath, Subscriber] = {}
+
+    log.info("SOURCE vmanage CREATED", None)
+
+    def _on_client_connect(seqno: int):
+        if seqno != client_seqno:
+            return
+        _start_subscribers()
+
+    def _on_client_error(error_msg: str, seqno: int):
+        if seqno != client_seqno:
+            return
+        _close_client()
+        # TODO: Configurable retry timer/backoff?
+        after 1: _connect_client()
+
+    def _on_client_notif(node: xml.Node, seqno: int):
+        # if seqno != client_seqno:
+        #     return
+        pass
+
+    def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
+        log.debug("SOURCE vmanage CONFIG update", {"source_update": optional_str(source_update, "None")})
+        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": subscription_updates})
+
+        restart = False
+
+        if source_update is not None:
+            if _close_client():
+                restart = True
+
+            config = source_update
+
+            _connect_client()
+
+        for dev_sub_key, sub_update in subscription_updates:
+            if sub_update is not None:
+                sub = try_get(subscribers, dev_sub_key)
+                if sub is not None:
+                    sub.update_config(sub_update)
+                else:
+                    new_sub = _create_subscriber(dev_sub_key, sub_update)
+                    new_sub.update_config(sub_update)
+                    if not restart and client is not None:
+                        new_sub.start()
+                    subscribers[dev_sub_key] = new_sub
+            else:
+                sub = try_pop(subscribers, dev_sub_key)
+                if sub is not None:
+                    sub.close()
+
+        if restart:
+            _start_subscribers()
+
+    def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
+        sub_config = sub_update.config
+        if sub_config is not None:
+            _config = sub_config.config
+            if _config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
+                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema, logh)
+                return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
+
+        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
+
+    def _connect_client():
+        address = config[PTag('tlm', 'address')].try_str()
+        port = config[PTag('tlm', 'port')].try_int()
+        username = config[PTag('tlm', 'username')].try_str()
+        password = config[PTag('tlm', 'password')].try_str()
+
+        if address is not None and port is not None and \
+                username is not None and password is not None:
+
+            client_seqno += 1
+
+            def __on_client_connect(_c):
+                _on_client_connect(client_seqno)
+            #def __on_client_error(_c, e):
+            #    _on_client_error(e, client_seqno)
+
+            tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(auth)))
+            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, logh)
+            client = new_client
+
+        # # <TEST>
+        # client_seqno += 1
+        # after 0: _on_client_connect(client_seqno)
+        # # </TEST>
+
+    def _close_client() -> bool:
+        _client = client
+        if _client is not None:
+            _stop_subscribers()
+            # TODO: Gather stop replies from subscribers before closing netconf client?
+            _client.close()
+            client = None
+            return True
+        return False
+
+    def _start_subscribers():
+        for subscriber in subscribers.values():
+            subscriber.start()
+
+    def _stop_subscribers():
+        for subscriber in subscribers.values():
+            subscriber.stop()
+
+    def get(path: str, cb: action(?http.Response) -> None) -> None:
+        if client is not None:
+            def __callback(_c, n):
+                cb(n)
+            client.get(path, __callback)
+
+    def close():
+        _client = client
+        if _client is not None:
+            _client.close()
+            client = None
+        for subscriber in subscribers.values():
+            subscriber.close()
+        #subscribers.clear()
+        subscribers = {}
+        log.info("SOURCE vmanage CLOSED", None)
+
+actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("vmanage-poll-subscription")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
+    sinks = SubscriptionSinkCollection()
+
+    var poller_seqno: int = 0
+    var poll_path: ?str = None
+    var schema_path: ?SchemaPath = None
+    var period: time.Duration = time.Duration(60, 0, time.MonotonicClock(0, 0, 0))
+
+    var is_running: bool = False
+
+    log.info("SUBSCRIBER vmanage-poll CREATED", None)
+
+    def _do_poll(seqno: int, poll_ts: time.Instant):
+        if seqno != poller_seqno:
+            return
+
+        if poll_path is not None:
+            request_ts = time.time()
+            url = "/dataservice" + poll_path
+            source.get("/dataservice" + poll_path, lambda r: _on_poll_reply(seqno, poll_ts, request_ts, r))
+            #try:
+            #    source.get("/dataservice" + poll_path, lambda r: _on_poll_reply(seqno, poll_ts, request_ts, r))
+            #except vmanage.NoConnError:
+            #    after 1.0: _do_poll(seqno, next_ts)
+
+            # # <TEST>
+            # body = """{
+            # "header": {
+            #     "generatedOn": 1695290859047
+            # },
+            # "total_records": 2,
+            # "data": [
+            #     {
+            #       "latency": 5,
+            #       "dst_ip": "10.1.3.1",
+            #       "src_ip": "10.1.1.1",
+            #       "siteid": 228,
+            #       "loss_percentage": 0,
+            #       "jitter": 8,
+            #       "name": "10.100.1.1:public-internet-10.100.3.1:public-internet",
+            #       "host_name": "de-bsp-aachen-ce-3"
+            #     },
+            #     {
+            #       "latency": 6,
+            #       "dst_ip": "10.1.1.1",
+            #       "src_ip": "10.1.3.1",
+            #       "siteid": 230,
+            #       "loss_percentage": 1.3,
+            #       "jitter": 9,
+            #       "name": "10.100.3.1:public-internet-10.100.1.1:public-internet",
+            #       "host_name": "de-bsp-chemni-ce-2"
+            #     }
+            # ]
+            # }""".encode()
+
+            # response = http.Response(bytes([]), 200, {}, body)
+            # after 0: _on_poll_reply(seqno, poll_ts, request_ts, response)
+            # # </TEST>
+
+    def _on_poll_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, reply: ?http.Response):
+        if seqno != poller_seqno:
+            return
+
+        if reply is not None:
+            try:
+                ar = reply.decode_json()
+                ar_data = ar["data"]
+                if isinstance(ar_data, list):
+                    xnode = vmanage.approute_to_xnode(ar_data)
+                    source_params = tnode_root()
+                    source_params_try_append_dev_sub(source_params, dev_sub_key)
+                    source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
+                    if schema_path is not None:
+                        source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
+                    sinks.write(xnode, source_params)
+            except Exception as exc:
+                log.error("Exception", {"exception": exc})
+                log.debug("Reply body", {"body": reply.body})
+
+        _schedule_next_poll(seqno, last_ts)
+
+    def _schedule_next_poll(seqno: int, last_ts: time.Instant):
+        curr_ts = time.monotonic()
+        next_ts = last_ts.add(period)
+
+        if next_ts < curr_ts:
+            # Allow drift when reply arrived later than next period
+            # TODO: Quantize to period?
+            next_ts = curr_ts
+
+        # print("  last_ts:", last_ts)
+        # print("  curr_ts:", curr_ts)
+        # print("  next_ts:", next_ts)
+
+        delay = next_ts.since(curr_ts)
+        after delay.to_float(): _do_poll(seqno, next_ts)
+
+    def update_config(update: SubscriptionUpdate):
+        sinks.update(update.sinks)
+
+        _config = update.config
+        if _config is not None:
+            _stop_poller()
+
+            poll = _config.config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER]
+            path = poll[PTag('tlm', 'path')].try_str()
+            period_ms = poll[PTag('tlm', 'period')].try_int()
+
+            if path is not None:
+                poll_path = path
+                # TODO: Proper parsing into ptag-/key-path
+                #_tag = schema.QName.netconf_to_value(path, None)
+                _tag = QName.netconf_to_value(path, None)
+                if _tag is not None:
+                    _update_schema_cursor(Keypath([_tag]), _config.schema_settings)
+
+            if period_ms is not None and poll_path is not None:
+                period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
+                if is_running:
+                    _try_start_poller()
+
+    def _update_schema_cursor(kpath: Keypath, schema_settings: SchemaSettings):
+        cursor = schema.Cursor(_schema)
+        if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
+            if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
+                # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                if cursor.node().is_mount_point():
+                    ned_id = schema_settings.live_status_ned_id
+                    if ned_id is not None:
+                        cursor.set_mount_id(ned_id)
+                schema_path = cursor.get_schema_path()
+
+    def _try_start_poller():
+        if poll_path is not None:
+            curr_ts = time.monotonic()
+            after 0: _do_poll(poller_seqno, curr_ts)
+
+    def _stop_poller():
+        poller_seqno += 1
+
+    def start():
+        if not is_running:
+            log.info("SUBSCRIBER vmanage-poll STARTED", None)
+            is_running = True
+            _try_start_poller()
+
+    def stop():
+        if is_running:
+            log.info("SUBSCRIBER vmanage-poll STOPPED", None)
+            is_running = False
+            _stop_poller()
+
+    def close():
+        stop()
+        log.info("SUBSCRIBER vmanage-poll CLOSED", None)
