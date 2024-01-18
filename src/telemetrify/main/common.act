@@ -1,0 +1,338 @@
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+
+def tnode_empty() -> TNode:
+    return TNode(OP_NONE, PTag.root())
+
+def tnode_root() -> TNode:
+    return TTree(OP_NONE, PTag.root(), None, {})
+
+#
+# Sink
+#
+
+class Sink(object):
+    @property
+    write_fn: action(Node, TNode, TNode) -> None
+    @property
+    close_fn: action() -> None
+
+    def __init__(
+            self,
+            write_fn: action(Node, TNode, TNode) -> None,
+            close_fn: action() -> None,
+            ):
+        self.write_fn = write_fn
+        self.close_fn = close_fn
+
+    def write(self, node: Node, source_params: TNode, sink_config: TNode) -> None:
+        self.write_fn(node, source_params, sink_config)
+
+    def close(self):
+        self.close_fn()
+#
+# Source
+#
+
+class Source(object):
+    @property
+    update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None
+    @property
+    close_fn: action() -> None
+    @property
+    subscription_keys: set[Keypath]
+
+    def __init__(
+            self,
+            key: Keypath,
+            update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None,
+            close_fn: action() -> None
+            ):
+        self.key = key
+        self.update_config_fn = update_config_fn
+        self.close_fn = close_fn
+        self.subscription_keys = set([])
+
+    def has_subscriptions(self) -> bool:
+        return bool(self.subscription_keys)
+
+    def update_config(self, source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
+        for dev_sub_key, sub_update in subscription_updates:
+            if sub_update is not None:
+                self.subscription_keys.add(dev_sub_key)
+            else:
+                self.subscription_keys.discard(dev_sub_key)
+
+        self.update_config_fn(source_update, subscription_updates)
+
+    def close(self):
+        self.close_fn()
+
+#
+# Subscription
+#
+
+class Subscriber(object):
+    @property
+    update_config_fn: action(SubscriptionUpdate) -> None
+    @property
+    start_fn: action() -> None
+    @property
+    stop_fn: action() -> None
+    @property
+    close_fn: action() -> None
+
+    def __init__(
+            self,
+            update_config_fn: action(SubscriptionUpdate) -> None,
+            start_fn: action() -> None,
+            stop_fn: action() -> None,
+            close_fn: action() -> None
+            ):
+        self.update_config_fn = update_config_fn
+        self.start_fn = start_fn
+        self.stop_fn = stop_fn
+        self.close_fn = close_fn
+
+    def update_config(self, update: SubscriptionUpdate):
+        self.update_config_fn(update)
+
+    def start(self):
+        self.start_fn()
+
+    def stop(self):
+        self.stop_fn()
+
+    def close(self):
+        self.close_fn()
+
+class SubscriptionSink(object):
+    @property
+    config: TNode # TODO: Not really needed here
+    @property
+    sink: Sink # TODO: Not really needed here
+    @property
+    transforms: list[Transform]
+    @property
+    head_cb: action(Node, TNode) -> None
+
+    def __init__(self, config: TNode, sink: Sink, transforms: list[Transform], head_cb: action(Node, TNode) -> None):
+        self.config = config
+        self.sink = sink
+        self.transforms = transforms
+        self.head_cb = head_cb
+
+    def __str__(self) -> str:
+        return "SubscriptionSink(" + str(self.config) + ", " + str(self.sink) + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
+    def write(self, node: Node, source_params: TNode) -> None:
+        self.head_cb(node, source_params)
+
+    def close(self):
+        # Close transforms but NOT sink as it's owned by DeviceStreamer
+        for transform in self.transforms:
+            transform.close()
+        self.transforms.clear()
+
+class SubscriptionSinkCollection(object):
+    @property
+    sub_sinks: dict[Keypath, SubscriptionSink]
+
+    def __init__(self):
+        self.sub_sinks = {}
+
+    def update(self, sink_updates: list[(Keypath, ?SubscriptionSink)]):
+        for sink_key, sink in sink_updates:
+            if sink is not None:
+                self.sub_sinks[sink_key] = sink
+                # TODO: Signal resync where needed for differential/delta subscriptions?
+            else:
+                try_pop(self.sub_sinks, sink_key)
+
+    def write(self, node: Node, source_params: TNode) -> None:
+        for sub_sink in self.sub_sinks.values():
+            sub_sink.write(node, source_params)
+
+    def close(self):
+        for sub_sink in self.sub_sinks.values():
+            sub_sink.close()
+        #self.sub_sinks.clear()
+        self.sub_sinks = {}
+
+# class SubscriptionSinkConfig(object):
+#     @property
+#     config: TNode
+#     @property
+#     schema_settings: SchemaSettings
+
+#     def __init__(self, config: TNode, schema_settings: SchemaSettings):
+#         self.config = config
+#         self.schema_settings = schema_settings
+
+#     def __str__(self) -> str:
+#         return "SubscriptionSinkConfig(config=" + optional_str(self.config, "") + ", schema_settings=" + optional_str(self.schema_settings, "") + ")"
+
+#     def __repr__(self):
+#         return self.__str__()
+
+class SubscriptionUpdate(object):
+    @property
+    config: ?SubscriptionSourceConfig
+    @property
+    sinks: list[(Keypath, ?SubscriptionSink)]
+
+    def __init__(self):
+        self.config = None
+        self.sinks = []
+
+    def __str__(self) -> str:
+        s = []
+        for sink_key, sink in self.sinks:
+            unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink, "None") + ")")
+        return "SubscriptionUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
+def source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath):
+    _device_name_key = dev_sub_key.try_get_key(0)
+    if _device_name_key is not None:
+        device_name = _device_name_key[0]
+        source_params.leaf(None, PTag(None, 'device-name'), device_name)
+    _sub_name_key = dev_sub_key.try_get_key(1)
+    if _sub_name_key is not None:
+        sub_name = _sub_name_key[0]
+        source_params.leaf(None, PTag(None, 'subscription-name'), sub_name)
+
+#
+# Transform
+#
+
+class Transform(object):
+    @property
+    post_fn: action(Node, TNode) -> None
+    @property
+    close_fn: action() -> None
+
+    def __init__(
+            self,
+            post_fn: action(Node, TNode) -> None,
+            close_fn: action() -> None,
+            ):
+        self.post_fn = post_fn
+        self.close_fn = close_fn
+
+    def post(self, node: Node, source_params: TNode) -> None:
+        self.post_fn(node, source_params)
+
+    def close(self):
+        self.close_fn()
+
+#
+# Config
+#
+
+class SubscriptionSourceConfig(object):
+    @property
+    config: TNode
+    @property
+    schema_settings: SchemaSettings
+
+    def __init__(self, config: TNode, schema_settings: SchemaSettings):
+        self.config = config
+        self.schema_settings = schema_settings
+
+    def __str__(self) -> str:
+        return "SubscriptionSourceConfig(config=" + optional_str(self.config, "") + ", schema_settings=" + optional_str(self.schema_settings, "") + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
+class DeviceStreamerConfig(object):
+    @property
+    device_settings: ?DeviceSettings
+
+    def __init__(self, auth: ?DeviceSettings):
+        self.auth = auth
+
+    def __str__(self) -> str:
+        return "DeviceStreamerConfig(" + optional_str(self.device_settings, "None") + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
+class DeviceSettings(object):
+    @property
+    username: ?str
+    @property
+    password: ?str
+
+    def __init__(self, username: ?str, password: ?str):
+        self.username = username
+        self.password = password
+
+    def __str__(self) -> str:
+        return "DeviceSettings(username=" + optional_str(self.username, "") + ", password=" + optional_str(self.password, "") + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
+class SchemaSettings(object):
+    @property
+    config_ned_id: ?HTag
+    @property
+    live_status_ned_id: ?HTag
+
+    def __init__(self, config_ned_id: ?HTag, live_status_ned_id: ?HTag):
+        self.config_ned_id = config_ned_id
+        self.live_status_ned_id = live_status_ned_id
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+    def __repr__(self):
+        return "SchemaSettings(" + optional_str(self.config_ned_id, "None") + ", " + optional_str(self.live_status_ned_id, "None") + ")"
+
+    @staticmethod
+    def from_device_config_and_schema_config(device_config: TNode, schema_config: TNode) -> SchemaSettings:
+        ned_id = SchemaSettings._get_schema_config_ned_id(schema_config)
+        if ned_id is not None:
+            return SchemaSettings(ned_id, ned_id)
+
+        base_ned_id = SchemaSettings._get_device_type_ned_id(device_config)
+        live_ned_id = base_ned_id
+
+        # TODO: How to (and do we want to) handle multiple live-status-protocol ned-ids?
+        # For now we require schema-setting override in case of many...
+        for live_status_protocol_elem in device_config[PTag('ncs', 'live-status-protocol')]:
+            _ned_id = SchemaSettings._get_device_type_ned_id(live_status_protocol_elem)
+            if _ned_id is not None:
+                live_ned_id = _ned_id
+                break
+
+        return SchemaSettings(base_ned_id, live_ned_id)
+
+    @staticmethod
+    def _get_device_type_ned_id(base_node: TNode) -> ?HTag:
+        device_type_node = base_node[PTag('ncs', 'device-type')]
+        ned_id: ?HTag = None
+        ned_id = device_type_node[PTag('ncs', 'netconf')][PTag('ncs', 'ned-id')].try_htag()
+        if ned_id is not None:
+            return ned_id
+        ned_id = device_type_node[PTag('ncs', 'generic')][PTag('ncs', 'ned-id')].try_htag()
+        if ned_id is not None:
+            return ned_id
+        ned_id = device_type_node[PTag('ncs', 'cli')][PTag('ncs', 'ned-id')].try_htag()
+        if ned_id is not None:
+            return ned_id
+        ned_id = device_type_node[PTag('ncs', 'snmp')][PTag('ncs', 'ned-id')].try_htag()
+        if ned_id is not None:
+            return ned_id
+        return None
+
+    @staticmethod
+    def _get_schema_config_ned_id(base_node: TNode) -> ?HTag:
+        return base_node[PTag('tlm', 'ned-id')].try_htag()
