@@ -73,7 +73,7 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
                 }
                 if jsessionid is not None:
                     headers["Cookie"] = jsessionid
-                conn.get(path, headers, _on_http_receive)
+                #conn.get(path, _on_http_receive, headers)
 
     def _check_login(c):
         def _on_http_login(c, data):
@@ -89,7 +89,7 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
 
         if jsessionid is None:
             log.info("ERROR: Not logged in (no session cookie)", None)
-            c.post("/j_security_check", {},
+            c.post("/j_security_check",
                    b'j_username=' + username.encode() + b'&j_password=' + password.encode(),
                    _on_http_login)
 
