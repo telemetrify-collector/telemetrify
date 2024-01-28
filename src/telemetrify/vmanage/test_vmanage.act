@@ -274,13 +274,6 @@ def _test_mock_sites():
 #        for e in d:
 #            print(e["name"], e["latency"])
 
-__unit_tests: dict[str, testing.UnitTest] = {
-    "_test_sites": testing.UnitTest(_test_mock_sites, "vmanage_mock_sites", "Test conversion from vManage JSON to XNode"),
-}
-
-actor __test_main(env):
-    testing.test_runner(env, __unit_tests, {}, {}, {})
-
 
 actor main(env):
     tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))

@@ -1493,12 +1493,3 @@ def _test_vmanage_json_to_xnode_blob():
     if isinstance(measurements, list):
         xn = approute_to_xnode(measurements)
         testing.assertIsNotNone(xn, "xnode should not be None")
-
-__unit_tests: dict[str, testing.UnitTest] = {
-    "_test_vmanage_json_to_acton_dict": testing.UnitTest(_test_vmanage_json_to_acton_dict, "vmanage_json_to_acton_dict", "Test vmanage json to acton dict"),
-    "_test_vmanage_json_to_xnode_minimal": testing.UnitTest(_test_vmanage_json_to_xnode_minimal, "vmanage_json_to_xnode_minimal", "Test conversion from vManage JSON to XNode on small struct"),
-    "_test_vmanage_json_to_xnode_blob": testing.UnitTest(_test_vmanage_json_to_xnode_blob, "vmanage_json_to_xnode_blob", "Test conversion from big blob of static vManage JSON to XNode"),
-}
-
-actor __test_main(env):
-    testing.test_runner(env, __unit_tests, {}, {}, {})
