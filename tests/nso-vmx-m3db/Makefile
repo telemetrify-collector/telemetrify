@@ -93,6 +93,7 @@ build-nso:
 
 rebuild-app:
 	$(MAKE) -C ../..
+	docker compose exec nso cp $(BIN_DIR)/telemetrify.main.main /var/opt/ncs/packages/telemetrify/bin/telemetrify.main.main
 
 rebuild-nso: build-nso
 	docker compose up -d nso
