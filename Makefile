@@ -38,7 +38,7 @@ nso:
 	$(MAKE) -C telemetrify-nso build
 .PHONY: nso
 
-clean: clean-packages
+clean:
 	rm -rf out
 .PHONY: clean
 
