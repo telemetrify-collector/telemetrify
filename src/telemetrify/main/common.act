@@ -1,3 +1,18 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import telemetrify.common.utils as utils
+
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 
@@ -7,26 +22,382 @@ def tnode_empty() -> TNode:
 def tnode_root() -> TNode:
     return TTree(OP_NONE, PTag.root(), None, {})
 
+SOURCE_PARAM_TIMESTAMP = PTag(None, 'timestamp')
+SOURCE_PARAM_SCHEMA_PATH = PTag(None, 'schema_path')
+SOURCE_PARAM_BASE_TAGS = PTag(None, 'base_tags')
+SOURCE_PARAM_RESET = PTag(None, 'reset')
+
+# STATE_NONE = 0
+STATE_STOPPED = 1 # valid target-/externally-visible- state
+STATE_STARTING = 2 # internal transition only, i.e. not a valid target-state
+STATE_RUNNING = 3 # valid target-/externally-visible- state
+STATE_RESTARTING = 5 # internal transition only, i.e. not a valid target-state
+STATE_STOPPING = 6 # internal transition only, i.e. not a valid target-state
+STATE_CLOSING = 8 # internal transition only, i.e. not a valid target-state
+STATE_CLOSED = 9 # valid target-/externally-visible- state
+
+def state_str(state: int) -> str:
+    # if state == STATE_NONE:
+    #     return "NONE"
+    if state == STATE_STOPPED:
+        return "STOPPED"
+    elif state == STATE_STARTING:
+        return "STARTING"
+    elif state == STATE_RUNNING:
+        return "RUNNING"
+    elif state == STATE_RESTARTING:
+        return "RESTARTING"
+    if state == STATE_STOPPING:
+        return "STOPPING"
+    elif state == STATE_CLOSING:
+        return "CLOSING"
+    elif state == STATE_CLOSED:
+        return "CLOSED"
+    raise ValueError("Unknown state value: " + str(state))
+
+class DelegateId:
+    @property
+    key: Keypath
+    @property
+    seqno: int
+
+    def __init__(self, key: Keypath, seqno: int):
+        self.key = key
+        self.seqno = seqno
+
+extension DelegateId(Hashable):
+    def __eq__(self, other):
+        return self.seqno == other.seqno and self.key == other.key
+
+    def __hash__(self):
+        return safe_hash(hash(self.key) + 4001 * hash(self.seqno))
+
+protocol Delegate:
+    set_target_state: action(int) -> None
+
+class DelegateData[T(Delegate)](object):
+    @property
+    identity: DelegateId
+    @property
+    delegate: T
+    @property
+    target_state: int
+
+    def __init__(self, identity: DelegateId, delegate: T):
+        self.identity = identity
+        self.delegate = delegate
+        self.target_state = STATE_STOPPED
+
+class DelegateManager[T(Delegate)](object):
+    @property
+    _delegates: dict[Keypath, DelegateData[T]]
+    @property
+    _pending_close: dict[Keypath, dict[DelegateId, T]]
+    @property
+    _pending_state_transition: set[DelegateId]
+    @property
+    _next_seqno: int
+    @property
+    _target_state: int
+    @property
+    _on_delegate_reached_state_trampoline_fn: action(DelegateId, int) -> None
+    @property
+    _on_joint_state_cb: proc(int) -> None
+
+    def __init__(self,
+            on_delegate_reached_state_trampoline_fn: action(DelegateId, int) -> None,
+            on_joint_state_cb: proc(int) -> None):
+
+        self._delegates = {}
+        self._pending_close = {}
+        self._pending_state_transition = set([])
+        self._next_seqno = 0
+        self._target_state = STATE_STOPPED
+        self._on_delegate_reached_state_trampoline_fn = on_delegate_reached_state_trampoline_fn
+        self._on_joint_state_cb = on_joint_state_cb
+
+def DelegateManager_try_get[T(Delegate)](self: DelegateManager[T], key: Keypath) -> ?T:
+    delegate_data = utils.try_get(self._delegates, key)
+    if delegate_data is not None:
+        return delegate_data.delegate
+    return None
+
+def DelegateManager_reserve[T(Delegate)](self: DelegateManager[T], key: Keypath) -> (DelegateId, action(int) -> None):
+    delegate_id = DelegateId(key, self._next_seqno)
+    self._next_seqno += 1
+
+    def wrapper(state: int) -> None:
+        self._on_delegate_reached_state_trampoline_fn(delegate_id, state)
+
+    return (delegate_id, wrapper)
+
+def DelegateManager_get_target_state[T(Delegate)](self: DelegateManager[T]) -> int:
+    return self._target_state
+
+def DelegateManager_set_target_state[T(Delegate)](self: DelegateManager[T], target_state: int):
+    if self._target_state != target_state:
+        self._target_state = target_state
+        for delegate_data in list(self._delegates.values()):
+            DelegateManager__update_delegate_target_state(self, delegate_data, self._target_state)
+    DelegateManager__evaluate_settled_delegate_state(self)
+
+def DelegateManager__update_delegate_target_state[T(Delegate)](self: DelegateManager[T], delegate_data: DelegateData[T], target_state: int):
+    if delegate_data.target_state != target_state:
+        if target_state == STATE_RUNNING and delegate_data.identity.key in self._pending_close:
+            delegate_data.target_state = target_state
+        else:
+            DelegateManager__set_delegate_target_state(self, delegate_data, target_state)
+
+def DelegateManager__set_delegate_target_state[T(Delegate)](self: DelegateManager[T], delegate_data: DelegateData[T], target_state: int):
+    delegate_data.target_state = target_state
+    if target_state == STATE_CLOSED:
+        utils.try_pop(self._delegates, delegate_data.identity.key)
+        dict_dict_add(self._pending_close, delegate_data.identity.key, delegate_data.identity, delegate_data.delegate)
+    self._pending_state_transition.add(delegate_data.identity)
+    delegate_data.delegate.set_target_state(target_state)
+
+def DelegateManager__evaluate_settled_delegate_state[T(Delegate)](self: DelegateManager[T]):
+    if not self._pending_state_transition:
+        self._on_joint_state_cb(self._target_state)
+
+def DelegateManager_on_delegate_reached_state[T(Delegate)](self: DelegateManager[T], delegate_id: DelegateId, state: int):
+    self._pending_state_transition.discard(delegate_id)
+    if state == STATE_CLOSED:
+        dict_dict_try_pop(self._pending_close, delegate_id.key, delegate_id)
+        if delegate_id.key not in self._pending_close:
+            successor_delegate_data = utils.try_get(self._delegates, delegate_id.key)
+            if successor_delegate_data is not None:
+                DelegateManager__set_delegate_target_state(self, successor_delegate_data, successor_delegate_data.target_state)
+    else:
+        delegate_data = utils.try_get(self._delegates, delegate_id.key)
+        if delegate_data is not None and state != delegate_data.target_state:
+            DelegateManager__update_delegate_target_state(self, delegate_data, delegate_data.target_state)
+    DelegateManager__evaluate_settled_delegate_state(self)
+
+def DelegateManager_add[T(Delegate)](self: DelegateManager[T], delegate_id: DelegateId, delegate: T, setup_fn: proc(T) -> None):
+    DelegateManager_remove(self, delegate_id.key)
+    delegate_data = DelegateData(delegate_id, delegate)
+    self._delegates[delegate_id.key] = delegate_data
+    setup_fn(delegate)
+    DelegateManager__update_delegate_target_state(self, delegate_data, self._target_state)
+
+def DelegateManager_remove[T(Delegate)](self: DelegateManager[T], key: Keypath):
+    delegate_data = utils.try_pop(self._delegates, key)
+    if delegate_data is not None:
+        DelegateManager__set_delegate_target_state(self, delegate_data, STATE_CLOSED)
+
+class DelegateMiddleManager[T(Delegate)](object):
+    @property
+    target_state: int
+    @property
+    current_state: int
+    @property
+    _delegate_manager: DelegateManager[T]
+    @property
+    _start_fn: proc() -> None
+    @property
+    _stop_fn: proc() -> None
+    @property
+    _reached_state_cb: action(int) -> None
+
+    def __init__(self,
+            reached_state_cb: action(int) -> None,
+            on_delegate_reached_state_trampoline_fn: action(DelegateId, int) -> None,
+            start_inner_fn: ?proc() -> None,
+            stop_inner_fn: ?proc() -> None):
+
+        self.target_state = STATE_STOPPED
+        self.current_state = STATE_STOPPED
+        self._delegate_manager = DelegateManager(on_delegate_reached_state_trampoline_fn, lambda s: DelegateMiddleManager__on_delegates_joint_state(self, s))
+
+        self._start_fn = start_inner_fn if start_inner_fn is not None else lambda: DelegateMiddleManager_on_inner_started(self)
+        self._stop_fn = stop_inner_fn if stop_inner_fn is not None else lambda: DelegateMiddleManager_on_inner_stopped(self)
+        self._reached_state_cb = reached_state_cb
+
+def DelegateMiddleManager_on_inner_started[T(Delegate)](self: DelegateMiddleManager[T]):
+    if self.current_state == STATE_STARTING:
+        self.current_state = STATE_RUNNING
+        self._reached_state_cb(STATE_RUNNING)
+        DelegateManager_set_target_state(self._delegate_manager, STATE_RUNNING)
+    else:
+        self._stop_fn()
+
+def DelegateMiddleManager_on_inner_stopped[T(Delegate)](self: DelegateMiddleManager[T]):
+    if self.current_state == STATE_RESTARTING:
+        self.current_state = STATE_STARTING
+        self._start_fn()
+    elif self.current_state == STATE_STOPPING:
+        self.current_state = STATE_STOPPED
+        self._reached_state_cb(STATE_STOPPED)
+    elif self.current_state == STATE_CLOSING:
+        self.current_state = STATE_CLOSED
+        self._reached_state_cb(STATE_CLOSED)
+
+def DelegateMiddleManager_try_restart_inner[T(Delegate)](self: DelegateMiddleManager[T]):
+    if self.current_state in [STATE_RUNNING, STATE_STARTING]:
+        self.current_state = STATE_RESTARTING
+        DelegateManager_set_target_state(self._delegate_manager, STATE_STOPPED)
+
+def DelegateMiddleManager_set_target_state[T(Delegate)](self: DelegateMiddleManager[T], target_state: int) -> bool:
+    self.target_state = target_state
+
+    if self.current_state == self.target_state:
+        self._reached_state_cb(target_state)
+        return True
+
+    elif self.current_state == STATE_CLOSED or self.current_state == STATE_CLOSING and target_state != STATE_CLOSED:
+        return False
+
+    if target_state == STATE_CLOSED:
+        if self.current_state == STATE_STOPPED:
+            self.current_state = STATE_CLOSED
+            self._reached_state_cb(target_state)
+        elif self.current_state in [STATE_STOPPING, STATE_RESTARTING]:
+            self.current_state = STATE_CLOSING
+        else:
+            self.current_state = STATE_CLOSING
+            DelegateManager_set_target_state(self._delegate_manager, STATE_CLOSED)
+            return True
+    elif target_state == STATE_RUNNING:
+        if self.current_state == STATE_STOPPING:
+            self.current_state = STATE_RESTARTING
+        elif self.current_state == STATE_STOPPED:
+            self.current_state = STATE_STARTING
+            self._start_fn()
+        return True
+    elif target_state == STATE_STOPPED:
+        DelegateManager_set_target_state(self._delegate_manager, STATE_STOPPED)
+        return True
+
+    return False
+
+def DelegateMiddleManager__on_delegates_joint_state[T(Delegate)](self: DelegateMiddleManager[T], state: int):
+    if state == STATE_CLOSED:
+        if self.current_state == STATE_CLOSING:
+            self._stop_fn()
+    elif state == STATE_STOPPED:
+        if self.current_state in [STATE_RESTARTING, STATE_STOPPING, STATE_CLOSING]:
+            self._stop_fn()
+
+def DelegateMiddleManager_try_get_delegate[T(Delegate)](self: DelegateMiddleManager[T], key: Keypath) -> ?T:
+    return DelegateManager_try_get(self._delegate_manager, key)
+
+def DelegateMiddleManager_reserve_delegate[T(Delegate)](self: DelegateMiddleManager[T], key: Keypath) -> (DelegateId, action(int) -> None):
+    return DelegateManager_reserve(self._delegate_manager, key)
+
+def DelegateMiddleManager_add_delegate[T(Delegate)](self: DelegateMiddleManager[T], delegate_id: DelegateId, delegate: T, setup_fn: proc(T) -> None):
+    DelegateManager_add(self._delegate_manager, delegate_id, delegate, setup_fn)
+
+def DelegateMiddleManager_remove_delegate[T(Delegate)](self: DelegateMiddleManager[T], key: Keypath):
+    DelegateManager_remove(self._delegate_manager, key)
+
+def DelegateMiddleManager_on_delegate_reached_state[T(Delegate)](self: DelegateMiddleManager[T], delegate_id: DelegateId, state: int):
+    DelegateManager_on_delegate_reached_state(self._delegate_manager, delegate_id, state)
+
+class DelegateWorker(object):
+    @property
+    target_state: int
+    @property
+    current_state: int
+    @property
+    _start_fn: proc() -> None
+    @property
+    _stop_fn: proc() -> None
+    @property
+    _reached_state_cb: action(int) -> None
+
+    def __init__(self,
+            reached_state_cb: action(int) -> None,
+            start_inner_fn: ?proc() -> None,
+            stop_inner_fn: ?proc() -> None):
+
+        self.target_state = STATE_STOPPED
+        self.current_state = STATE_STOPPED
+
+        self._start_fn = start_inner_fn if start_inner_fn is not None else lambda: DelegateWorker_on_inner_started(self)
+        self._stop_fn = stop_inner_fn if stop_inner_fn is not None else lambda: DelegateWorker_on_inner_stopped(self)
+        self._reached_state_cb = reached_state_cb
+
+def DelegateWorker_on_inner_started(self: DelegateWorker):
+    if self.current_state == STATE_STARTING:
+        self.current_state = STATE_RUNNING
+        self._reached_state_cb(STATE_RUNNING)
+    elif self.current_state in [STATE_STOPPING, STATE_CLOSING]:
+        self._stop_fn()
+
+def DelegateWorker_on_inner_stopped(self: DelegateWorker):
+    if self.current_state == STATE_RESTARTING:
+        self.current_state = STATE_STARTING
+        self._start_fn()
+    elif self.current_state == STATE_STOPPING:
+        self.current_state = STATE_STOPPED
+        self._reached_state_cb(STATE_STOPPED)
+    elif self.current_state == STATE_CLOSING:
+        self.current_state = STATE_CLOSED
+        self._reached_state_cb(STATE_CLOSED)
+
+def DelegateWorker_try_restart_inner(self: DelegateWorker):
+    if self.current_state in [STATE_RUNNING, STATE_STARTING]:
+        self.current_state = STATE_RESTARTING
+        self._stop_fn()
+
+def DelegateWorker_set_target_state(self: DelegateWorker, target_state: int) -> bool:
+    self.target_state = target_state
+
+    if self.current_state == self.target_state:
+        self._reached_state_cb(target_state)
+        return True
+
+    elif self.current_state == STATE_CLOSED or self.current_state == STATE_CLOSING and target_state != STATE_CLOSED:
+        return False
+
+    if target_state == STATE_RUNNING:
+        if self.current_state == STATE_STOPPING:
+            self.current_state = STATE_RESTARTING
+        elif self.current_state == STATE_STOPPED:
+            self.current_state = STATE_STARTING
+            self._start_fn()
+        return True
+    elif target_state == STATE_STOPPED:
+        if self.current_state == STATE_RESTARTING:
+            self.current_state = STATE_STOPPING
+        else:
+            self.current_state = STATE_STOPPING
+            self._stop_fn()
+        return True
+    elif target_state == STATE_CLOSED:
+        if self.current_state == STATE_STOPPED:
+            self.current_state = STATE_CLOSED
+            self._reached_state_cb(target_state)
+        elif self.current_state in [STATE_STOPPING, STATE_RESTARTING]:
+            self.current_state = STATE_CLOSING
+        else:
+            self.current_state = STATE_CLOSING
+            self._stop_fn()
+        return True
+
+    return False
+
 #
 # Sink
 #
 
 class Sink(object):
     @property
-    write_fn: action(Node, TNode, TNode) -> None
+    write_fn: action(Node, TNode, TNode, ?action() -> None) -> None
     @property
     close_fn: action() -> None
 
     def __init__(
             self,
-            write_fn: action(Node, TNode, TNode) -> None,
+            write_fn: action(Node, TNode, TNode, ?action() -> None) -> None,
             close_fn: action() -> None,
             ):
         self.write_fn = write_fn
         self.close_fn = close_fn
 
-    def write(self, node: Node, source_params: TNode, sink_config: TNode) -> None:
-        self.write_fn(node, source_params, sink_config)
+    def write(self, node: Node, source_params: TNode, sink_config: TNode, done_cb: ?action() -> None) -> None:
+        self.write_fn(node, source_params, sink_config, done_cb)
 
     def close(self):
         self.close_fn()
@@ -36,21 +407,19 @@ class Sink(object):
 
 class Source(object):
     @property
-    update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None
+    set_target_state_fn: action(int) -> None
     @property
-    close_fn: action() -> None
+    update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None
     @property
     subscription_keys: set[Keypath]
 
     def __init__(
             self,
-            key: Keypath,
-            update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None,
-            close_fn: action() -> None
-            ):
-        self.key = key
+            set_target_state_fn: action(int) -> None,
+            update_config_fn: action(?TNode, list[(Keypath, ?SubscriptionUpdate)]) -> None):
+
+        self.set_target_state_fn = set_target_state_fn
         self.update_config_fn = update_config_fn
-        self.close_fn = close_fn
         self.subscription_keys = set([])
 
     def has_subscriptions(self) -> bool:
@@ -65,8 +434,9 @@ class Source(object):
 
         self.update_config_fn(source_update, subscription_updates)
 
-    def close(self):
-        self.close_fn()
+extension Source(Delegate):
+    def set_target_state(self, target_state: int) -> None:
+        self.set_target_state_fn(target_state)
 
 #
 # Subscription
@@ -74,37 +444,24 @@ class Source(object):
 
 class Subscriber(object):
     @property
+    set_target_state_fn: action(int) -> None
+    @property
     update_config_fn: action(SubscriptionUpdate) -> None
-    @property
-    start_fn: action() -> None
-    @property
-    stop_fn: action() -> None
-    @property
-    close_fn: action() -> None
 
     def __init__(
             self,
-            update_config_fn: action(SubscriptionUpdate) -> None,
-            start_fn: action() -> None,
-            stop_fn: action() -> None,
-            close_fn: action() -> None
-            ):
+            set_target_state_fn: action(int) -> None,
+            update_config_fn: action(SubscriptionUpdate) -> None):
+
+        self.set_target_state_fn = set_target_state_fn
         self.update_config_fn = update_config_fn
-        self.start_fn = start_fn
-        self.stop_fn = stop_fn
-        self.close_fn = close_fn
 
     def update_config(self, update: SubscriptionUpdate):
         self.update_config_fn(update)
 
-    def start(self):
-        self.start_fn()
-
-    def stop(self):
-        self.stop_fn()
-
-    def close(self):
-        self.close_fn()
+extension Subscriber(Delegate):
+    def set_target_state(self, target_state: int) -> None:
+        self.set_target_state_fn(target_state)
 
 class SubscriptionSink(object):
     @property
@@ -114,9 +471,9 @@ class SubscriptionSink(object):
     @property
     transforms: list[Transform]
     @property
-    head_cb: action(Node, TNode) -> None
+    head_cb: action(Node, TNode, ?action() -> None) -> None
 
-    def __init__(self, config: TNode, sink: Sink, transforms: list[Transform], head_cb: action(Node, TNode) -> None):
+    def __init__(self, config: TNode, sink: Sink, transforms: list[Transform], head_cb: action(Node, TNode, ?action() -> None) -> None):
         self.config = config
         self.sink = sink
         self.transforms = transforms
@@ -128,14 +485,25 @@ class SubscriptionSink(object):
     def __repr__(self):
         return self.__str__()
 
-    def write(self, node: Node, source_params: TNode) -> None:
-        self.head_cb(node, source_params)
+    def write(self, node: Node, source_params: TNode, done_cb: ?action() -> None) -> None:
+        self.head_cb(node, source_params, done_cb)
 
     def close(self):
         # Close transforms but NOT sink as it's owned by DeviceStreamer
         for transform in self.transforms:
             transform.close()
         self.transforms.clear()
+
+actor CountDoneCallbackCollector(total_count: int, all_done_cb: action() -> None):
+    var curr_count: int = 0
+
+    def on_one_done():
+        curr_count += 1
+        if curr_count == total_count:
+            all_done_cb()
+
+    if total_count <= 0:
+        all_done_cb()
 
 class SubscriptionSinkCollection(object):
     @property
@@ -144,17 +512,29 @@ class SubscriptionSinkCollection(object):
     def __init__(self):
         self.sub_sinks = {}
 
-    def update(self, sink_updates: list[(Keypath, ?SubscriptionSink)]):
+    def update_added(self, sink_updates: list[(Keypath, ?SubscriptionSink)]):
         for sink_key, sink in sink_updates:
             if sink is not None:
                 self.sub_sinks[sink_key] = sink
                 # TODO: Signal resync where needed for differential/delta subscriptions?
-            else:
+
+    def update_removed(self, sink_updates: list[(Keypath, ?SubscriptionSink)]):
+        for sink_key, sink in sink_updates:
+            if sink is None:
                 try_pop(self.sub_sinks, sink_key)
 
-    def write(self, node: Node, source_params: TNode) -> None:
-        for sub_sink in self.sub_sinks.values():
-            sub_sink.write(node, source_params)
+    def write(self, node: Node, source_params: TNode, done_cb: ?action() -> None) -> None:
+        sink_count = len(self.sub_sinks)
+        if sink_count == 0:
+            if done_cb is not None:
+                done_cb()
+        elif done_cb is not None and sink_count > 1:
+            done_collector = CountDoneCallbackCollector(sink_count, done_cb)
+            for sub_sink in self.sub_sinks.values():
+                sub_sink.write(node, source_params, done_collector.on_one_done)
+        else:
+            for sub_sink in self.sub_sinks.values():
+                sub_sink.write(node, source_params, done_cb)
 
     def close(self):
         for sub_sink in self.sub_sinks.values():
@@ -213,20 +593,20 @@ def source_params_try_append_dev_sub(source_params: TNode, dev_sub_key: Keypath)
 
 class Transform(object):
     @property
-    post_fn: action(Node, TNode) -> None
+    post_fn: action(Node, TNode, ?action() -> None) -> None
     @property
     close_fn: action() -> None
 
     def __init__(
             self,
-            post_fn: action(Node, TNode) -> None,
+            post_fn: action(Node, TNode, ?action() -> None) -> None,
             close_fn: action() -> None,
             ):
         self.post_fn = post_fn
         self.close_fn = close_fn
 
-    def post(self, node: Node, source_params: TNode) -> None:
-        self.post_fn(node, source_params)
+    def post(self, node: Node, source_params: TNode, done_cb: ?action() -> None) -> None:
+        self.post_fn(node, source_params, done_cb)
 
     def close(self):
         self.close_fn()
