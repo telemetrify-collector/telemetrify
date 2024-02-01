@@ -1,3 +1,16 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
 import logging
 import http
 import net
@@ -14,7 +27,12 @@ from telemetrify.main.common import *
 from telemetrify.main.config import *
 import telemetrify.vmanage.vmanage as vmanage
 
-actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+actor VManageSource(
+        reached_state_cb: action(int) -> None,
+        auth: WorldCap,
+        shared_schema: schema.SharedSchema,
+        log_handler: ?logging.Handler):
+
     var logh = logging.Handler("vmanage-source")
     if log_handler is not None:
         logh.set_handler(log_handler)
@@ -24,112 +42,52 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
     var config: TNode = tnode_empty()
     var client: ?vmanage.VManageHTTPClient = None
     var client_seqno: int = 0
-    var subscribers: dict[Keypath, Subscriber] = {}
+    # var manager: DelegateMiddleManager[Subscriber] = DelegateMiddleManager(on_reached_state, _on_subscriber_reached_state_trampoline, _connect_client, _close_client)
+    # Workaround compiler ordering issue
+    var manager: DelegateMiddleManager[Subscriber] = DelegateMiddleManager(lambda s: None, lambda i, s: None, lambda: None, lambda: None)
 
     log.info("SOURCE vmanage CREATED", None)
 
-    def _on_client_connect(seqno: int):
-        if seqno != client_seqno:
-            return
-        _start_subscribers()
-
-    def _on_client_error(error_msg: str, seqno: int):
-        if seqno != client_seqno:
-            return
-        _close_client()
-        # TODO: Configurable retry timer/backoff?
-        after 1: _connect_client()
-
-    def _on_client_notif(node: xml.Node, seqno: int):
-        # if seqno != client_seqno:
-        #     return
-        pass
-
     def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
         log.debug("SOURCE vmanage CONFIG update", {"source_update": optional_str(source_update, "None")})
-        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subsription_updates": subscription_updates})
+        log.debug("SOURCE vmanage SUBSCRIPTION update", {"subscription_updates": subscription_updates})
 
         restart = False
 
         if source_update is not None:
-            if _close_client():
-                restart = True
-
             config = source_update
-
-            _connect_client()
+            DelegateMiddleManager_try_restart_inner(manager)
 
         for dev_sub_key, sub_update in subscription_updates:
             if sub_update is not None:
-                sub = try_get(subscribers, dev_sub_key)
+                log.trace("SOURCE vmanage SUBSCRIPTION update", {"sub_update": sub_update})
+                # sub = manager.try_get_delegate(dev_sub_key)
+                sub = DelegateMiddleManager_try_get_delegate(manager, dev_sub_key) # https://github.com/actonlang/acton/issues/1448
+
                 if sub is not None:
+                    log.trace("SOURCE vmanage SUBSCRIPTION update exists", {"sub_update": sub_update})
                     sub.update_config(sub_update)
                 else:
+                    log.trace("SOURCE vmanage SUBSCRIPTION update is new", {"sub_update": sub_update})
                     new_sub = _create_subscriber(dev_sub_key, sub_update)
-                    new_sub.update_config(sub_update)
-                    if not restart and client is not None:
-                        new_sub.start()
-                    subscribers[dev_sub_key] = new_sub
             else:
-                sub = try_pop(subscribers, dev_sub_key)
-                if sub is not None:
-                    sub.close()
-
-        if restart:
-            _start_subscribers()
+                # manager.remove_delegate(dev_sub_key)
+                DelegateMiddleManager_remove_delegate(manager, dev_sub_key) # https://github.com/actonlang/acton/issues/1448
 
     def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
         sub_config = sub_update.config
         if sub_config is not None:
             _config = sub_config.config
             if _config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
-                sub_act = VManagePollSubscription(self, dev_sub_key, shared_schema, logh)
-                return Subscriber(sub_act.update_config, sub_act.start, sub_act.stop, sub_act.close)
+                # _id, reached_state_cb = manager.reserve_delegate(dev_sub_key)
+                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(manager, dev_sub_key) # https://github.com/actonlang/acton/issues/1448
+                sub_act = VManagePollSubscription(self, dev_sub_key, _reached_state_cb, shared_schema, logh)
+                sub = Subscriber(sub_act.set_target_state, sub_act.update_config)
+                # manager.add_delegate(_id, sub)
+                DelegateMiddleManager_add_delegate(manager, _id, sub, lambda s: s.update_config(sub_update)) # https://github.com/actonlang/acton/issues/1448
+                return sub
 
         raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
-
-    def _connect_client():
-        address = config[PTag('tlm', 'address')].try_str()
-        port = config[PTag('tlm', 'port')].try_int()
-        username = config[PTag('tlm', 'username')].try_str()
-        password = config[PTag('tlm', 'password')].try_str()
-
-        if address is not None and port is not None and \
-                username is not None and password is not None:
-
-            client_seqno += 1
-
-            def __on_client_connect(_c):
-                _on_client_connect(client_seqno)
-            #def __on_client_error(_c, e):
-            #    _on_client_error(e, client_seqno)
-
-            tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(auth)))
-            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, logh)
-            client = new_client
-
-        # # <TEST>
-        # client_seqno += 1
-        # after 0: _on_client_connect(client_seqno)
-        # # </TEST>
-
-    def _close_client() -> bool:
-        _client = client
-        if _client is not None:
-            _stop_subscribers()
-            # TODO: Gather stop replies from subscribers before closing netconf client?
-            _client.close()
-            client = None
-            return True
-        return False
-
-    def _start_subscribers():
-        for subscriber in subscribers.values():
-            subscriber.start()
-
-    def _stop_subscribers():
-        for subscriber in subscribers.values():
-            subscriber.stop()
 
     def get(path: str, cb: action(?http.Response) -> None) -> None:
         if client is not None:
@@ -137,18 +95,93 @@ actor VManageSource(auth: WorldCap, shared_schema: schema.SharedSchema, log_hand
                 cb(n)
             client.get(path, __callback)
 
-    def close():
+    def _on_client_connect(c, seqno: int):
+        if seqno != client_seqno:
+            c.close()
+            return
+        DelegateMiddleManager_on_inner_started(manager)
+
+    def _on_client_defunct(error_msg: str, seqno: int):
+        if seqno != client_seqno:
+            return
+        _close_client()
+
+        def _retry_client():
+            if manager.target_state == STATE_RUNNING:
+                _connect_client()
+
+        # TODO: Configurable retry timer/backoff?
+        after 1: _retry_client()
+
+    def _connect_client():
+        if client is not None:
+            return
+
+        address = config[PTag('tlm', 'address')].try_str()
+        port = config[PTag('tlm', 'port')].try_int()
+        username = config[PTag('tlm', 'username')].try_str()
+        password = config[PTag('tlm', 'password')].try_str()
+
+        log.debug("SOURCE vmanage CONNECT", {"address": optional_str(address, "None"), "port": optional_str(port, "None"), "username": optional_str(username, "None"), "password": optional_str(password, "None")})
+
+        if address is not None and port is not None and \
+                username is not None and password is not None:
+
+            client_seqno += 1
+
+            def __on_client_connect(c):
+                _on_client_connect(c, client_seqno)
+            #def __on_client_error(_c, e):
+            #    _on_client_error(e, client_seqno)
+
+            tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(auth)))
+            new_client = vmanage.VManageHTTPClient(tcpccap, address, port, username, password, __on_client_connect, logh)
+            client = new_client
+
+            # # <TEST>
+            # def _pretend_connect():
+            #     log.debug("SOURCE vmanage CONNECTED (pretending)", None)
+            #     DelegateMiddleManager_on_inner_started(manager)
+            # after 0: _pretend_connect()
+            # # </TEST>
+
+    def _close_client():
+        log.debug("SOURCE vmanage DISCONNECT", None)
+
         _client = client
         if _client is not None:
+            client_seqno += 1
             _client.close()
             client = None
-        for subscriber in subscribers.values():
-            subscriber.close()
-        #subscribers.clear()
-        subscribers = {}
-        log.info("SOURCE vmanage CLOSED", None)
+        DelegateMiddleManager_on_inner_stopped(manager)
 
-actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    def set_target_state(target_state: int):
+        log.debug("SOURCE vmanage SET TARGET STATE", {"target_state": state_str(target_state)})
+        if not DelegateMiddleManager_set_target_state(manager, target_state):
+            log.error("SOURCE vmanage UNEXPECTED STATE ignoring", {"target_state": state_str(target_state)})
+
+    def on_reached_state(state: int):
+        log.info("SUBSCRIBER vmanage REACHED STATE " + state_str(state), None)
+        reached_state_cb(state)
+
+    def _on_subscriber_reached_state_trampoline(_id: DelegateId, state: int):
+        # manager.on_delegate_reached_state(_id, state)
+        DelegateMiddleManager_on_delegate_reached_state(manager, _id, state) # https://github.com/actonlang/acton/issues/1448
+
+    # Workaround compiler ordering issue
+    manager._start_fn = _connect_client
+    manager._stop_fn = _close_client
+    manager._reached_state_cb = on_reached_state
+    manager._delegate_manager._on_delegate_reached_state_trampoline_fn = _on_subscriber_reached_state_trampoline
+
+
+actor VManagePollSubscription(
+        source: VManageSource,
+        dev_sub_key: Keypath,
+        reached_state_cb: action(int) -> None,
+        shared_schema: schema.SharedSchema,
+        log_handler: logging.Handler):
+
     var logh = logging.Handler("vmanage-poll-subscription")
     if log_handler is not None:
         logh.set_handler(log_handler)
@@ -163,7 +196,9 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
     var schema_path: ?SchemaPath = None
     var period: time.Duration = time.Duration(60, 0, time.MonotonicClock(0, 0, 0))
 
-    var is_running: bool = False
+    # var worker_state = DelegateWorker(on_reached_state, _on_start, _on_stop)
+    # Workaround compiler ordering issue
+    var worker_state = DelegateWorker(lambda s: None, lambda: None, lambda: None)
 
     log.info("SUBSCRIBER vmanage-poll CREATED", None)
 
@@ -226,15 +261,18 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                     xnode = vmanage.approute_to_xnode(ar_data)
                     source_params = tnode_root()
                     source_params_try_append_dev_sub(source_params, dev_sub_key)
-                    source_params.leaf(None, PTag(None, 'timestamp'), request_ts)
+                    source_params.leaf(None, SOURCE_PARAM_TIMESTAMP, request_ts)
                     if schema_path is not None:
-                        source_params.leaf(None, PTag(None, 'schema_path'), schema_path)
+                        source_params.leaf(None, SOURCE_PARAM_SCHEMA_PATH, schema_path)
                     sinks.write(xnode, source_params)
             except Exception as exc:
                 log.error("Exception", {"exception": exc})
                 log.debug("Reply body", {"body": reply.body})
 
         _schedule_next_poll(seqno, last_ts)
+
+    def _stop_cleanup():
+        pass # TODO
 
     def _schedule_next_poll(seqno: int, last_ts: time.Instant):
         curr_ts = time.monotonic()
@@ -253,11 +291,11 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
         after delay.to_float(): _do_poll(seqno, next_ts)
 
     def update_config(update: SubscriptionUpdate):
-        sinks.update(update.sinks)
+        sinks.update_added(update.sinks) # Postpone removal of sinks for possible cleanup
 
         _config = update.config
         if _config is not None:
-            _stop_poller()
+            DelegateWorker_try_restart_inner(worker_state)
 
             poll = _config.config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER]
             path = poll[PTag('tlm', 'path')].try_str()
@@ -273,8 +311,8 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
 
             if period_ms is not None and poll_path is not None:
                 period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
-                if is_running:
-                    _try_start_poller()
+
+        sinks.update_removed(update.sinks) # Remove after possible sink cleanup
 
     def _update_schema_cursor(kpath: Keypath, schema_settings: SchemaSettings):
         cursor = schema.Cursor(_schema)
@@ -287,26 +325,40 @@ actor VManagePollSubscription(source: VManageSource, dev_sub_key: Keypath, share
                         cursor.set_mount_id(ned_id)
                 schema_path = cursor.get_schema_path()
 
-    def _try_start_poller():
+    def _start():
         if poll_path is not None:
             curr_ts = time.monotonic()
             after 0: _do_poll(poller_seqno, curr_ts)
+        DelegateWorker_on_inner_started(worker_state)
 
-    def _stop_poller():
+    def _stop():
+        # stop poller
         poller_seqno += 1
 
-    def start():
-        if not is_running:
-            log.info("SUBSCRIBER vmanage-poll STARTED", None)
-            is_running = True
-            _try_start_poller()
+        # write RESET
+        dummy_payload = XTree(OP_NOCREATE, ITag.root(), None, [])
+        source_params = tnode_root()
+        source_params_try_append_dev_sub(source_params, dev_sub_key)
+        source_params.leaf(None, SOURCE_PARAM_TIMESTAMP, time.time())
+        if schema_path is not None:
+            source_params.leaf(None, SOURCE_PARAM_SCHEMA_PATH, schema_path)
+        source_params.leaf(None, SOURCE_PARAM_RESET, None)
+        sinks.write(dummy_payload, source_params, _on_sink_reset)
 
-    def stop():
-        if is_running:
-            log.info("SUBSCRIBER vmanage-poll STOPPED", None)
-            is_running = False
-            _stop_poller()
+    def _on_sink_reset():
+        log.trace("SUBSCRIBER vmanage-poll SINK RESET DONE", None)
+        DelegateWorker_on_inner_stopped(worker_state)
 
-    def close():
-        stop()
-        log.info("SUBSCRIBER vmanage-poll CLOSED", None)
+    def set_target_state(target_state: int):
+        log.debug("SUBSCRIBER vmanage-poll SET TARGET STATE", {"target_state": state_str(target_state)})
+        if not DelegateWorker_set_target_state(worker_state, target_state):
+            log.error("SUBSCRIBER vmanage-poll UNEXPECTED STATE ignoring", {"target_state": state_str(target_state)})
+
+    def on_reached_state(state: int):
+        log.info("SUBSCRIBER vmanage-poll REACHED STATE " + state_str(state), None)
+        reached_state_cb(state)
+
+    # Workaround compiler ordering issue
+    worker_state._start_fn = _start
+    worker_state._stop_fn = _stop
+    worker_state._reached_state_cb = on_reached_state

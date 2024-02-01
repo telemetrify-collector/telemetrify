@@ -545,7 +545,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         #print("Received reply:\n", xml.encode(n))
         pass
         if n is not None:
-            xnode = telemetrify.net.netconf.netconf_to_xnode(n, [], 0)
+            xnode = telemetrify.net.netconf.netconf_to_xnode(n, [], OP_MERGE)
 
             log.debug("RPC XNode:", {"xnode": xnode})
 

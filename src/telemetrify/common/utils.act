@@ -359,6 +359,25 @@ def dict_set_discard[K(Hashable), V(Hashable)](d: dict[K, set[V]], k: K, v: V):
         if len(s) == 0:
             del d[k]
 
+def dict_dict_add[K1(Hashable), K2(Hashable), V](d1: dict[K1, dict[K2, V]], k1: K1, k2: K2, v: V):
+    try:
+        d2 = d1[k1]
+    except KeyError:
+        d1[k1] = {k2: v}
+    else:
+        d2[k2] = v
+
+def dict_dict_try_pop[K1(Hashable), K2(Hashable), V](d1: dict[K1, dict[K2, V]], k1: K1, k2: K2) -> ?V:
+    try:
+        d2 = d1[k1]
+    except KeyError:
+        return None
+    else:
+        v = try_pop(d2, k2)
+        if not bool(d2):
+            del d1[k1]
+        return v
+
 def optional_str[T](v: ?T, default: str) -> str:
     return str(v) if v is not None else default
 
@@ -534,11 +553,19 @@ class Wardrobe[T](object):
         del self.items[ticket]
         return item
 
+    def pop_all(self):
+        items = self.items
+        self.items = {}
+        return items.items()
+
     def discard(self, ticket):
         try:
             del self.items[ticket]
         except KeyError:
             pass
+
+    def get_tickets(self):
+        return self.items.keys()
 
     def clear(self):
         #self.items.clear()

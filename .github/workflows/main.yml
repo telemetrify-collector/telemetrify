@@ -23,6 +23,9 @@ jobs:
       - name: "Build"
         run: |
           actonc build
+      - name: "Test"
+        run: |
+          make test
 
 #  test-macos:
 #    runs-on: macos-12

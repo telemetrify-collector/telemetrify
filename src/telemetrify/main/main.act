@@ -33,20 +33,29 @@ from telemetrify.main.common import *
 from telemetrify.main.config import *
 import telemetrify.vmanage.transform
 
-actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, shared_resources: SharedResources, log_handler: ?logging.Handler):
+actor DeviceStreamer(
+        env: Env,
+        name: str,
+        reached_state_cb: action(int) -> None,
+        shared_schema: schema.SharedSchema,
+        shared_resources: SharedResources,
+        log_handler: ?logging.Handler):
+
     var logh = logging.Handler("device-streamer")
     if log_handler is not None:
         logh.set_handler(log_handler)
 
     var log = logging.Logger(logh)
 
-    var sources: dict[Keypath, Source] = {}
+    # var sources_manager: DelegateMiddleManager[Source] = DelegateMiddleManager(on_reached_state, _on_source_reached_state_trampoline)
+    # Workaround compiler ordering issue
+    var source_manager: DelegateMiddleManager[Source] = DelegateMiddleManager(lambda s: None, lambda i, s: None)
     var subscription_sources: dict[Keypath, Keypath] = {}
     var sinks: dict[Keypath, Sink] = {}
 
     log.info("DEVICE CREATED", {"name": name})
 
-    def on_config(
+    def update_config(
             updated_device_config: ?DeviceStreamerConfig,
             subscription_updates: list[(Keypath, ?value)],
             subscription_sink_updates: list[(Keypath, ?value)],
@@ -116,15 +125,15 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
 
         # Update sources / subscriptions
         for source_key, dev_sub_keys in updated_source_dev_sub_keys.items():
-            source = _get_or_create_source(source_key)
             source_sub_updates: list[(Keypath, ?SubscriptionUpdate)] = []
             for dev_sub_key in dev_sub_keys:
                 source_sub_updates.append((dev_sub_key, try_get(dev_sub_updates, dev_sub_key)))
 
-            source.update_config(try_get(source_config_updates, source_key), source_sub_updates)
+            def _update_fn(s: Source):
+                s.update_config(try_get(source_config_updates, source_key), source_sub_updates)
+            source = _update_source(source_key, _update_fn)
             if not source.has_subscriptions():
-                source.close()
-                del sources[source_key]
+                DelegateMiddleManager_remove_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
 
     def _get_subscription_source_key(config: TNode) -> Keypath:
         if config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
@@ -136,22 +145,25 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
 
         raise Exception("Unknown subscription type: " + str(config))
 
-    def _get_or_create_source(source_key: Keypath) -> Source:
-        _source = try_get(sources, source_key)
+    def _update_source(source_key: Keypath, update_fn: proc(Source) -> None) -> Source:
+        _source: ?Source = DelegateMiddleManager_try_get_delegate(source_manager, source_key)
         if _source is not None:
+            update_fn(_source)
             return _source
+        else:
+            if source_key == SOURCE_KEY_NETCONF:
+                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
+                source_act = telemetrify.main.source.netconf.NetconfSource(_reached_state_cb, env.cap, shared_schema, logh)
+                source = Source(source_act.set_target_state, source_act.update_config)
+                DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
+                return source
 
-        if source_key == SOURCE_KEY_NETCONF:
-            source_act = telemetrify.main.source.netconf.NetconfSource(env.cap, shared_schema, logh)
-            source = Source(source_key, source_act.update_config, source_act.close)
-            sources[source_key] = source
-            return source
-
-        if source_key == SOURCE_KEY_VMANAGE_HTTP:
-            source_act = telemetrify.main.source.vmanage.VManageSource(env.cap, shared_schema, logh)
-            source = Source(source_key, source_act.update_config, source_act.close)
-            sources[source_key] = source
-            return source
+            if source_key == SOURCE_KEY_VMANAGE_HTTP:
+                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
+                source_act = telemetrify.main.source.vmanage.VManageSource(_reached_state_cb, env.cap, shared_schema, logh)
+                source = Source(source_act.set_target_state, source_act.update_config)
+                DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
+                return source
 
         raise Exception("Unknown source type: " + str(source_key))
 
@@ -178,7 +190,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
         sink: ?Sink = try_get(sinks, sink_key)
 
         if sink is not None:
-            head_cb: action(Node, TNode) -> None = action lambda n, p: sink.write(n, p, config)
+            head_cb: action(Node, TNode, ?action() -> None) -> None = action lambda n, p, d: sink.write(n, p, config, d)
 
             transforms: list[Transform] = []
             # TODO: Make sure we get elements as 'ordered-by user' from CdbCache/TNode.
@@ -196,7 +208,7 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
 
         return None
 
-    def _create_transform(config: TNode, next_cb: action(Node, TNode) -> None) -> ?Transform:
+    def _create_transform(config: TNode, next_cb: action(Node, TNode, ?action() -> None) -> None) -> ?Transform:
         # Magic name string for hardcoded transform for now... i.e. demo.
         if eq_optional(config[PTag('tlm', 'name')].try_str(), "vmanage"):
             transform_act = telemetrify.vmanage.transform.Transform(
@@ -214,16 +226,70 @@ actor DeviceStreamer(env: Env, name: str, shared_schema: schema.SharedSchema, sh
             return Transform(transform_act.transform, transform_act.close)
         return None
 
-    def close() -> None:
-        for source in sources.values():
-            source.close()
-        #sources.clear()
-        sources = {}
-        for sink in sinks.values():
-            sink.close()
-        #sinks.clear()
-        sinks = {}
-        log.info("DEVICE CLOSED", {"name": name})
+    def set_target_state(target_state: int):
+        log.debug("DEVICE SET TARGET STATE", {"name": name, "target_state": state_str(target_state)})
+        if not DelegateMiddleManager_set_target_state(source_manager, target_state):
+            log.error("DEVICE UNEXPECTED STATE ignoring", {"name": name, "target_state": state_str(target_state)})
+
+    def on_reached_state(state: int):
+        log.info("DEVICE REACHED STATE " + state_str(state), {"name": name})
+
+        if source_manager.target_state == STATE_CLOSED:
+            for sink in sinks.values():
+                sink.close()
+            #sinks.clear()
+            sinks = {}
+
+        reached_state_cb(state)
+
+    def _on_source_reached_state_trampoline(_id: DelegateId, state: int):
+        # manager.on_delegate_reached_state(_id, state)
+        DelegateMiddleManager_on_delegate_reached_state(source_manager, _id, state) # https://github.com/actonlang/acton/issues/1448
+
+    # Workaround compiler ordering issue
+    source_manager._reached_state_cb = on_reached_state
+    source_manager._delegate_manager._on_delegate_reached_state_trampoline_fn = _on_source_reached_state_trampoline
+
+class DeviceStreamerWrapper(object):
+    @property
+    set_target_state_fn: action(int) -> None
+    @property
+    update_config_fn: action(
+            ?DeviceStreamerConfig,
+            list[(Keypath, ?value)],
+            list[(Keypath, ?value)],
+            list[(Keypath, ?value)],
+            list[(Keypath, ?value)]) -> None
+
+    def __init__(self,
+            set_target_state_fn: action(int) -> None,
+            update_config_fn: action(
+                ?DeviceStreamerConfig,
+                list[(Keypath, ?value)],
+                list[(Keypath, ?value)],
+                list[(Keypath, ?value)],
+                list[(Keypath, ?value)]) -> None):
+
+        self.set_target_state_fn = set_target_state_fn
+        self.update_config_fn = update_config_fn
+
+    def update_config(self,
+            updated_device_config: ?DeviceStreamerConfig,
+            subscription_updates: list[(Keypath, ?value)],
+            subscription_sink_updates: list[(Keypath, ?value)],
+            source_updates: list[(Keypath, ?value)],
+            sink_updates: list[(Keypath, ?value)]):
+
+        self.update_config_fn(
+            updated_device_config,
+            subscription_updates,
+            subscription_sink_updates,
+            source_updates,
+            sink_updates)
+
+extension DeviceStreamerWrapper(Delegate):
+    def set_target_state(self, target_state: int) -> None:
+        self.set_target_state_fn(target_state)
 
 actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
@@ -249,7 +315,12 @@ actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler:
         pass # TODO: Could keep refcount and release when not used
 
 actor main(env):
-    var device_streamers: dict[Keypath, DeviceStreamer] = {}
+    # var device_streamers: DelegateManager[DeviceStreamerWrapper] = DelegateManager(
+    #     _on_device_streamer_reached_state_trampoline,
+    #     lambda s: None,
+    #     target_state=STATE_RUNNING)
+    # Workaround compiler ordering issue
+    var device_streamers: DelegateManager[DeviceStreamerWrapper] = DelegateManager(lambda i, s: None, lambda s: None)
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
     var shared_resources: ?SharedResources = None
 
@@ -357,22 +428,6 @@ actor main(env):
                 dict_list_append(updated_subscription_sinks, device_key, (dev_sub_sink_key, state))
                 updated_device_keys.add(device_key)
 
-        for device_key, state in dev_config:
-            if state is not None and isinstance(state, DeviceStreamerConfig):
-                entry = try_get(device_streamers, device_key)
-                if entry is None:
-                    _device_name_key = device_key.try_get_key(0)
-                    if _device_name_key is not None:
-                        device_name = _device_name_key[0]
-                        _shared_resources = shared_resources
-                        if isinstance(device_name, str) and _shared_resources is not None:
-                            device_streamers[device_key] = DeviceStreamer(env, device_name, shared_schema, _shared_resources, logh)
-                updated_device_keys.add(device_key)
-                updated_device_configs[device_key] = state
-            else:
-                _remove_device_streamer(device_key)
-                updated_device_keys.discard(device_key)
-
         for device_source_key, state in source_config:
             device_key = device_source_key.try_slice(0, 1)
             source_key = device_source_key.try_slice(1, 2)
@@ -387,23 +442,43 @@ actor main(env):
                 dict_list_append(updated_device_sinks, device_key, (sink_key, state))
                 updated_device_keys.add(device_key)
 
+        for device_key, state in dev_config:
+            if state is not None and isinstance(state, DeviceStreamerConfig):
+                updated_device_keys.add(device_key)
+                updated_device_configs[device_key] = state
+            else:
+                DelegateManager_remove(device_streamers, device_key) # https://github.com/actonlang/acton/issues/1448
+                updated_device_keys.discard(device_key)
+
         for updated_device_key in updated_device_keys:
-            entry = try_get(device_streamers, updated_device_key)
-            if entry is not None:
-                entry.on_config(
+            def _update_fn(d):
+                d.update_config(
                     try_get(updated_device_configs, updated_device_key),
                     updated_subscriptions.get(updated_device_key, []),
                     updated_subscription_sinks.get(updated_device_key, []),
                     updated_device_sources.get(updated_device_key, []),
                     updated_device_sinks.get(updated_device_key, []))
 
+            entry = DelegateManager_try_get(device_streamers, updated_device_key)
+            if entry is not None:
+                _update_fn(entry)
+            else:
+                _device_name_key = updated_device_key.try_get_key(0)
+                if _device_name_key is not None:
+                    device_name = _device_name_key[0]
+                    _shared_resources = shared_resources
+                    if isinstance(device_name, str) and _shared_resources is not None:
+                        _id, reached_state_cb = DelegateManager_reserve(device_streamers, updated_device_key) # https://github.com/actonlang/acton/issues/1448
+                        ds_act = DeviceStreamer(env, device_name, reached_state_cb, shared_schema, _shared_resources, logh)
+                        device_streamer = DeviceStreamerWrapper(ds_act.set_target_state, ds_act.update_config)
+                        DelegateManager_add(device_streamers, _id, device_streamer, _update_fn) # https://github.com/actonlang/acton/issues/1448
+
         # Logging
         _on_logging_level(refiner_updates[LoggingLevelRefiner.id()])
 
-    def _remove_device_streamer(device_key):
-        entry = try_pop(device_streamers, device_key)
-        if entry is not None:
-            entry.close()
+    def _on_device_streamer_reached_state_trampoline(_id: DelegateId, state: int):
+        # device_streamers.on_delegate_reached_state(_id, state)
+        DelegateManager_on_delegate_reached_state(device_streamers, _id, state) # https://github.com/actonlang/acton/issues/1448
 
     def _on_logging_level(updates: list[(Keypath, ?value)]):
         level: ?int = None
@@ -446,6 +521,10 @@ actor main(env):
     def _on_config_cache_error(e):
         log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
         await async env.exit(1)
+
+    # Workaround compiler ordering issue
+    device_streamers._on_delegate_reached_state_trampoline_fn = _on_device_streamer_reached_state_trampoline
+    DelegateManager_set_target_state(device_streamers, STATE_RUNNING)
 
     log.info("Starting up...", None)
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)

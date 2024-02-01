@@ -1,0 +1,381 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import testing
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.main.common import *
+
+class EventTester(object):
+    @property
+    _expected_events: list[str]
+    @property
+    __prev_index: int
+    @property
+    __curr_index: int
+    @property
+    __next_index: int
+    @property
+    _actual_events: list[str]
+    @property
+    __next_step: ?action() -> None
+    @property
+    report_result: action(?bool, ?Exception) -> None
+
+    def __init__(self, report_result: action(?bool, ?Exception) -> None):
+        self.report_result = report_result
+        #self.reset()
+        self._expected_events = []
+        self.__prev_index = 0
+        self.__curr_index = 0
+        self.__next_index = 0
+        self._actual_events = []
+        self.__next_step = None
+
+    def reset(self):
+        self._expected_events = []
+        self.__prev_index = 0
+        self.__curr_index = 0
+        self.__next_index = 0
+        self._actual_events = []
+        self.__next_step = None
+
+    def on_event(self, e: ?str):
+        if e is not None:
+            self._actual_events.append(e)
+            self.__curr_index += 1
+        if self.__curr_index == self.__next_index:
+            if self._actual_events[self.__prev_index:self.__next_index] == self._expected_events[self.__prev_index:self.__next_index]:
+                _next_step: ?action() -> None = self.__next_step
+                if _next_step is not None:
+                    #_next_step()
+                    #after 0: _next_step()
+                    def _f():
+                        _next_step()
+                    after 0: _f()
+                else:
+                    self.report_result(True, None)
+            else:
+                self.report_result(None, AssertionError("Expected events: " + list_str(self._expected_events) + " actual events: " + list_str(self._actual_events)))
+
+    def expect(self, events: list[str], next_step: ?action() -> None):
+        self._expected_events.extend(events)
+        self.__prev_index = self.__next_index
+        self.__next_index += len(events)
+        self.__next_step = next_step
+
+actor DelegateWorkerTester(report_result, log_handler):
+    log = logging.Logger(log_handler)
+
+    var e = EventTester(report_result)
+    var w = DelegateWorker(lambda s: None, lambda: None, lambda: None)
+
+    def _init():
+        e.reset()
+        w = DelegateWorker(on_reached_state, on_start, on_stop)
+
+    def on_reached_state(s):
+        e.on_event(state_str(s))
+
+    def on_start():
+        e.on_event("DO_START")
+        DelegateWorker_on_inner_started(w)
+
+    def on_stop():
+        e.on_event("DO_STOP")
+        DelegateWorker_on_inner_stopped(w)
+
+    def test1():
+        try:
+            _init()
+
+            e.expect(["STOPPED"], None)
+
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_STOPPED), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2():
+        try:
+            _init()
+
+            e.expect(["DO_START", "RUNNING"], test2_1)
+
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_1():
+        try:
+            e.expect(["RUNNING"], test2_2)
+
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_2():
+        try:
+            e.expect(["DO_STOP", "DO_START", "RUNNING"], test2_3)
+
+            DelegateWorker_try_restart_inner(w)
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_3():
+        try:
+            e.expect(["DO_STOP", "STOPPED"], test2_4)
+
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_STOPPED), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_4():
+        try:
+            e.expect(["STOPPED"], None)
+
+            DelegateWorker_try_restart_inner(w) # Expecting NOOP
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_STOPPED), "Invalid target state") # Verify STOPPED without any DO_STOP from the above restart
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test3():
+        try:
+            _init()
+
+            e.expect(["CLOSED"], None)
+
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_CLOSED), "Invalid target state")
+
+            testing.assertFalse(DelegateWorker_set_target_state(w, STATE_RUNNING), "A closed worker can only be closed")
+
+            testing.assertFalse(DelegateWorker_set_target_state(w, STATE_STOPPED), "A closed worker can only be closed")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test4():
+        try:
+            _init()
+
+            e.expect(["DO_START", "RUNNING"], test4_1)
+
+            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test4_1():
+        try:
+            e.expect(["DO_STOP", "CLOSED"], None)
+
+            ok = DelegateWorker_set_target_state(w, STATE_CLOSED)
+            testing.assertTrue(ok, "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+actor DelegateMockActor(reached_state_cb: action(int) -> None):
+    def set_target_state(target_state: int) -> None:
+        reached_state_cb(target_state)
+
+class DelegateMock(object):
+    @property
+    inner: DelegateMockActor
+
+    def __init__(self, inner: DelegateMockActor):
+        self.inner = inner
+
+extension DelegateMock(Delegate):
+    def set_target_state(self, target_state: int) -> None:
+        self.inner.set_target_state(target_state)
+
+actor DelegateMiddleManagerTester(report_result, log_handler):
+    log = logging.Logger(log_handler)
+
+    var e = EventTester(report_result)
+    var m: DelegateMiddleManager[DelegateMock] = DelegateMiddleManager(lambda s: None, lambda i, s: None, lambda: None, lambda: None)
+
+    key0 = Keypath([Key([0])])
+    key1 = Keypath([Key([1])])
+
+    def _init(log_delegates: bool = False):
+        e.reset()
+        m = DelegateMiddleManager(
+            on_reached_state,
+            _on_delegate_reached_state_trampoline_log if log_delegates else _on_delegate_reached_state_trampoline,
+            on_start,
+            on_stop)
+
+    def on_reached_state(s):
+        e.on_event(state_str(s))
+
+    def on_start():
+        e.on_event("DO_START")
+        DelegateMiddleManager_on_inner_started(m)
+
+    def on_stop():
+        e.on_event("DO_STOP")
+        DelegateMiddleManager_on_inner_stopped(m)
+
+    action def _on_delegate_reached_state_trampoline(_id: DelegateId, state: int):
+        DelegateMiddleManager_on_delegate_reached_state(m, _id, state)
+        #raise ValueError("DEBUG " + str(_id) + " " + state_str(state) + " " + str(m._delegate_manager._pending_state_transition))
+
+    action def _on_delegate_reached_state_trampoline_log(_id: DelegateId, state: int):
+        k_str: ?str = None
+        kp = _id.key
+        if len(kp) == 1:
+            k = kp.try_get_key(0)
+            if k is not None:
+                if len(k) == 1:
+                    k_str = str(k[0])
+        e.on_event((k_str if k_str is not None else str(_id.key)) + "-" + str(_id.seqno) + "_" + state_str(state))
+        DelegateMiddleManager_on_delegate_reached_state(m, _id, state)
+
+    def add_delegate(key: Keypath) -> DelegateMock:
+        _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(m, key)
+        delegate = DelegateMock(DelegateMockActor(_reached_state_cb))
+        DelegateMiddleManager_add_delegate(m, _id, delegate, lambda s: None)
+        return delegate
+
+    def test1():
+        try:
+            _init()
+
+            add_delegate(key0)
+            add_delegate(key1)
+
+            e.expect(["STOPPED"], None)
+
+            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_STOPPED), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2():
+        try:
+            _init()
+
+            add_delegate(key0)
+            add_delegate(key1)
+
+            e.expect(["DO_START", "RUNNING"], test2_1)
+
+            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_1():
+        try:
+            e.expect(["RUNNING"], test2_2)
+
+            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_2():
+        try:
+            e.expect(["DO_STOP", "DO_START", "RUNNING"], test2_3)
+
+            DelegateMiddleManager_try_restart_inner(m)
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_3():
+        try:
+            e.expect(["DO_STOP", "STOPPED"], test2_4)
+
+            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_STOPPED), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test2_4():
+        try:
+            e.expect(["STOPPED"], None)
+
+            DelegateMiddleManager_try_restart_inner(m) # Expecting NOOP
+            DelegateMiddleManager_set_target_state(m, STATE_STOPPED) # Verify STOPPED without any DO_STOP from the above restart
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test3():
+        try:
+            _init(True)
+
+            add_delegate(key0)
+
+            e.expect(["DO_START", "RUNNING", "0-0_RUNNING"], test3_1)
+
+            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test3_1():
+        try:
+            e.expect(["0-0_CLOSED"], None)
+
+            DelegateMiddleManager_remove_delegate(m, key0)
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test4():
+        try:
+            _init(True)
+
+            add_delegate(key0)
+
+            e.expect(["DO_START", "RUNNING", "0-0_RUNNING"], test4_1)
+
+            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test4_1():
+        try:
+            e.expect(["0-0_CLOSED", "0-1_RUNNING"], None)
+
+            DelegateMiddleManager_remove_delegate(m, key0)
+            add_delegate(key0)
+        except Exception as ex:
+            report_result(False, ex)
+
+def _test_async_dummy(report_result, log_handler: logging.Handler) -> None:
+    report_result(True, None)
+
+def _test_env_dummy(report_result, env, log_handler: logging.Handler) -> None:
+    report_result(True, None)
+
+__unit_tests: dict[str, testing.UnitTest] = {
+    "_test_dummy": testing.UnitTest(lambda: None, "dummy", "dummy"),
+}
+
+__sync_actor_tests: dict[str, testing.SyncActorTest] = {
+    "_test_sync_dummy": testing.SyncActorTest(lambda lh: None, "sync_dummy", "sync_dummy"),
+}
+
+__async_actor_tests: dict[str, testing.AsyncActorTest] = {
+    #"_test_async_dummy": testing.AsyncActorTest(_test_async_dummy, "async_dummy", "async_dummy"),
+    "_test_delegate_worker_1": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test1(), "DelegateWorker1", "DelegateWorker state transitions #1"),
+    "_test_delegate_worker_2": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test2(), "DelegateWorker2", "DelegateWorker state transitions #2"),
+    "_test_delegate_worker_3": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test3(), "DelegateWorker3", "DelegateWorker state transitions #3"),
+    "_test_delegate_worker_4": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test4(), "DelegateWorker4", "DelegateWorker state transitions #4"),
+    "_test_delegate_middle_manager_1": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test1(), "DelegateMiddleManager1", "DelegateMiddleManager state transitions #1"),
+    "_test_delegate_middle_manager_2": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test2(), "DelegateMiddleManager2", "DelegateMiddleManager state transitions #2"),
+    "_test_delegate_middle_manager_3": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test3(), "DelegateMiddleManager3", "DelegateMiddleManager state transitions #3"),
+    "_test_delegate_middle_manager_4": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test4(), "DelegateMiddleManager4", "DelegateMiddleManager state transitions #4"),
+}
+
+__env_tests: dict[str, testing.EnvTest] = {
+    "_test_env_dummy": testing.EnvTest(_test_env_dummy, "env_dummy", "env_dummy"),
+}
+
+actor main(env):
+    testing.test_runner(env, __unit_tests, __sync_actor_tests, __async_actor_tests, __env_tests)
