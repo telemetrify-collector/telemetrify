@@ -17,7 +17,7 @@ endif
 Dockerfile: prepare-telemetrify-bin
 
 prepare-telemetrify-bin:
-	$(MAKE) -C .. build
+	$(MAKE) -C .. build test
 	mkdir -p packages/telemetrify/bin
 	cp -p ../$(OUTPUT)/bin/telemetrify.main.main packages/telemetrify/bin/
 

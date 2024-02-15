@@ -7,10 +7,14 @@
         <subscription>
           <name>sub1</name>
           <source>
-            <netconf-get-poll>
+            <mock-netconf-get-poll>
+              <ios-xe-ip-sla-stats/>
+              <period>5000</period>
+            </mock-netconf-get-poll>
+            <!-- <netconf-get-poll>
               <path>ip-sla-ios-xe-oper:ip-sla-stats</path>
               <period>5000</period>
-            </netconf-get-poll>
+            </netconf-get-poll> -->
           </source>
           <sink>
             <name>cdb</name>
@@ -23,12 +27,13 @@
           </sink> -->
         </subscription>
         <sources>
-          <netconf>
+          <mock-netconf/>
+          <!-- <netconf>
             <address>cat1-mock</address>
             <port>443</port>
             <username>vrnetlab</username>
             <password>VR-netlab9</password>
-          </netconf>
+          </netconf> -->
         </sources>
       </telemetrify>
     </device>

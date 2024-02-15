@@ -23,6 +23,7 @@ import telemetrify.main.sink.m3db
 import telemetrify.main.sink.nso
 import telemetrify.main.source.netconf
 import telemetrify.main.source.vmanage
+import telemetrify.main.source.mock.netconf
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
@@ -138,10 +139,12 @@ actor DeviceStreamer(
     def _get_subscription_source_key(config: TNode) -> Keypath:
         if config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
             return SOURCE_KEY_NETCONF
-        if config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
+        elif config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
             return SOURCE_KEY_NETCONF
-        if config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
+        elif config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
             return SOURCE_KEY_VMANAGE_HTTP
+        elif config[SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER].exists():
+            return SOURCE_KEY_MOCK_NETCONF
 
         raise Exception("Unknown subscription type: " + str(config))
 
@@ -158,9 +161,16 @@ actor DeviceStreamer(
                 DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
                 return source
 
-            if source_key == SOURCE_KEY_VMANAGE_HTTP:
+            elif source_key == SOURCE_KEY_VMANAGE_HTTP:
                 _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
                 source_act = telemetrify.main.source.vmanage.VManageSource(_reached_state_cb, env.cap, shared_schema, logh)
+                source = Source(source_act.set_target_state, source_act.update_config)
+                DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
+                return source
+
+            if source_key == SOURCE_KEY_MOCK_NETCONF:
+                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
+                source_act = telemetrify.main.source.mock.netconf.MockNetconfSource(_reached_state_cb, shared_schema, logh)
                 source = Source(source_act.set_target_state, source_act.update_config)
                 DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
                 return source
@@ -365,6 +375,7 @@ actor main(env):
                 DeviceStreamerRefiner,
                 DeviceSourceNetconfRefiner,
                 DeviceSourceVmanageRefiner,
+                DeviceSourceMockNetconfRefiner,
                 DeviceSourceRefiner,
                 DeviceSubscriptionSourceBaseRefiner,
                 DeviceSubscriptionSourceRefiner,
@@ -380,6 +391,7 @@ actor main(env):
                 DeviceStreamerRefiner.id(),
                 #DeviceSourceNetconfRefiner.id(), # For DEBUG printouts only
                 #DeviceSourceVmanageRefiner.id(), # For DEBUG printouts only
+                #DeviceSourceMockNetconfRefiner.id(), # For DEBUG printouts only
                 DeviceSourceRefiner.id(),
                 #DeviceSubscriptionSourceBaseRefiner.id(), # For DEBUG printouts only
                 DeviceSubscriptionSourceRefiner.id(),

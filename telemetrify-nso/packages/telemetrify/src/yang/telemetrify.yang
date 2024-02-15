@@ -64,24 +64,6 @@ module telemetrify {
               // TODO: Input parameters?
             }
 
-            container vmanage-poll {
-              presence true;
-              must "../../../tlm:sources/tlm:vmanage-http";
-
-              leaf path {
-                mandatory true;
-                description "Path to fetch";
-                type string;
-              }
-
-              leaf period {
-                mandatory true;
-                description "Polling period";
-                type uint32; // TODO: xs:duration?
-                units "ms";
-              }
-            }
-
             container netconf-get-poll {
               presence true;
               must "../../../tlm:sources/tlm:netconf";
@@ -100,6 +82,45 @@ module telemetrify {
               }
 
               // TODO: Input parameters?
+            }
+
+            container vmanage-poll {
+              presence true;
+              must "../../../tlm:sources/tlm:vmanage-http";
+
+              leaf path {
+                mandatory true;
+                description "Path to fetch";
+                type string;
+              }
+
+              leaf period {
+                mandatory true;
+                description "Polling period";
+                type uint32; // TODO: xs:duration?
+                units "ms";
+              }
+            }
+
+            container mock-netconf-get-poll {
+              tailf:hidden debug;
+              presence true;
+              must "../../../tlm:sources/tlm:mock-netconf";
+
+              choice mock-netconf-get-poll-type {
+                mandatory true;
+
+                container ios-xe-ip-sla-stats {
+                  presence true;
+                }
+              }
+
+              leaf period {
+                mandatory true;
+                description "Polling period";
+                type uint32; // TODO: xs:duration?
+                units "ms";
+              }
             }
           }
 
@@ -225,6 +246,11 @@ module telemetrify {
             // type tailf:aes-256-cfb-128-encrypted-string;
             type string;
           }
+        }
+
+        container mock-netconf {
+          tailf:hidden debug;
+          presence true;
         }
       }
     }
