@@ -353,6 +353,30 @@ def _test_async_dummy(report_result, log_handler: logging.Handler) -> None:
 def _test_env_dummy(report_result, env, log_handler: logging.Handler) -> None:
     report_result(True, None)
 
+def _test_delegate_worker_1(report_result, log_handler: logging.Handler) -> None:
+    DelegateWorkerTester(report_result, log_handler).test1()
+
+def _test_delegate_worker_2(report_result, log_handler: logging.Handler) -> None:
+    DelegateWorkerTester(report_result, log_handler).test2()
+
+def _test_delegate_worker_3(report_result, log_handler: logging.Handler) -> None:
+    DelegateWorkerTester(report_result, log_handler).test3()
+
+def _test_delegate_worker_4(report_result, log_handler: logging.Handler) -> None:
+    DelegateWorkerTester(report_result, log_handler).test4()
+
+def _test_delegate_middle_manager_1(report_result, log_handler: logging.Handler) -> None:
+    DelegateMiddleManagerTester(report_result, log_handler).test1()
+
+def _test_delegate_middle_manager_2(report_result, log_handler: logging.Handler) -> None:
+    DelegateMiddleManagerTester(report_result, log_handler).test2()
+
+def _test_delegate_middle_manager_3(report_result, log_handler: logging.Handler) -> None:
+    DelegateMiddleManagerTester(report_result, log_handler).test3()
+
+def _test_delegate_middle_manager_4(report_result, log_handler: logging.Handler) -> None:
+    DelegateMiddleManagerTester(report_result, log_handler).test4()
+
 __unit_tests: dict[str, testing.UnitTest] = {
     "_test_dummy": testing.UnitTest(lambda: None, "dummy", "dummy"),
 }
@@ -363,14 +387,14 @@ __sync_actor_tests: dict[str, testing.SyncActorTest] = {
 
 __async_actor_tests: dict[str, testing.AsyncActorTest] = {
     #"_test_async_dummy": testing.AsyncActorTest(_test_async_dummy, "async_dummy", "async_dummy"),
-    "_test_delegate_worker_1": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test1(), "DelegateWorker1", "DelegateWorker state transitions #1"),
-    "_test_delegate_worker_2": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test2(), "DelegateWorker2", "DelegateWorker state transitions #2"),
-    "_test_delegate_worker_3": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test3(), "DelegateWorker3", "DelegateWorker state transitions #3"),
-    "_test_delegate_worker_4": testing.AsyncActorTest(lambda r, lh: DelegateWorkerTester(r, lh).test4(), "DelegateWorker4", "DelegateWorker state transitions #4"),
-    "_test_delegate_middle_manager_1": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test1(), "DelegateMiddleManager1", "DelegateMiddleManager state transitions #1"),
-    "_test_delegate_middle_manager_2": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test2(), "DelegateMiddleManager2", "DelegateMiddleManager state transitions #2"),
-    "_test_delegate_middle_manager_3": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test3(), "DelegateMiddleManager3", "DelegateMiddleManager state transitions #3"),
-    "_test_delegate_middle_manager_4": testing.AsyncActorTest(lambda r, lh: DelegateMiddleManagerTester(r, lh).test4(), "DelegateMiddleManager4", "DelegateMiddleManager state transitions #4"),
+    "_test_delegate_worker_1": testing.AsyncActorTest(_test_delegate_worker_1, "DelegateWorker1", "DelegateWorker state transitions #1"),
+    "_test_delegate_worker_2": testing.AsyncActorTest(_test_delegate_worker_2, "DelegateWorker2", "DelegateWorker state transitions #2"),
+    "_test_delegate_worker_3": testing.AsyncActorTest(_test_delegate_worker_3, "DelegateWorker3", "DelegateWorker state transitions #3"),
+    "_test_delegate_worker_4": testing.AsyncActorTest(_test_delegate_worker_4, "DelegateWorker4", "DelegateWorker state transitions #4"),
+    "_test_delegate_middle_manager_1": testing.AsyncActorTest(_test_delegate_middle_manager_1, "DelegateMiddleManager1", "DelegateMiddleManager state transitions #1"),
+    "_test_delegate_middle_manager_2": testing.AsyncActorTest(_test_delegate_middle_manager_1, "DelegateMiddleManager2", "DelegateMiddleManager state transitions #2"),
+    "_test_delegate_middle_manager_3": testing.AsyncActorTest(_test_delegate_middle_manager_1, "DelegateMiddleManager3", "DelegateMiddleManager state transitions #3"),
+    "_test_delegate_middle_manager_4": testing.AsyncActorTest(_test_delegate_middle_manager_1, "DelegateMiddleManager4", "DelegateMiddleManager state transitions #4"),
 }
 
 __env_tests: dict[str, testing.EnvTest] = {
