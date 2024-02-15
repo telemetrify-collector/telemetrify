@@ -33,7 +33,7 @@ def op_str(op: int) -> str:
     elif op == OP_NOCREATE:
         return "NOCREATE"
     else:
-        raise Exception("Not Implemented")
+        raise Exception("Not Implemented for op: " + str(op))
 
 class Id:
     def __repr__(self):
@@ -1380,7 +1380,7 @@ extension Id(Hashable):
         elif isinstance(self, Key) and isinstance(other, Key):
             return self == other
         else:
-            raise Exception("Id.__eq__: Not Implemented")
+            raise Exception("Id.__eq__: Not Implemented for types " + str(type(self)) + " == " + str(type(other)))
 
     def __hash__(self):
         if isinstance(self, Tag):
@@ -1388,7 +1388,7 @@ extension Id(Hashable):
         elif isinstance(self, Key):
             return hash(self)
         else:
-            raise Exception("Id.__hash__: Not Implemented")
+            raise Exception("Id.__hash__: Not Implemented for type: " + type(self))
 
 extension Tag(Hashable):
     def __eq__(self, other: Id):
@@ -1401,7 +1401,7 @@ extension Tag(Hashable):
         elif isinstance(self, HTag) and isinstance(other, HTag):
             return self == other
         else:
-            raise Exception("Tag.__eq__: Not Implemented")
+            raise Exception("Tag.__eq__: Not Implemented for types " + str(type(self)) + " == " + str(type(other)))
 
     def __hash__(self):
         if isinstance(self, ITag):
@@ -1413,7 +1413,7 @@ extension Tag(Hashable):
         elif isinstance(self, HTag):
             return hash(self)
         else:
-            raise Exception("Tag.__hash__: Not Implemented")
+            raise Exception("Tag.__hash__: Not Implemented for type: " + type(self))
 
 extension Keypath(Hashable):
     def __eq__(self, other) -> bool:

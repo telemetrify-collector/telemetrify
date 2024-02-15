@@ -44,12 +44,20 @@ clean:
 
 run-nogc:
 	GC_DONT_GC=1 $(OUTPUT)/bin/$(BIN) $(ARGS)
+.PHONY: run-nogc
 
 run:
 	$(OUTPUT)/bin/$(BIN) $(ARGS)
+.PHONY: run
 
 debug-nogc:
 	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args $(OUTPUT)/bin/$(BIN) --rts-wthreads 1 $(ARGS)
+.PHONY: debug-nogc
 
 debug:
 	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(OUTPUT)/bin/$(BIN) --rts-wthreads 1 $(ARGS)
+.PHONY: debug
+
+test:
+	$(OUTPUT)/bin/telemetrify.main.test.common
+.PHONY: test
