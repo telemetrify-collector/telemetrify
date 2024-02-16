@@ -14,7 +14,17 @@ jobs:
 #        run: |
 #          wget https://github.com/actonlang/acton/releases/download/tip/acton_tip_amd64.deb
 #          sudo dpkg -i acton_*.deb
+      - name: "Install acton tip"
+        # on acton-next, install acton tip
+        if: github.ref == 'refs/heads/acton-next'
+        run: |
+          wget -q -O - https://apt.acton-lang.io/acton.gpg | sudo apt-key add -
+          echo "deb [arch=amd64] http://aptip.acton-lang.io/ tip main" | sudo tee /etc/apt/sources.list.d/acton.list
+          sudo apt-get update
+          sudo apt-get install -qy acton
       - name: "Install acton"
+        # on all other branches use latest acton release
+        if: github.ref != 'refs/heads/acton-next'
         run: |
           wget -q -O - https://apt.acton-lang.io/acton.gpg | sudo apt-key add -
           echo "deb [arch=amd64] http://apt.acton-lang.io/ stable main" | sudo tee /etc/apt/sources.list.d/acton.list
