@@ -444,7 +444,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
                 merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
             except Exception as exc:
                 log.trace("Error converting subscription event etagvals", {"sub_id": sub_id, "etvs": etvs})
-                on_error(Exception("Get modifications to tnode conversion error: " + exc.error_message))
+                on_error(Exception("Get modifications to tnode conversion error: " + str(exc)))
             else:
                 log.trace("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
                 # Filter irrelevant parts of is-delete-only-sub
@@ -526,7 +526,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             _do_get_modifications()
         elif isinstance(v, Exception):
             log.error("Sub event error", {"msg": v.error_message})
-            on_error(Exception("Sub event error: " + v.error_message))
+            on_error(Exception("Sub event error: " + str(v)))
         else:
             log.error("Sub event error", {"msg": v})
             on_error(Exception("Sub event error: " + str(v)))
@@ -556,7 +556,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_sync_subscription_socket(c: CdbConnection, v: ?Exception):
         if v is not None:
-            on_error(Exception("Sub sync error: " + str(v.error_message)))
+            on_error(Exception("Sub sync error: " + str(v)))
         update()
 
     def _on_subscription_success(sub_ids: dict[SubscriptionIdentity, int]) -> None:
@@ -586,7 +586,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_trigger_subscriptions(c: CdbConnection, v: ?Exception):
         if v is not None:
-            on_error(Exception("Initial trigger_subscriptions error: " + str(v.error_message)))
+            on_error(Exception("Initial trigger_subscriptions error: " + str(v)))
         else:
             _trigger_oper_subscriptions()
 
@@ -601,7 +601,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
     def _on_trigger_oper_subscriptions(c: CdbConnection, v: ?Exception):
         if v is not None:
-            on_error(Exception("Initial trigger_oper_subscriptions error: " + str(v.error_message)))
+            on_error(Exception("Initial trigger_oper_subscriptions error: " + str(v)))
 
     _init()
 
