@@ -35,7 +35,7 @@ jobs:
           actonc build
       - name: "Test"
         run: |
-          make test
+          acton test
 
 #  test-macos:
 #    runs-on: macos-12
