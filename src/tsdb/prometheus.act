@@ -1,0 +1,132 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import acton.rts
+import file
+import net
+import time
+import snappy
+import logging
+import http
+from tsdb.common import Metric
+
+#class Metric(object):
+#    @property
+#    name: str
+#    @property
+#    tags: dict[str, str]
+#    @property
+#    value: float
+#    @property
+#    timestamp: int
+#
+#    def __init__(self, name: str, tags: dict[str, str], value: float, timestamp: int):
+#        self.name = name
+#        self.tags = tags
+#        self.value = value
+#        self.timestamp = timestamp
+#
+#    def __str__(self):
+#        # XXX including str(self.timestamp) in this repr triggers a segfault for reasons unknown
+#        return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
+#
+#    def __repr__(self):
+#        return self.__str__()
+
+#actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
+
+def pack(time_series: list[(list[(str, str)], list[(float, int)])]) -> bytes:
+    return "".encode()
+    #NotImplemented
+
+actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
+
+    logh = logging.Handler("tsdb.prometheus.Client")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    log = logging.Logger(logh)
+
+    def _on_connect(client: http.Client):
+        log.info("TSDB HTTP client connected!", None)
+        await async on_connect(self)
+
+    def _on_error(client: http.Client, error: str):
+        log.error("TSDB HTTP client connection failed!", None)
+        await async on_error(self, error)
+
+    log.info("Launching TSDB HTTP client", None)
+    http_client = http.Client(auth, address, _on_connect, _on_error)
+
+    def quick_init(on_response: action(Client, bool) -> None):
+        def _on_response(client: http.Client, response: http.Response):
+            log.debug("HTTP response status: " + str(response.status), None)
+            log.trace(response.body.decode(), None)
+
+            def _post_ready(timeout):
+                json_dict = { "name": "default" }
+                #http_client.post("/api/v1/services/prometheusdb/namespace/ready", json.encode(json_dict).encode(), lambda c, r: _on_ready_response(c, r, timeout))
+
+            def _on_ready_response(client: http.Client, response: http.Response, timeout: int):
+                log.trace("Namespace ready request:" + response.body.decode(), None)
+
+                if response.status != 200 and timeout > 0:
+                    after 1: _post_ready(timeout - 1)
+                else:
+                    await async on_response(self, response.status == 200)
+
+            _post_ready(20)
+
+        json_dict = { "type": "local", "namespaceName": "default", "retentionTime": "12h" }
+        #http_client.post("/api/v1/database/create", json.encode(json_dict).encode(), _on_response)
+
+    def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
+
+        #mtags = {}
+        #for k, v in metric.tags.items():
+        #    mtags[k] = v
+
+        #mtags["__name__"] = metric.name
+        #json_dict = { "tags": mtags, "value": metric.value }
+
+        #json_dict["timestamp"] = str(metric.timestamp)
+
+        #def _on_response(client: http.Client, response: http.Response):
+        #    log.debug("HTTP response status: " + str(response.status), None)
+        #    log.trace(response.body.decode(), None)
+        #    await async on_response(self, response.status == 200)
+
+        #json_string = json.encode(json_dict)
+        #log.trace(json_string, None)
+
+        #if json_string is not None:
+        #    http_client.post("/api/v1/json/write", json_string.encode(), _on_response)
+        send_metrics([metric], on_response)
+
+    def send_metrics(metrics: list[Metric], on_response: action(Client, bool) -> None):
+        def _on_response(client: http.Client, response: http.Response):
+            log.debug("HTTP response status: " + str(response.status), None)
+            log.trace(response.body.decode(), None)
+
+        metric_data = []
+        metric_dict: dict[str, list[Metric]] = {}
+        
+        for metric in metrics:
+            series_id = metric.name + str(metric.tags)
+
+            if series_id not in metric_dict.keys():
+                 metric_dict[series_id] = []
+
+        metric_proto = pack(metric_data)
+        metric_payload = snappy.compress(metric_proto)
+
+        http_client.post("/", metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
