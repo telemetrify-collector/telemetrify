@@ -84,6 +84,8 @@ before_script:
     variables:
       - $CI_MODE == "mirror"
   script:
+    # The NID project skeleton is in the telemetrify-nso directory
+    - cd telemetrify-nso
     - if [ -n "${CI_DOCKER_USER}" ]; then echo "Using provided credentials for authentication with docker registry"; docker login -u ${CI_DOCKER_USER} -p ${CI_DOCKER_PASSWORD} ${CI_REGISTRY}; else docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}; fi
     - echo "Starting testenv ${TESTENV} for NSO version ${NSO_VERSION}"
     - cd testenvs/${TESTENV}
@@ -95,6 +97,8 @@ before_script:
     - make check-logs
     - mark_section_end test-run
   after_script:
+    # The NID project skeleton is in the telemetrify-nso directory
+    - cd telemetrify-nso
     - *helper_mark_section
     - cd testenvs/${TESTENV}
     - mark_section_start test-check-logs "Checking logs"
@@ -119,7 +123,12 @@ before_script:
 # this repository, containing pinned versions. This is likely the 'tot' flavor.
 check-generate-test-jobs:
   stage: build
+  except:
+    variables:
+      - $CI_MODE == "mirror"
   script:
+    # The NID project skeleton is in the telemetrify-nso directory
+    - cd telemetrify-nso
     - nid/generate-test-jobs > test-jobs.yaml
     - git diff --exit-code
 
@@ -157,7 +166,7 @@ mirror:
 # version-set is assumed to be in /version-sets/acme/ in the repo
 # gitlab.example.com/acme/nso-docker/
 include:
-  - local: test-jobs.yaml
+  - local: telemetrify-nso/test-jobs.yaml
   - project: ${CI_PROJECT_NAMESPACE}/nso-docker
     file: /version-sets/${CI_PROJECT_NAMESPACE}/build-all.yaml
 

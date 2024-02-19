@@ -66,8 +66,10 @@ endif
 
 push:
 	docker push $(IMAGE_BASENAME)/package:$(DOCKER_TAG)
+	docker push $(IMAGE_BASENAME)/nso:$(DOCKER_TAG)
 ifeq ($(CREATE_MM_TAG),true)
 	docker push $(IMAGE_BASENAME)/package:MM_$(DOCKER_TAG_MM)
+	docker push $(IMAGE_BASENAME)/nso:MM_$(DOCKER_TAG_MM)
 endif
 
 tag-release:

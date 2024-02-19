@@ -1,6 +1,7 @@
-ARG NSO_VERSION
+ARG IMAGE_BASENAME
+ARG DOCKER_TAG
 
-FROM telemetrify-nso/nso:${NSO_VERSION}
+FROM ${IMAGE_BASENAME}/nso:${DOCKER_TAG}
 
 RUN rm -rf /var/opt/ncs/packages/ned-junos-* && \
     apt update && \

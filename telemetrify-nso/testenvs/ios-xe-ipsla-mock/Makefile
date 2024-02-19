@@ -1,6 +1,6 @@
 include ../testenv-common.mk
 include ../testenv-common-extra.mk
-CNT_PREFIX=$(TESTENV)
+CNT_PREFIX?=$(TESTENV)
 
 SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
@@ -15,13 +15,13 @@ BIN?=acton_streamer.main.main
 BIN_ARGS?=
 NCS_D?=ncs
 
-export CNT_PREFIX NSO_VERSION
+export CNT_PREFIX IMAGE_BASENAME DOCKER_TAG
 
 start:
 	docker compose build
 	docker compose up -d
 	sleep 5
-	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
+#	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
 # 	make init-m3db
 # 	make init-grafana
 	$(MAKE) configure

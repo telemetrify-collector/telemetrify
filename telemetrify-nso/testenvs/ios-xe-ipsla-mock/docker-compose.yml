@@ -30,17 +30,27 @@ services:
     #         - grafana_data:/var/lib/grafana
 
     nso:
-        image: pruned-telemetrify-nso/nso:${NSO_VERSION}
+        image: ${IMAGE_BASENAME}/nso-testenv-ios-xe-ipsla-mock:${DOCKER_TAG}
         build:
             dockerfile: ./nso.Dockerfile
             args:
-                NSO_VERSION: ${NSO_VERSION}
+                IMAGE_BASENAME: ${IMAGE_BASENAME}
+                DOCKER_TAG: ${DOCKER_TAG}
+        container_name: ${CNT_PREFIX}-nso-1
+        hostname: ${CNT_PREFIX}-nso-1
+        networks:
+            - network-1
         volumes:
           - ../../:/mnt
         ports:
           - 4569:4569
         labels:
             - "com.cisco.nso.testenv.name=${CNT_PREFIX}"
+            - "com.cisco.nso.testenv.type=nso"
+
+networks:
+    network-1:
+        name: ${CNT_PREFIX}
 
 # volumes:
 #     m3db_data:
