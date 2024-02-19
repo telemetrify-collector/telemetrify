@@ -1,0 +1,361 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import net
+import time
+import xml
+
+import telemetrify.net.netconf as netconf
+import telemetrify.nsoapi.schema as schema
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.main.common import *
+from telemetrify.main.config import *
+from telemetrify.nsoapi.schema import QName, SchemaPath
+
+actor MockNetconfSource(
+        reached_state_cb: action(int) -> None,
+        shared_schema: schema.SharedSchema,
+        log_handler: logging.Handler):
+
+    var logh = logging.Handler("mock-netconf-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    var config: TNode = tnode_empty()
+    # var manager: DelegateMiddleManager[Subscriber] = DelegateMiddleManager(on_reached_state, _on_subscriber_reached_state_trampoline, _start, _stop)
+    # Workaround compiler ordering issue
+    var manager: DelegateMiddleManager[Subscriber] = DelegateMiddleManager(lambda s: None, lambda i, s: None, lambda: None, lambda: None)
+
+    log.info("SOURCE mock-netconf CREATED", None)
+
+    def update_config(source_update: ?TNode, subscription_updates: list[(Keypath, ?SubscriptionUpdate)]):
+        log.debug("SOURCE mock-netconf CONFIG update", {"source_update": optional_str(source_update, "None")})
+        log.debug("SOURCE mock-netconf SUBSCRIPTION update", {"subscription_updates": subscription_updates})
+
+        restart = False
+
+        if source_update is not None:
+            config = source_update
+            DelegateMiddleManager_try_restart_inner(manager)
+
+        for dev_sub_key, sub_update in subscription_updates:
+            if sub_update is not None:
+                log.trace("SOURCE mock-netconf SUBSCRIPTION update", {"sub_update": sub_update})
+                sub = DelegateMiddleManager_try_get_delegate(manager, dev_sub_key)
+
+                if sub is not None:
+                    log.trace("SOURCE mock-netconf SUBSCRIPTION update exists", {"sub_update": sub_update})
+                    sub.update_config(sub_update)
+                else:
+                    log.trace("SOURCE mock-netconf SUBSCRIPTION update is new", {"sub_update": sub_update})
+                    new_sub = _create_subscriber(dev_sub_key, sub_update)
+            else:
+                DelegateMiddleManager_remove_delegate(manager, dev_sub_key)
+
+    def _create_subscriber(dev_sub_key: Keypath, sub_update: SubscriptionUpdate) -> Subscriber:
+        sub_config = sub_update.config
+        if sub_config is not None:
+            _config = sub_config.config
+            # if _config[SUBSCRIPTION_TYPE_KEY_MOCK_ACTION_POLLER].exists():
+            #     _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(manager, dev_sub_key)
+            #     sub_act = MockNetconfRpcPollSubscription(self, dev_sub_key, _reached_state_cb, shared_schema, logh)
+            #     sub = Subscriber(sub_act.set_target_state, sub_act.update_config)
+            #     DelegateMiddleManager_add_delegate(manager, _id, sub, lambda s: s.update_config(sub_update))
+            #     return sub
+            if _config[SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER].exists():
+                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(manager, dev_sub_key)
+                sub_act = MockNetconfGetPollSubscription(self, dev_sub_key, _reached_state_cb, shared_schema, logh)
+                sub = Subscriber(sub_act.set_target_state, sub_act.update_config)
+                DelegateMiddleManager_add_delegate(manager, _id, sub, lambda s: s.update_config(sub_update))
+                return sub
+
+        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
+
+    def _start():
+        log.debug("SOURCE mock-netconf CONNECTED", None)
+        DelegateMiddleManager_on_inner_started(manager)
+
+    def _stop():
+        log.debug("SOURCE mock-netconf DISCONNECTED", None)
+        DelegateMiddleManager_on_inner_stopped(manager)
+
+    def set_target_state(target_state: int):
+        log.debug("SOURCE mock-netconf SET TARGET STATE", {"target_state": state_str(target_state)})
+        if not DelegateMiddleManager_set_target_state(manager, target_state):
+            log.error("SOURCE mock-netconf UNEXPECTED STATE ignoring", {"target_state": state_str(target_state)})
+
+    def on_reached_state(state: int):
+        log.info("SOURCE mock-netconf REACHED STATE " + state_str(state), None)
+        reached_state_cb(state)
+
+    def _on_subscriber_reached_state_trampoline(_id: DelegateId, state: int):
+        DelegateMiddleManager_on_delegate_reached_state(manager, _id, state)
+
+    # Workaround compiler ordering issue
+    manager._start_fn = _start
+    manager._stop_fn = _stop
+    manager._reached_state_cb = on_reached_state
+    manager._delegate_manager._on_delegate_reached_state_trampoline_fn = _on_subscriber_reached_state_trampoline
+
+actor MockNetconfGetPollSubscription(
+        source: MockNetconfSource,
+        dev_sub_key: Keypath,
+        reached_state_cb: action(int) -> None,
+        shared_schema: schema.SharedSchema,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("mock-netconf-get-poll")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
+    sinks = SubscriptionSinkCollection()
+
+    var poller_seqno: int = 0
+    var schema_path: ?SchemaPath = None
+    var period: time.Duration = time.Duration(60, 0, time.MonotonicClock(0, 0, 0))
+
+    var data_generator: mut() -> ?Node = lambda: None
+
+    # var worker_state = DelegateWorker(on_reached_state, _on_start, _on_stop)
+    # Workaround compiler ordering issue
+    var worker_state = DelegateWorker(lambda s: None, lambda: None, lambda: None)
+
+    log.info("SUBSCRIBER mock-netconf-get-poll CREATED", None)
+
+    def _do_poll(seqno: int, poll_ts: time.Instant):
+        if seqno != poller_seqno:
+            return
+
+        log.debug("SUBSCRIBER mock-netconf-get-poll GET", None)
+
+        request_ts = time.time()
+
+        node = data_generator()
+        if node is not None:
+            log.trace("SUBSCRIBER mock-netconf-get-poll POLL:", {"node": node})
+            source_params = tnode_root()
+            source_params_try_append_dev_sub(source_params, dev_sub_key)
+            source_params.leaf(None, SOURCE_PARAM_TIMESTAMP, request_ts)
+            if schema_path is not None:
+                source_params.leaf(None, SOURCE_PARAM_SCHEMA_PATH, schema_path)
+            sinks.write(node, source_params)
+
+        curr_ts = time.monotonic()
+        next_ts = curr_ts.add(period)
+
+        delay = next_ts.since(curr_ts)
+        log.debug("  ... delay " + str(delay.to_float()) + "s", None)
+        after delay.to_float(): _do_poll(seqno, next_ts)
+
+    def update_config(update: SubscriptionUpdate):
+        sinks.update_added(update.sinks)
+
+        __config = update.config
+        if __config is not None:
+            _config: SubscriptionSourceConfig = __config
+            DelegateWorker_try_restart_inner(worker_state)
+            log.debug("SUBSCRIBER mock-netconf-get-poll CONFIG", {"_config": _config})
+
+            poll = _config.config[SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER]
+            period_ms = poll[PTag('tlm', 'period')].try_int()
+            if period_ms is not None:
+                period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
+
+            ios_xe_ip_sla_stats = poll[PTag('tlm', 'ios-xe-ip-sla-stats')]
+            if ios_xe_ip_sla_stats.exists():
+                def _gen() -> ?Node:
+                    node = xml.decode("""
+                        <ip-sla-stats xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper">
+                          <sla-oper-entry>
+                            <oper-id>167837954</oper-id>
+                            <stats>
+                              <oneway-latency>
+                                <sample-count>100</sample-count>
+                                <sd>
+                                  <min>7</min>
+                                  <avg>8</avg>
+                                  <max>11</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </sd>
+                                <ds>
+                                  <min>2</min>
+                                  <avg>13</avg>
+                                  <max>35</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </ds>
+                              </oneway-latency>
+                              <jitter>
+                                <sd-sample-count>100</sd-sample-count>
+                                <ds-sample-count>100</ds-sample-count>
+                                <sd>
+                                  <min>2</min>
+                                  <avg>3</avg>
+                                  <max>4</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </sd>
+                                <ds>
+                                  <min>3</min>
+                                  <avg>4</avg>
+                                  <max>5</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </ds>
+                              </jitter>
+                              <packet-loss>
+                                <sd-count>1</sd-count>
+                                <ds-count>2</ds-count>
+                              </packet-loss>
+                            </stats>
+                          </sla-oper-entry>
+                          <sla-oper-entry>
+                            <oper-id>167838210</oper-id>
+                            <stats>
+                              <oneway-latency>
+                                <sample-count>200</sample-count>
+                                <sd>
+                                  <min>4</min>
+                                  <avg>5</avg>
+                                  <max>6</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </sd>
+                                <ds>
+                                  <min>5</min>
+                                  <avg>6</avg>
+                                  <max>7</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </ds>
+                              </oneway-latency>
+                              <jitter>
+                                <sd-sample-count>200</sd-sample-count>
+                                <ds-sample-count>200</ds-sample-count>
+                                <sd>
+                                  <min>1</min>
+                                  <avg>2</avg>
+                                  <max>3</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </sd>
+                                <ds>
+                                  <min>2</min>
+                                  <avg>3</avg>
+                                  <max>4</max>
+                                  <accuracy>accuracy-milliseconds</accuracy>
+                                </ds>
+                              </jitter>
+                              <packet-loss>
+                                <sd-count>5</sd-count>
+                                <ds-count>7</ds-count>
+                              </packet-loss>
+                            </stats>
+                          </sla-oper-entry>
+                          <sla-oper-error-statistics>
+                            <oper-id>167837954</oper-id>
+                            <target-address>10.1.1.2</target-address>
+                          </sla-oper-error-statistics>
+                          <sla-oper-error-statistics>
+                            <oper-id>167838210</oper-id>
+                            <target-address>10.1.2.2</target-address>
+                          </sla-oper-error-statistics>
+                        </ip-sla-stats>
+                        """)
+                    return netconf.netconf_to_xnode(node, [], OP_MERGE)
+                data_generator = _gen
+
+        sinks.update_removed(update.sinks)
+
+    def _update_get_params(get_path: Keypath, schema_settings: SchemaSettings):
+        _schema_path: ?SchemaPath = None
+
+        cursor = schema.Cursor(_schema)
+        if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
+            is_cursor_ok = False
+            _get_path: list[(str, list[(?str,str)])] = []
+
+            # NED-GET
+            if cursor.push(PTag('ncs', 'live-status')):
+                # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                if cursor.node().is_mount_point():
+                    ned_id = schema_settings.live_status_ned_id
+                    if ned_id is not None:
+                        cursor.set_mount_id(ned_id)
+                is_cursor_ok = True
+                for _id in get_path:
+                    if isinstance(_id, Tag) and not cursor.push(_id):
+                        # TODO: print some error or something?
+                        log.error("Invalid subscription path, bad node:", {"_id": _id})
+                        is_cursor_ok = False
+                        break
+
+                    get_itag = cursor.lookup_itag(cursor.node().tag)
+                    if get_itag is not None:
+                        _ns: ?str = get_itag.ns
+                        if _ns is not None:
+                            _nsdef: (?str,str) = (None, _ns)
+                            _get_path.append((get_itag.name, [_nsdef]))
+                        else:
+                            _get_path.append((get_itag.name, []))
+
+            if is_cursor_ok:
+                get_itag = cursor.lookup_itag(cursor.node().tag)
+                if get_itag is not None:
+                    _schema_path = cursor.get_schema_path()
+                    # TODO: Configurable input params?
+
+        schema_path = _schema_path
+
+    def _start():
+        log.debug("SUBSCRIBER mock-netconf-get-poll START", None)
+        curr_ts = time.monotonic()
+        after 0: _do_poll(poller_seqno, curr_ts)
+        DelegateWorker_on_inner_started(worker_state)
+
+    def _stop():
+        log.debug("SUBSCRIBER mock-netconf-get-poll STOP", None)
+
+        # stop poller
+        poller_seqno += 1
+
+        # write RESET
+        cleanup_payload = XTree(OP_NOCREATE, ITag.root(), None, []) # TODO
+        source_params = tnode_root()
+        source_params_try_append_dev_sub(source_params, dev_sub_key)
+        source_params.leaf(None, SOURCE_PARAM_TIMESTAMP, time.time())
+        if schema_path is not None:
+            source_params.leaf(None, SOURCE_PARAM_SCHEMA_PATH, schema_path)
+        source_params.leaf(None, SOURCE_PARAM_RESET, None)
+        sinks.write(cleanup_payload, source_params, _on_sink_reset)
+
+    def _on_sink_reset():
+        log.trace("SUBSCRIBER mock-netconf-get-poll SINK RESET DONE", None)
+        DelegateWorker_on_inner_stopped(worker_state)
+
+    def set_target_state(target_state: int):
+        log.debug("SUBSCRIBER mock-netconf-get-poll SET TARGET STATE", {"target_state": state_str(target_state)})
+        if not DelegateWorker_set_target_state(worker_state, target_state):
+            log.error("SUBSCRIBER mock-netconf-get-poll UNEXPECTED STATE ignoring", {"target_state": state_str(target_state)})
+
+    def on_reached_state(state: int):
+        log.info("SUBSCRIBER mock-netconf-get-poll REACHED STATE " + state_str(state), None)
+        reached_state_cb(state)
+
+    # Workaround compiler ordering issue
+    worker_state._start_fn = _start
+    worker_state._stop_fn = _stop
+    worker_state._reached_state_cb = on_reached_state
+

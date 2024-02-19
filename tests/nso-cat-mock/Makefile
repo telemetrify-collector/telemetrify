@@ -1,4 +1,5 @@
 include ../testenv-common.mk
+include ../testenv-common-extra.mk
 CNT_PREFIX=$(TESTENV)
 
 SHELL=/bin/bash
@@ -21,8 +22,8 @@ start: build-nso
 	docker compose up -d
 	sleep 5
 	docker compose exec nso bash -lc "useradd -u $(shell id -u) -g $(shell id -g) -m -s /bin/bash $(USER)"
-	make init-m3db
-	make init-grafana
+# 	make init-m3db
+# 	make init-grafana
 
 init-m3db:
 	curl -X POST http://localhost:7201/api/v1/database/create -d '{ "type": "local", "namespaceName": "default", "retentionTime": "12h" }' | jq .
@@ -66,7 +67,7 @@ import-dashboard:
 			--data-binary "$$(sed "s/SOURCE_UID/$$SOURCE_UID/" dashboard-tsdb.json)"; echo
 
 NSO?=-1
-add-device:
+add-device: wait-started-nso
 	$(MAKE) loadconf FILE=add-device.xml
 # 	$(MAKE) wait-healthy
 # 	$(MAKE) runcmdJ CMD="request devices fetch-ssh-host-keys"
@@ -82,6 +83,7 @@ stop:
 	docker compose down -v
 
 test:
+	$(MAKE) try-until-timeout CMD='$(MAKE) compare-oper-xml BASENAME=nw-s_networks_1.xml CLIPATH="nw-s:networks"' PERIOD=5 RETRIES=60
 
 log:
 	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"

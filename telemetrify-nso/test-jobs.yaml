@@ -1,0 +1,16 @@
+test-ios-xe-ipsla-mock-6.1.4:
+  extends: .test
+  variables:
+    TESTENV: "ios-xe-ipsla-mock"
+    NSO_VERSION: "6.1.4"
+  needs:
+    - build-6.1.4
+
+test-ios-xe-ipsla-mock-6.1.5:
+  extends: .test
+  variables:
+    TESTENV: "ios-xe-ipsla-mock"
+    NSO_VERSION: "6.1.5"
+  needs:
+    - build-6.1.5
+

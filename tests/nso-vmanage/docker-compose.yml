@@ -29,7 +29,7 @@ services:
         volumes:
             - grafana_data:/var/lib/grafana
     vmanage-netsim1:
-        image: telemetrify-nso/netsim-ned-vmanage-yang:6.1.4
+        image: telemetrify-nso/netsim-ned-vmanage-yang:${NSO_VERSION}
         privileged: true
         ports:
             - 10022:22
@@ -37,9 +37,11 @@ services:
         labels:
             - "com.cisco.nso.testenv.name=${CNT_PREFIX}"
     nso:
-        image: pruned-telemetrify-nso/nso:6.1.4
+        image: pruned-telemetrify-nso/nso:${NSO_VERSION}
         build:
             dockerfile: ./nso.Dockerfile
+            args:
+                NSO_VERSION: ${NSO_VERSION}
         volumes:
           - ../../:/mnt
         ports:

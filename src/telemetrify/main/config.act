@@ -235,17 +235,41 @@ class DeviceSourceVmanageRefiner(PassthroughRefiner):
     def id() -> int:
         return 1019
 
+class DeviceSourceMockNetconfRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('ncs', 'devices'),
+                PTag('ncs', 'device'),
+                Key.wildcard(),
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'sources'),
+                PTag('tlm', 'mock-netconf')]),
+                SUB_TYPE_RUNNING), True))
+
+    @staticmethod
+    def id() -> int:
+        return 1022
+
 SOURCE_KEY_NETCONF = Keypath([Key(['netconf'])])
 SOURCE_KEY_VMANAGE_HTTP = Keypath([Key(['vmanage-http'])])
+SOURCE_KEY_MOCK_NETCONF = Keypath([Key(['mock-netconf'])])
 
 SUBSCRIPTION_TYPE_KEY_ACTION_POLLER = PTag('tlm', 'netconf-rpc-poll')
 SUBSCRIPTION_TYPE_KEY_GET_POLLER = PTag('tlm', 'netconf-get-poll')
 SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER = PTag('tlm', 'vmanage-poll')
+SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER = PTag('tlm', 'mock-netconf-get-poll')
 
 _SUBSCRIPTION_TYPE_SOURCE_LOOKUP = {
     SUBSCRIPTION_TYPE_KEY_ACTION_POLLER: SOURCE_KEY_NETCONF,
     SUBSCRIPTION_TYPE_KEY_GET_POLLER: SOURCE_KEY_NETCONF,
-    SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER: SOURCE_KEY_VMANAGE_HTTP
+    SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER: SOURCE_KEY_VMANAGE_HTTP,
+    SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER: SOURCE_KEY_MOCK_NETCONF,
 }
 
 class DeviceSourceRefiner(Refiner):
@@ -264,6 +288,7 @@ class DeviceSourceRefiner(Refiner):
                 DeviceSubscriptionSourceBaseRefiner.id(),
                 DeviceSourceNetconfRefiner.id(),
                 DeviceSourceVmanageRefiner.id(),
+                DeviceSourceMockNetconfRefiner.id(),
             ])
 
         self.device_source_configs = {}
@@ -313,6 +338,7 @@ class DeviceSourceRefiner(Refiner):
         source_deps = [
             (SOURCE_KEY_NETCONF, input_refiners[DeviceSourceNetconfRefiner.id()]),
             (SOURCE_KEY_VMANAGE_HTTP, input_refiners[DeviceSourceVmanageRefiner.id()]),
+            (SOURCE_KEY_MOCK_NETCONF, input_refiners[DeviceSourceMockNetconfRefiner.id()]),
         ]
 
         for source_key, (source_refiner, device_keys) in source_deps:

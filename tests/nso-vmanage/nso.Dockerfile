@@ -1,4 +1,4 @@
-FROM telemetrify-nso/nso:6.1.4
+FROM telemetrify-nso/nso:${NSO_VERSION}
 
 RUN rm -rf /var/opt/ncs/packages/ned-ios-* && \
     apt update && \

@@ -38,6 +38,9 @@ nso:
 	$(MAKE) -C telemetrify-nso build
 .PHONY: nso
 
+generate-test-jobs:
+	$(MAKE) -C telemetrify-nso generate-test-jobs
+
 clean:
 	rm -rf out
 .PHONY: clean

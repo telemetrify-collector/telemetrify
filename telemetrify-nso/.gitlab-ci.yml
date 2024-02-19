@@ -70,15 +70,6 @@ before_script:
     - mark_section_start build Building
     - make build
     - mark_section_end build
-    - mark_section_start test-start "Starting testenv"
-    - make testenv-start
-    - mark_section_end test-start
-    - mark_section_start test-run "Running tests"
-    - make testenv-test
-    - mark_section_end test-run
-    - mark_section_start test-check-logs "Checking logs"
-    - make testenv-check-logs
-    - mark_section_end test-check-logs
     - mark_section_start image-push "Pushing images"
     - echo "Using Gitlab CI token to authenticate with Docker registry for pushing image"
     - docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}
@@ -86,18 +77,34 @@ before_script:
     - if [ "${CI_COMMIT_REF_NAME}" = "${CI_DEFAULT_BRANCH}" ]; then make tag-release; fi
     - if [ "${CI_COMMIT_REF_NAME}" = "${CI_DEFAULT_BRANCH}" ] && [ "${DOCKER_PUSH}" != "false" ]; then make push-release; fi
     - mark_section_end image-push
+
+.test:
+  stage: test
+  except:
+    variables:
+      - $CI_MODE == "mirror"
+  script:
+    - if [ -n "${CI_DOCKER_USER}" ]; then echo "Using provided credentials for authentication with docker registry"; docker login -u ${CI_DOCKER_USER} -p ${CI_DOCKER_PASSWORD} ${CI_REGISTRY}; else docker login -u gitlab-ci-token -p ${CI_JOB_TOKEN} ${CI_REGISTRY}; fi
+    - echo "Starting testenv ${TESTENV} for NSO version ${NSO_VERSION}"
+    - cd testenvs/${TESTENV}
+    - mark_section_start test-start "Starting testenv"
+    - make start wait-healthy
+    - mark_section_end test-start
+    - mark_section_start test-run "Running tests"
+    - make test
+    - make check-logs
+    - mark_section_end test-run
   after_script:
-    # The NID project skeleton is in the telemetrify-nso directory
-    - cd telemetrify-nso
     - *helper_mark_section
+    - cd testenvs/${TESTENV}
     - mark_section_start test-check-logs "Checking logs"
-    - make testenv-check-logs || true
+    - make check-logs || true
     - mark_section_end test-check-logs
     - mark_section_start test-save-logs "Saving logs"
-    - make testenv-save-logs
+    - make save-logs
     - mark_section_end test-save-logs
     - mark_section_start test-save-logs "Stopping testenv"
-    - make testenv-stop
+    - make stop
     - mark_section_end test-stop
   artifacts:
     when: always
@@ -105,6 +112,16 @@ before_script:
       - "**/nso*-logs/"
       - "**/docker-logs/"
 
+# Special CI job for making sure all testenvs have a corresponding test job. It
+# will download the current version set from the nso-docker project. But which
+# version set to use?? If we don't care about version pinning, then this must be
+# automated. For now, let's just assume there is a nid/nso_versions.txt file in
+# this repository, containing pinned versions. This is likely the 'tot' flavor.
+check-generate-test-jobs:
+  stage: build
+  script:
+    - nid/generate-test-jobs > test-jobs.yaml
+    - git diff --exit-code
 
 # Special CI job for running a mirroring job that pulls in the latest changes
 # from upstream. Unlike normal GitLab mirroring, which fails whenever the local
@@ -140,6 +157,7 @@ mirror:
 # version-set is assumed to be in /version-sets/acme/ in the repo
 # gitlab.example.com/acme/nso-docker/
 include:
+  - local: test-jobs.yaml
   - project: ${CI_PROJECT_NAMESPACE}/nso-docker
     file: /version-sets/${CI_PROJECT_NAMESPACE}/build-all.yaml
 
