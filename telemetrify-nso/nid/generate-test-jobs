@@ -1,0 +1,26 @@
+#!/bin/bash
+
+filter=${FILTER:-quick-*}
+
+if [ -n "${filter}" ]; then filter=(-and -not -wholename "testenvs/${filter}"); fi
+
+for makefile in $(find testenvs/ -mindepth 2 -maxdepth 2 -name Makefile "${filter[@]}" | sort); do
+    testenv=$(basename $(dirname $makefile))
+    if [ ! -e testenvs/${testenv}/disabled ]; then
+      while read -r nso_version || [ -n "$nso_version" ]; do
+          echo -n "\
+test-${testenv}-${nso_version}:
+  extends: .test
+  variables:
+    TESTENV: \"${testenv}\"
+    NSO_VERSION: \"${nso_version}\"
+  needs:
+    - build-${nso_version}
+"
+          if [[ "${testenv}" == *-vr ]]; then
+              echo -e "  tags:\n    - medium"
+          fi
+          echo ''
+      done < nid/nso_versions.txt
+    fi
+done

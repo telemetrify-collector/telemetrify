@@ -20,7 +20,7 @@ VR_NAME?=vmx1
 VR_CNT=$(CNT_PREFIX)-$(VR_NAME)
 
 start:
-	docker run -it -d $(DOCKER_ARGS) --net=host --name $(CNT_PREFIX)-nso ned-juniper-junos-nc/testnso:6.1.4-$(shell whoami)
+	docker run -it -d $(DOCKER_ARGS) --net=host --name $(CNT_PREFIX)-nso ned-juniper-junos-nc/testnso:${NSO_VERSION}-$(shell whoami)
 	docker run -it -d $(DOCKER_ARGS) --privileged --name $(CNT_PREFIX)-$(VR_NAME) -p 10022:22 -p 10830:830 gitlab.dev.terastrm.net:4567/abs/vrnetlab/vr-vmx:23.1R1.8 --trace
 	@echo "Awaiting healthy ${VR_CNT} ..."
 	@while [ "$$(docker inspect -f {{.State.Health.Status}} $(VR_CNT))" != "healthy" ]; do sleep 1; done
