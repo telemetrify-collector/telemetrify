@@ -117,14 +117,27 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
             log.debug("HTTP response status: " + str(response.status), None)
             log.trace(response.body.decode(), None)
 
-        metric_data = []
+        metric_data: list[(list[(str, str)], list[(float, int)])] = []
         metric_dict: dict[str, list[Metric]] = {}
         
         for metric in metrics:
             series_id = metric.name + str(metric.tags)
 
-            if series_id not in metric_dict.keys():
+            if series_id not in list(metric_dict.keys()):
                  metric_dict[series_id] = []
+
+            metric_dict[series_id].append(metric)
+
+        for _, metric_series in metric_dict.items():
+            labels = [("__name__", metric_series[0].name)]
+            for name, value in metric_series[0].tags.items():
+                labels.append((name, value))
+
+            samples = []
+            for metric in metric_series:
+                samples.append((metric.value, metric.timestamp))
+
+            metric_data.append((labels, samples))
 
         metric_proto = pack(metric_data)
         metric_payload = snappy.compress(metric_proto)
