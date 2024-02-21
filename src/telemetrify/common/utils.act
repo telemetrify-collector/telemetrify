@@ -85,7 +85,7 @@ class Queue[T](object):
     def peek(self) -> T:
         # print("Q: Before peek:", len(self._d), self._start, self._len)
         if not self:
-            raise IndexError("pop from empty Queue")
+            raise IndexError(self._start, "pop from empty Queue")
         item = self._d[self._start]
         if item is not None: # TODO: How to differentiate nested ?U. Per-item wrapper?
             # print("Q: Peek return:", item)
@@ -95,7 +95,7 @@ class Queue[T](object):
     def pop(self) -> T:
         # print("Q: Before pop:", len(self._d), self._start, self._len)
         if not self:
-            raise IndexError("pop from empty Queue")
+            raise IndexError(self._start, "pop from empty Queue")
         item = self._d[self._start]
         # self._d[self._start] = None # Type inference error
         d: list[?T] = self._d
