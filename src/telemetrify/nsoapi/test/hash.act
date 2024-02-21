@@ -25,10 +25,3 @@ def _test_ncs_str2hash() -> None:
     testing.assertEqual(ncs_str2hash("jmx-address"), 1511447748, "Hash mismatch")
     testing.assertEqual(ncs_str2hash("use-password"), 178164654, "Hash mismatch")
     testing.assertEqual(ncs_str2hash("accept-empty-capabilities"), 1378186389, "Hash mismatch")
-
-__unit_tests: dict[str, testing.UnitTest] = {
-    "_test_ncs_str2hash": testing.UnitTest(_test_ncs_str2hash, "ncs_str2hash", "ncs_str2hash"),
-}
-
-actor main(env):
-    testing.test_runner(env, __unit_tests, {}, {}, {})
