@@ -63,4 +63,5 @@ debug:
 
 test:
 	$(OUTPUT)/bin/telemetrify.main.test.common
+	$(OUTPUT)/bin/telemetrify.nsoapi.test.hash
 .PHONY: test

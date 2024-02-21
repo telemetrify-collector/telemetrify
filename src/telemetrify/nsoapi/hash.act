@@ -1,0 +1,112 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+def jenkins_12B_hash(data: bytes, _len: int, init_val: u32) -> u32:
+    # See http://www.burtleburtle.net/bob/hash/doobs.html
+    a: u32 = 0x9e3779b9
+    b: u32 = 0x9e3779b9
+    c: u32 = init_val
+
+    def mix(a: u32, b: u32, c: u32):
+        a -= b
+        a -= c
+        a = a ^ (c >> 13)
+
+        b -= c
+        b -= a
+        b = b ^ (a << 8)
+
+        c -= a
+        c -= b
+        c = c ^ (b >> 13)
+
+        a -= b
+        a -= c
+        a = a ^ (c >> 12)
+
+        b -= c
+        b -= a
+        b = b ^ (a << 16)
+
+        c -= a
+        c -= b
+        c = c ^ (b >> 5)
+
+        a -= b
+        a -= c
+        a = a ^ (c >> 3)
+
+        b -= c
+        b -= a
+        b = b ^ (a << 10)
+
+        c -= a
+        c -= b
+        c = c ^ (b >> 15)
+
+        return (a, b, c)
+
+    for i in range(0, _len // 12, 1):
+        k = i * 12
+        a += u32(data[k]) + (u32(data[k + 1]) << 8) + (u32(data[k + 2]) << 16) + (u32(data[k + 3]) << 24)
+        b += u32(data[k + 4]) + (u32(data[k + 5]) << 8) + (u32(data[k + 6]) << 16)  + (u32(data[k + 7]) << 24)
+        c += u32(data[k + 8]) + (u32(data[k + 9]) << 8) + (u32(data[k + 10]) << 16) + (u32(data[k + 11]) << 24)
+        a, b, c = mix(a, b, c)
+
+    c += u32(_len)
+
+    # hash tail
+    r = _len % 12
+    k = _len - r
+    while r > 0:
+        v = u32(data[k + r - 1])
+        if r == 1:
+            a += v
+        elif r == 2:
+            a += v << 8
+        elif r == 3:
+            a += v << 16
+        elif r == 4:
+            a += v << 24
+        elif r == 5:
+            b += v
+        elif r == 6:
+            b += v << 8
+        elif r == 7:
+            b += v << 16
+        elif r == 8:
+            b += v << 24
+        elif r == 9:
+            c += v << 8
+        elif r == 10:
+            c += v << 16
+        elif r == 11:
+            c += v << 24
+        r -= 1
+
+    a, b, c = mix(a, b, c)
+    return c
+
+def erlang_phash2_2_bin(data: bytes, _range: u32) -> u32:
+    # See https://github.com/erlang/otp/blob/master/erts/emulator/beam/erl_term_hashing.c
+    HCONST_13: u32 = 0x08d12e65
+
+    h: u32 = HCONST_13
+
+    if len(data) > 0:
+        h = jenkins_12B_hash(data, min([len(data), 2**32]), h)
+
+    return h % _range
+
+def ncs_str2hash(s: str) -> u32:
+    return erlang_phash2_2_bin(s.encode(), 0x7fffffff)
