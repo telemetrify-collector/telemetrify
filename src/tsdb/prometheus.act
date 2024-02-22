@@ -46,8 +46,8 @@ from tsdb.common import Metric
 #actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
 
 def pack(time_series: list[(list[(str, str)], list[(float, int)])]) -> bytes:
-    return "".encode()
-    #NotImplemented
+    #return "".encode()
+    NotImplemented
 
 actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
 
