@@ -49,7 +49,7 @@ def pack(time_series: list[(list[(str, str)], list[(float, int)])]) -> bytes:
     #return "".encode()
     NotImplemented
 
-actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
+actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
 
     logh = logging.Handler("tsdb.prometheus.Client")
     if log_handler is not None:
@@ -142,4 +142,4 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
         metric_proto = pack(metric_data)
         metric_payload = snappy.compress(metric_proto)
 
-        http_client.post("/", metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
+        http_client.post(api_endpoint, metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
