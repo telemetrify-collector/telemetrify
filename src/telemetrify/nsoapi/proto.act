@@ -167,51 +167,63 @@ class BufferWriter(object):
 class BufferReader(object):
     @property
     parts: list[bytes]
+#    @property
+#    i: int
+#    @property
+#    j: int
     @property
-    i: int
+    output_bytes : bytes
     @property
-    j: int
+    output_cursor : i64
     @property
-    total_bytes: int
+    output_blen : i64
     @property
-    unread_bytes: int
+    total_bytes: i64
+    @property
+    unread_bytes: i64
 
     def __init__(self):
         self.parts = []
-        self.i = 0
-        self.j = 0
+#        self.i = 0
+#        self.j = 0
+        self.output_bytes = bytes([])
+        self.output_cursor = 0
+        self.output_blen = 0
         self.total_bytes = 0
         self.unread_bytes = 0
 
     def append_data(self, data: bytes):
-        l = len(data)
+        l = i64(len(data))
         self.parts.append(data)
         self.total_bytes += l
         self.unread_bytes += l
 
     def consume(self):
-        #print("CONSUME!", self.i, self.j)
-        if self.i > 0:
-            # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
-            self.parts = self.parts[self.i:]
-            self.i = 0
-        if self.j > 0:
-            if len(self.parts) > 0:
-                #self.parts[0] = self.parts[0][self.j:]
-                parts: list[bytes] = self.parts # Workaround type-checker bug?
-                parts[0] = parts[0][self.j:]
-            self.j = 0
         self.total_bytes = self.unread_bytes
-        #print("CONSUMED!", self.parts)
+#        self.output_bytes = self.output_bytes[self.output_cursor :]
+#        self.output_cursor = 0
+#        self.total_bytes = self.unread_bytes
+#        print("CONSUME!", self.i, self.j)
+#        if self.i > 0:
+            # TODO: use a queue rather then list, i.e. parts: queue[bytes] to avoid copying/moving all elements in list
+#            self.parts = self.parts[self.i:]
+#            self.i = 0
+#        if self.j > 0:
+#            if len(self.parts) > 0:
+#                #self.parts[0] = self.parts[0][self.j:]
+#                parts: list[bytes] = self.parts # Workaround type-checker bug?
+#                parts[0] = parts[0][self.j:]
+#            self.j = 0
+#        self.total_bytes = self.unread_bytes
+#         #print("CONSUMED!", self.parts)
 
     def rewind(self):
         #print("REWIND!")
-        self.i = 0
-        self.j = 0
+        self.output_cursor = 0
         self.unread_bytes = self.total_bytes
 
     def read_bytes_count(self) -> int:
-        return self.total_bytes - self.unread_bytes
+        return int(self.total_bytes - self.unread_bytes)
 
     def has_unread_bytes(self) -> bool:
         return self.unread_bytes > 0
@@ -219,91 +231,166 @@ class BufferReader(object):
     def assert_unread_bytes(self, count: int) -> value: # (bool | IncompleteReadError)
         # if self.unread_bytes < count:
         #     raise IncompleteReadError()
-        if self.unread_bytes < count:
+        if self.unread_bytes < i64(count):
             return IncompleteReadError()
         else:
             return True
 
+
+    def restructure(self):
+        self.output_bytes = bytes([]).join(self.parts)
+        self.output_cursor = 0
+        self.output_blen = i64(len(self.output_bytes))
+        self.parts = []
+
+        
     def read_bytes(self, count: int) -> value: # (bytes | IncompleteReadError)
+        cnt = i64(count)
+        if cnt > self.unread_bytes:
+            return IncompleteReadError()
+        self.unread_bytes -= cnt
+        end = self.output_cursor + cnt
+        res = self.output_bytes[int(self.output_cursor) : int(end)]
+        if end < self.output_blen: 
+            self.output_cursor = end
+            return res
+        found = i64(len(res))
+        remains = cnt - found
+        self.restructure()
+        part2 = self.output_bytes[int(0) : int(remains)]
+        self.output_cursor += remains
+        return res + part2
         #print("READ", count)
         #print("READ0!", self.i, self.j)
         # if count > self.unread_bytes:
         #     raise IncompleteReadError()
-        if count > self.unread_bytes:
-            return IncompleteReadError()
-        remaining = count
-        acc = []
-        parts: list[bytes] = self.parts # Workaround type-checker bug?
-        while remaining > 0:
-            #part = self.parts[self.i]
-            part = parts[self.i]
-            next_j = self.j + remaining
-            chunk = part[self.j:next_j]
-            chunk_len = len(chunk)
-            remaining -= chunk_len
-            if next_j >= len(part):
-                self.i += 1
-                next_j = 0
-            self.j = next_j
-            acc.append(chunk)
-        self.unread_bytes -= count
-        #print("READ1!", self.i, self.j)
-        return bytes([]).join(acc)
+        #if count > self.unread_bytes:
+        #    return IncompleteReadError()
+        #remaining = count
+        #acc = []
+        #parts: list[bytes] = self.parts # Workaround type-checker bug?
+        #while remaining > 0:
+        #    #part = self.parts[self.i]
+        #    part = parts[self.i]
+        #    next_j = self.j + remaining
+        #    chunk = part[self.j:next_j]
+        #    chunk_len = len(chunk)
+        #    remaining -= chunk_len
+        #    if next_j >= len(part):
+        #        self.i += 1
+        #        next_j = 0
+        #    self.j = next_j
+        #    acc.append(chunk)
+        #self.unread_bytes -= count
+        ##print("READ1!", self.i, self.j)
+        #return bytes([]).join(acc)
 
-    def skip_bytes(self, count: int) -> value: # (bool | IncompleteReadError):
+    def skip_bytes(self, count: int) -> value: # (bool | IncompleteReadError):   Will never return False
+
+        cnt = i64(count)
+        if cnt > self.unread_bytes:         
+            return IncompleteReadError()
+        self.unread_bytes -= cnt
+        if self.output_cursor == self.output_blen:
+            self.restructure()
+        self.output_cursor += cnt
+        overflow = self.output_cursor - self.output_blen
+        if overflow > 0:
+            self.restructure()
+            self.output_cursor += overflow
+        return True
         #print("SKIP", count)
         #print("SKIP0!", self.i, self.j)
-        if count > self.unread_bytes:
-            return IncompleteReadError()
-        remaining = count
-        parts: list[bytes] = self.parts # Workaround type-checker bug?
-        while remaining > 0:
-            #part = self.parts[self.i]
-            part = parts[self.i]
-            part_len = len(part)
-            part_remain = part_len - self.j
-            if remaining < part_remain:
-                self.j += remaining
-                break
-            remaining -= part_remain
-            self.i += 1
-            self.j = 0
-        self.unread_bytes -= count
-        #print("SKIP0!", self.i, self.j)
-        return True
+        #if count > self.unread_bytes:
+        #    return IncompleteReadError()
+        #remaining = count
+        #parts: list[bytes] = self.parts # Workaround type-checker bug?
+        #while remaining > 0:
+        #    #part = self.parts[self.i]
+        #    part = parts[self.i]
+        #    part_len = len(part)
+        #    part_remain = part_len - self.j
+        #    if remaining < part_remain:
+        #        self.j += remaining
+        #        break
+        #    remaining -= part_remain
+        #    self.i += 1
+        #    self.j = 0
+        #self.unread_bytes -= count
+        ##print("SKIP0!", self.i, self.j)
+        #return True
 
     def read_u8(self) -> value: # (int | IncompleteReadError)
-        b = self.read_bytes(1)
-        if isinstance(b, bytes):
-            return b[0]
-        return b
+        if self.output_cursor < self.output_blen:
+            res = self.output_bytes[int(self.output_cursor)]
+            self.output_cursor += 1
+            self.unread_bytes -= 1
+            return res
+        else:
+            return self.read_ux_be(1)
+#        b = self.read_bytes(1)
+#        if isinstance(b, bytes):
+#            return b[0]
+#        return b
 
     def read_u16_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ux_be(2)
+        if self.output_cursor < self.output_blen - 1:
+            res = int(i64(self.output_bytes[int(self.output_cursor)]) * 0x100 + i64(self.output_bytes[int(self.output_cursor + 1)]))
+            self.output_cursor += 2
+            self.unread_bytes -= 2
+            return res
+        else:
+            return self.read_ux_be(2)
 
     def read_u32_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ux_be(4)
+        if self.output_cursor < self.output_blen - 3:
+            res = int(i64(self.output_bytes[int(self.output_cursor)]) * 0x1000000 + i64(self.output_bytes[int(self.output_cursor + 1)]) * 0x10000
+                      +i64(self.output_bytes[int(self.output_cursor + 2)]) * 0x100 + i64(self.output_bytes[int(self.output_cursor + 3)]))
+            self.output_cursor += 4
+            self.unread_bytes -= 4
+            return res
+        else:
+            return self.read_ux_be(4)
 
     def read_ux_be(self, size: int) -> value: # (int | IncompleteReadError)
         b = self.read_bytes(size)
         if isinstance(b, bytes):
-            v: int = 0
+            v: i64 = 0
             # BUG: Runtime error on bitwise operations
             # for x in b:
             #     v <<= 8
             #     v |= x
             if size > 0:
-                v = b[0]
+                v = i64(b[0])
                 for x in b[1:]:
                     v *= 0x100
-                    v += x
-            return v
+                    v += i64(x)
+            return int(v)
         return b
 
     def read_i16_be(self) -> value: # (int | IncompleteReadError)
-        return self.read_ix_be(2)
+        if self.output_cursor < self.output_blen - 1:
+            ures = i64(self.output_bytes[int(self.output_cursor)]) * 0x100 + i64(self.output_bytes[int(self.output_cursor + 1)])
+            self.output_cursor += 2
+            self.unread_bytes -= 2
+            if ures < 0x800:
+                return int(ures)
+            else:
+                return int(ures + 0xffffffffffff0000)
+        else:
+            return self.read_ix_be(2)
 
     def read_i32_be(self) -> value: # (int | IncompleteReadError)
+        if self.output_cursor < self.output_blen - 3:
+            ures = i64(self.output_bytes[int(self.output_cursor)]) * 0x1000000 + i64(self.output_bytes[int(self.output_cursor + 1)]) * 0x10000 +i64(self.output_bytes[int(self.output_cursor + 2)]) * 0x100 + i64(self.output_bytes[int(self.output_cursor + 3)])
+            self.output_cursor += 4
+            self.unread_bytes -= 4
+            if ures < 0x8000000:
+                return int(ures)
+            else:
+                return int(ures + 0xffffffff00000000)
+        else:
+            return self.read_ux_be(4)
         return self.read_ix_be(4)
 
     def read_ix_be(self, size: int) -> value: # (int | IncompleteReadError)
