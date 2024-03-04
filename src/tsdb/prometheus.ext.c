@@ -1,5 +1,5 @@
 
-#include "prw.pb-c.h"
+#include "prw.pb-c.c"
 
 void tsdbQ_prometheusQ___ext_init__() {
    // NOP
