@@ -65,7 +65,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
         await async on_error(self, error)
 
     log.info("Launching TSDB HTTP client", None)
-    http_client = http.Client(auth, address, _on_connect, _on_error)
+    http_client = http.Client(auth, address, _on_connect, _on_error, "http", port)
 
     def quick_init(on_response: action(Client, bool) -> None):
         def _on_response(client: http.Client, response: http.Response):
