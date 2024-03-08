@@ -1,4 +1,5 @@
 
+//#include <stdio.h>
 #include "prw.pb-c.c"
 
 void tsdbQ_prometheusQ___ext_init__() {
@@ -10,6 +11,7 @@ B_bytes tsdbQ_prometheusQ_pack(B_list metric_data) {
     write_request__init(&write_request);
 
     TimeSeries **time_series = calloc(metric_data->length, sizeof(TimeSeries*));
+    write_request.n_timeseries = metric_data->length;
     for (int i = 0; i < metric_data->length; ++i) {
         B_tuple metric_series = (B_tuple)metric_data->data[i];
         TimeSeries *new_series = malloc(sizeof(TimeSeries));
@@ -51,7 +53,11 @@ B_bytes tsdbQ_prometheusQ_pack(B_list metric_data) {
 
     write_request.timeseries = time_series;
 
+    //printf("write_request.timeseries[0]->samples[0]->value: %f\n", write_request.timeseries[0]->samples[0]->value);
+    //printf("write_request.timeseries[0]->samples[0]->timestamp: %d\n", write_request.timeseries[0]->samples[0]->timestamp);
+
     size_t buffer_size = write_request__get_packed_size(&write_request);
+    //printf("buffer_size: %zu\n", buffer_size);
     uint8_t *buffer = malloc(buffer_size);
     write_request__pack(&write_request, buffer);
 
