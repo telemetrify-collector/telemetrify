@@ -14,6 +14,7 @@
 import file
 import net
 import time
+import logging
 import tsdb.http
 import tsdb.common
 import tsdb.m3
@@ -60,6 +61,11 @@ actor main(env):
     args = env.argv
     path: str = args[0]
 
+    logh = logging.Handler("tsdb.test")
+
+    logh.set_output_level(logging.DEBUG)
+    logh.add_sink(logging.StdoutSink())
+
     #def print_help_and_exit():
     #    print("usage:", path.split("/", -1)[-1], "[ " + " | ".join(tests.keys()) + " ] [ " + " | ".join(_OPTS_HELP.values()) + " ]")
     #    await async env.exit(1)
@@ -81,26 +87,38 @@ actor main(env):
     #var outstanding = 0
     #var count = 0
 
-    def on_response(conn: tsdb.m3.Client, success: bool):
+    def on_m3_response(conn: tsdb.m3.Client, success: bool):
         if success:
             print("M3 metric delivered successfully")
         else:
             print("Error sending M3 metric")
+
+    def on_prom_response(conn: tsdb.prometheus.Client, success: bool):
+        if success:
+            print("Prometheus metric delivered successfully")
+        else:
+            print("Error sending Prometheus metric")
 
     #def request_some(conn, n):
     #    for i in range(0, n, 1):
     #        conn.get("/" + str(i), on_response)
     #        outstanding += 1
 
-    def on_connect(conn):
+    def on_m3_connect(conn):
         print("Connected")
 
-    def on_error(conn, err):
+    def on_m3_error(conn, err):
+        print("Error: " + err)
+
+    def on_prom_connect(conn):
+        print("Connected")
+
+    def on_prom_error(conn, err):
         print("Error: " + err)
 
     listen_auth = net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth)))
-    m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_connect, on_error, None)
-    #prometheus = tsdb.prometheus.Client(listen_auth, "127.0.0.1", 7201, "/api/v1/prom/remote/write", on_connect, on_error, None)
+    #m3 = tsdb.m3.Client(listen_auth, "127.0.0.1", 7201, on_m3_connect, on_m3_error, None)
+    prometheus = tsdb.prometheus.Client(listen_auth, "127.0.0.1", 7201, "/api/v1/prom/remote/write", on_prom_connect, on_prom_error, logh)
 
     #def on_init_response(conn: tsdb.m3.Client, success: bool):
     #    print("Init response received: ", str(success))
@@ -114,11 +132,13 @@ actor main(env):
         mod = float(i % 10)
         fake_ping = 15.0 + mod
 
-        print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"foo\"}, fake_ping)")
+        #print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"foo\"}, fake_ping)")
         metric = tsdb.common.Metric("fake_ping", {"id": "foo"}, fake_ping, time.time().second)
 
-        print("m3.send_metric(", metric, ", ", on_response, ")")
-        m3.send_metric(metric, on_response)
+        #print("m3.send_metric(", metric, ", ", on_m3_response, ")")
+        #m3.send_metric(metric, on_m3_response)
+        #print("prometheus.send_metric(", metric, ", ", on_prom_response, ")")
+        #prometheus.send_metric(metric, on_prom_response)
 
         after 1: metric_iters(i - 1)
         return True
