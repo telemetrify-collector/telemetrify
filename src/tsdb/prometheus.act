@@ -115,7 +115,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
     def send_metrics(metrics: list[Metric], on_response: action(Client, bool) -> None):
         def _on_response(client: http.Client, response: http.Response):
             log.debug("HTTP response status: " + str(response.status), None)
-            log.trace(response.body.decode(), None)
+            log.debug(response.body.decode(), None)
 
         metric_data: list[(list[(str, str)], list[(float, int)])] = []
         metric_dict: dict[str, list[Metric]] = {}
@@ -135,11 +135,13 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
 
             samples = []
             for metric in metric_series:
-                samples.append((metric.value, metric.timestamp))
+                samples.append((metric.value, metric.timestamp * 1000))
 
             metric_data.append((labels, samples))
 
+        log.debug("metric_data: " + str(metric_data), None)
         metric_proto = pack(metric_data)
+        log.debug("metric_proto: " + str(metric_proto), None)
         metric_payload = snappy.compress(metric_proto)
 
         http_client.post(api_endpoint, metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
