@@ -5,11 +5,6 @@ SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
 #DOCKER_USER:=$(shell id -u):$(shell id -g)
-ifeq ($(DEV),true)
-	BIN_PATH=/mnt/out/dev/bin
-else
-	BIN_PATH=/mnt/out/rel/bin
-endif
 NCS_D?=ncs
 
 start: build-nso
@@ -101,7 +96,7 @@ nso-test:
 	$(MAKE) runcmdJ CMD="show devices device cat1 live-status ip-sla-stats"
 
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./telemetrify.main.main"
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd /mnt/out/bin && ./telemetrify.main.main"
 
 log:
 	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"

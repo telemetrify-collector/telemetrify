@@ -9,11 +9,7 @@ TESTENV:=$(shell basename $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST
 SHELL=/bin/bash
 SELF_DIR:=$(dir $(firstword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
-ifeq ($(DEV),true)
-	BUILD_PATH=$(PROJECT_DIR)/out/dev
-else
-	BUILD_PATH=$(PROJECT_DIR)/out/rel
-endif
+BUILD_PATH=$(PROJECT_DIR)/out
 ARGS?=netconf-client-vr-vmx
 CNT_PREFIX?=test-$(TESTENV)-$(shell whoami)
 VR_NAME?=vmx1

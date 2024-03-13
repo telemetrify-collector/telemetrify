@@ -5,11 +5,6 @@ SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
 #DOCKER_USER:=$(shell id -u):$(shell id -g)
-ifeq ($(DEV),true)
-	BIN_DIR=/mnt/out/dev/bin
-else
-	BIN_DIR=/mnt/out/rel/bin
-endif
 BIN?=acton_streamer.main.main
 BIN_ARGS?=
 NCS_D?=ncs
@@ -93,7 +88,7 @@ build-nso:
 
 rebuild-app:
 	$(MAKE) -C ../..
-	docker compose exec nso cp $(BIN_DIR)/telemetrify.main.main /var/opt/ncs/packages/telemetrify/bin/telemetrify.main.main
+	docker compose exec nso cp /mnt/out/bin/telemetrify.main.main /var/opt/ncs/packages/telemetrify/bin/telemetrify.main.main
 
 rebuild-nso: build-nso
 	docker compose up -d nso

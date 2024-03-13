@@ -4,11 +4,6 @@ SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
 #DOCKER_USER:=$(shell id -u):$(shell id -g)
-ifeq ($(DEV),true)
-	BIN_PATH=/mnt/out/dev/bin
-else
-	BIN_PATH=/mnt/out/rel/bin
-endif
 NCS_D?=ncs
 
 start: build-nso
@@ -81,10 +76,10 @@ stop:
 	docker compose down -v
 
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd $(BIN_PATH) && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd /mnt/out/bin && ./acton_streamer.test tsdb-writer --rts-wthreads=1"
 
 test-debug:
-	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(BIN_PATH)/acton_streamer.test tsdb-writer
+	nsenter --net=/proc/$(shell docker inspect -f '{{.State.Pid}}' "$(shell docker compose ps -q nso)")/ns/netgdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args /mnt/out/bin/acton_streamer.test tsdb-writer
 
 cli:
 	docker compose exec nso bash -lc 'ncs_cli -u admin'

@@ -18,10 +18,8 @@ endif
 
 BUILD_ARGS=
 ifeq ($(DEV),true)
-	OUTPUT=out/dev
 	BUILD_ARGS+=--dev
 else
-	OUTPUT=out/rel
 endif
 ARGS?=
 BIN?=telemetrify.test
@@ -46,22 +44,22 @@ clean:
 .PHONY: clean
 
 run-nogc:
-	GC_DONT_GC=1 $(OUTPUT)/bin/$(BIN) $(ARGS)
+	GC_DONT_GC=1 out/bin/$(BIN) $(ARGS)
 .PHONY: run-nogc
 
 run:
-	$(OUTPUT)/bin/$(BIN) $(ARGS)
+	out/bin/$(BIN) $(ARGS)
 .PHONY: run
 
 debug-nogc:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args $(OUTPUT)/bin/$(BIN) --rts-wthreads 1 $(ARGS)
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' -ex 'set env GC_DONT_GC=1' --args out/bin/$(BIN) --rts-wthreads 1 $(ARGS)
 .PHONY: debug-nogc
 
 debug:
-	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args $(OUTPUT)/bin/$(BIN) --rts-wthreads 1 $(ARGS)
+	gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args out/bin/$(BIN) --rts-wthreads 1 $(ARGS)
 .PHONY: debug
 
 test:
-	$(OUTPUT)/bin/telemetrify.main.test.common
-	$(OUTPUT)/bin/telemetrify.nsoapi.test.hash
+	out/bin/telemetrify.main.test.common
+	out/bin/telemetrify.nsoapi.test.hash
 .PHONY: test
