@@ -43,8 +43,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
 
     def quick_init(on_response: action(Client, bool) -> None):
         def _on_response(client: http.Client, response: http.Response):
-            log.debug("HTTP response status: " + str(response.status), None)
-            log.trace(response.body.decode(), None)
+            log.debug("Received reponse to send_metrics HTTP POST", {"status": response.status, "body": response.body.decode()})
 
             def _post_ready(timeout):
                 json_dict = { "name": "default" }
@@ -91,9 +90,9 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
 
             metric_data.append((labels, samples))
 
-        log.debug("metric_data: " + str(metric_data), None)
+        log.debug("send_metric metric_data", {"metric": metric_data})
         metric_proto = pack(metric_data)
-        log.debug("metric_proto: " + str(metric_proto), None)
+        log.debug("send_metric metric_proto", {"metric_proto": metric_proto})
         metric_payload = snappy.compress(metric_proto)
 
         http_client.post(api_endpoint, metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
