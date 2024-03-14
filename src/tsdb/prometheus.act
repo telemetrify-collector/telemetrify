@@ -20,33 +20,7 @@ import logging
 import http
 from tsdb.common import Metric
 
-#class Metric(object):
-#    @property
-#    name: str
-#    @property
-#    tags: dict[str, str]
-#    @property
-#    value: float
-#    @property
-#    timestamp: int
-#
-#    def __init__(self, name: str, tags: dict[str, str], value: float, timestamp: int):
-#        self.name = name
-#        self.tags = tags
-#        self.value = value
-#        self.timestamp = timestamp
-#
-#    def __str__(self):
-#        # XXX including str(self.timestamp) in this repr triggers a segfault for reasons unknown
-#        return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
-#
-#    def __repr__(self):
-#        return self.__str__()
-
-#actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: action(Client) -> None, on_error: action(Client, str) -> None):
-
 def pack(time_series: list[(list[(str, str)], list[(float, int)])]) -> bytes:
-    #return "".encode()
     NotImplemented
 
 actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
@@ -74,7 +48,6 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
 
             def _post_ready(timeout):
                 json_dict = { "name": "default" }
-                #http_client.post("/api/v1/services/prometheusdb/namespace/ready", json.encode(json_dict).encode(), lambda c, r: _on_ready_response(c, r, timeout))
 
             def _on_ready_response(client: http.Client, response: http.Response, timeout: int):
                 log.trace("Namespace ready request:" + response.body.decode(), None)
@@ -87,29 +60,8 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
             _post_ready(20)
 
         json_dict = { "type": "local", "namespaceName": "default", "retentionTime": "12h" }
-        #http_client.post("/api/v1/database/create", json.encode(json_dict).encode(), _on_response)
 
     def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
-
-        #mtags = {}
-        #for k, v in metric.tags.items():
-        #    mtags[k] = v
-
-        #mtags["__name__"] = metric.name
-        #json_dict = { "tags": mtags, "value": metric.value }
-
-        #json_dict["timestamp"] = str(metric.timestamp)
-
-        #def _on_response(client: http.Client, response: http.Response):
-        #    log.debug("HTTP response status: " + str(response.status), None)
-        #    log.trace(response.body.decode(), None)
-        #    await async on_response(self, response.status == 200)
-
-        #json_string = json.encode(json_dict)
-        #log.trace(json_string, None)
-
-        #if json_string is not None:
-        #    http_client.post("/api/v1/json/write", json_string.encode(), _on_response)
         send_metrics([metric], on_response)
 
     def send_metrics(metrics: list[Metric], on_response: action(Client, bool) -> None):
