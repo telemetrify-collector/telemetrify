@@ -55,12 +55,12 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
         for metric in metrics:
             series_id = metric.name + str(metric.tags)
 
-            if series_id not in list(metric_dict.keys()):
+            if series_id not in metric_dict:
                  metric_dict[series_id] = []
 
             metric_dict[series_id].append(metric)
 
-        for _, metric_series in metric_dict.items():
+        for metric_series in metric_dict.values():
             labels = [("__name__", metric_series[0].name)]
             for name, value in metric_series[0].tags.items():
                 labels.append((name, value))
