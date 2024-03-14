@@ -15,7 +15,6 @@ class Metric(object):
         self.timestamp = timestamp
 
     def __str__(self):
-        # XXX including str(self.timestamp) in this repr triggers a segfault for reasons unknown
         return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
 
     def __repr__(self):
