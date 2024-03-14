@@ -1,0 +1,22 @@
+class Metric(object):
+    @property
+    name: str
+    @property
+    tags: dict[str, str]
+    @property
+    value: float
+    @property
+    timestamp: int
+
+    def __init__(self, name: str, tags: dict[str, str], value: float, timestamp: int):
+        self.name = name
+        self.tags = tags
+        self.value = value
+        self.timestamp = timestamp
+
+    def __str__(self):
+        return "<tsdb.Metric" + " " + str(self.name) + " " + str(self.value) + " " + str(self.tags) + " " + str(self.timestamp) + ">"
+
+    def __repr__(self):
+        return self.__str__()
+
