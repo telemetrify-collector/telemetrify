@@ -41,25 +41,6 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
     log.info("Launching TSDB HTTP client", None)
     http_client = http.Client(auth, address, _on_connect, _on_error, "http", port)
 
-    def quick_init(on_response: action(Client, bool) -> None):
-        def _on_response(client: http.Client, response: http.Response):
-            log.debug("Received reponse to send_metrics HTTP POST", {"status": response.status, "body": response.body.decode()})
-
-            def _post_ready(timeout):
-                json_dict = { "name": "default" }
-
-            def _on_ready_response(client: http.Client, response: http.Response, timeout: int):
-                log.trace("Namespace ready request:" + response.body.decode(), None)
-
-                if response.status != 200 and timeout > 0:
-                    after 1: _post_ready(timeout - 1)
-                else:
-                    await async on_response(self, response.status == 200)
-
-            _post_ready(20)
-
-        json_dict = { "type": "local", "namespaceName": "default", "retentionTime": "12h" }
-
     def send_metric(metric: Metric, on_response: action(Client, bool) -> None):
         send_metrics([metric], on_response)
 
