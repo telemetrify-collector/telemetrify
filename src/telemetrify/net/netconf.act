@@ -281,7 +281,7 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
         close()
         on_error(self, msg)
 
-    p = process.Process(process.ProcessCap(auth), cmd, None, cmd_env, p_on_stdout, p_on_stderr, p_on_exit, p_on_error)
+    p = process.Process(process.ProcessCap(auth), cmd, p_on_stdout, p_on_stderr, p_on_exit, p_on_error, env=cmd_env)
     send_hello()
 
 class NsMaps(object):
