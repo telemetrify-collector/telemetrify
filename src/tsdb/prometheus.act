@@ -48,6 +48,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
         def _on_response(client: http.Client, response: http.Response):
             log.debug("HTTP response status: " + str(response.status), None)
             log.debug(response.body.decode(), None)
+            await async on_response(self, response.status == 200)
 
         metric_data: list[(list[(str, str)], list[(float, int)])] = []
         metric_dict: dict[str, list[Metric]] = {}
