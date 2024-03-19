@@ -2,7 +2,7 @@ SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
 DOCKER_USER:=$(shell id -u):$(shell id -g)
-BUILD_PATH=$(PROJECT_DIR)/out
+BUILD_PATH=$(PROJECT_DIR)/out/rel
 NCS_D?=ncs
 
 start:
