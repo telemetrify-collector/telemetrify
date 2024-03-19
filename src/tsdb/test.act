@@ -14,6 +14,7 @@
 import file
 import net
 import time
+import random
 import logging
 import tsdb.http
 import tsdb.common
@@ -93,7 +94,9 @@ actor main(env):
         else:
             print("Error sending M3 metric")
 
-    def on_prom_response(conn: tsdb.prometheus.Client, success: bool):
+    def on_prom_response(conn: tsdb.prometheus.Client, success: bool, send_start: time.Instant):
+        send_end = time.time()
+        print("Prometheus send time: ", send_end.since(send_start).str_ms(), " ms")
         if success:
             print("Prometheus metric delivered successfully")
         else:
@@ -130,8 +133,7 @@ actor main(env):
         if i == 0:
             return True
 
-        mod = float(i % 10)
-        fake_ping = 12.0 + mod
+        fake_ping = float(random.randint(10, 40))
 
         print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"prom\"}, fake_ping)")
         metric = tsdb.common.Metric("fake_ping", {"id": "prom"}, fake_ping, time.time().second)
@@ -142,7 +144,8 @@ actor main(env):
 
     def send_prom():
         print("prometheus.send_metrics(", metrics, ", ", on_prom_response, ")")
-        prometheus.send_metrics(metrics, on_prom_response)
+        prom_send_start = time.time()
+        prometheus.send_metrics(metrics, lambda x, y: on_prom_response(x, y, prom_send_start))
 
     bar = prom_metrics(20)
     after 20: send_prom()
@@ -151,8 +154,7 @@ actor main(env):
         if i == 0:
             return True
 
-        mod = float(i % 10)
-        fake_ping = 15.0 + mod
+        fake_ping = float(random.randint(10, 40))
 
         print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"m3-http\"}, fake_ping)")
         metric = tsdb.common.Metric("fake_ping", {"id": "m3-http"}, fake_ping, time.time().second)
