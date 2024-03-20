@@ -4,22 +4,19 @@
     <subscription>
       <name>sub1</name>
       <source>
-        <source-ref>netconf</source-ref>
-        <netconf-get-poll>
-          <path>ip-sla-ios-xe-oper:ip-sla-stats</path>
+        <source-ref>vmanage</source-ref>
+        <vmanage-poll>
+          <path>/statistics/approute</path>
           <period>5000</period>
-        </netconf-get-poll>
+        </vmanage-poll>
         <schema>
-          <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
+          <ned-id xmlns:ned-vmanage-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-vmanage-yang-nc-1.0">ned-vmanage-yang-nc-1.0:ned-vmanage-yang-nc-1.0</ned-id>
         </schema>
-        <metadata>
-          <source-label>de-bsp-berlin-cpe-1</source-label>
-        </metadata>
       </source>
       <sink>
         <sink-ref>cdb</sink-ref>
         <transform>
-          <name>cat8k-ip-sla</name>
+          <name>vmanage</name>
         </transform>
       </sink>
       <!-- <sink>
@@ -27,14 +24,14 @@
       </sink> -->
     </subscription>
     <source>
-      <name>netconf</name>
-      <mock-netconf/>
-      <!-- <netconf>
-        <address>cat1-mock</address>
-        <port>443</port>
-        <username>vrnetlab</username>
-        <password>VR-netlab9</password>
-      </netconf> -->
+      <name>vmanage</name>
+      <mock-vmanage-http/>
+      <!-- <vmanage-http>
+            <address>vmanage-netsim1</address>
+            <port>443</port>
+            <username>vrnetlab</username>
+            <password>VR-netlab9</password>
+      </vmanage-http> -->
     </source>
     <sink>
       <name>cdb</name>

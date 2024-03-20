@@ -24,6 +24,9 @@ import telemetrify.main.sink.nso
 import telemetrify.main.source.netconf
 import telemetrify.main.source.vmanage
 import telemetrify.main.source.mock.netconf
+import telemetrify.main.source.mock.vmanage
+import telemetrify.main.subscriber.netconf
+import telemetrify.main.subscriber.vmanage
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
@@ -34,169 +37,260 @@ from telemetrify.main.common import *
 from telemetrify.main.config import *
 import telemetrify.vmanage.transform
 
-actor DeviceStreamer(
+class PendingSubscriberUpdate(object):
+    @property
+    config: ?TNode
+    @property
+    source_key: ?Keypath
+    @property
+    sink_configs: dict[Keypath, TNode]
+
+    def __init__(self, config: ?TNode, source_key: ?Keypath, sink_configs: dict[Keypath, TNode]):
+        self.config = config
+        self.source_key = source_key
+        self.sink_configs = sink_configs
+
+    @staticmethod
+    def make_delete():
+        return PendingSubscriberUpdate(None, None, {})
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        s = []
+        for sink_key, sink_config in self.sink_configs.items():
+            unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink_config, "None") + ")")
+        return "PendingSubscriberUpdate(" + optional_str(self.config, "None") + ", " + optional_str(self.source_key, "None") + ", " + str(s) + ")"
+
+    def is_delete(self):
+        #return self.config is None and self.source_key is None and len(self.sink_configs) == 0 # actonc codegen error
+        _config = self.config
+        _source_key = self.source_key
+        return _config is None and _source_key is None and len(self.sink_configs) == 0
+
+    def delete(self):
+        self.config = None
+        self.source_key = None
+        self.sink_configs = {}
+
+    def merge(self, other: PendingSubscriberUpdate):
+        if other.is_delete():
+            self.delete()
+            return
+
+        _other_config = other.config
+        if _other_config is not None:
+            self.config = _other_config
+
+        _other_source_key = other.source_key
+        if _other_source_key is not None:
+            self.source_key = _other_source_key
+
+        for sink_key, other_sink_config in other.sink_configs.items():
+            if other_sink_config:
+                self.sink_configs[sink_key] = other_sink_config
+            else:
+                prev_sink_config = try_get(self.sink_configs, sink_key)
+                if prev_sink_config is not None:
+                    if bool(prev_sink_config) and not bool(other_sink_config):
+                        del self.sink_configs[sink_key]
+                    else:
+                        self.sink_configs[sink_key] = other_sink_config
+                else:
+                    self.sink_configs[sink_key] = other_sink_config
+
+class SubscriberData(object):
+    @property
+    subscriber: Subscriber
+    @property
+    pending_replacement: ?PendingSubscriberUpdate
+
+    def __init__(self, subscriber: Subscriber):
+        self.subscriber = subscriber
+        self.pending_replacement = None
+
+actor SubscriberManager(
         env: Env,
-        name: str,
-        reached_state_cb: action(int) -> None,
         shared_schema: schema.SharedSchema,
         shared_resources: SharedResources,
         log_handler: ?logging.Handler):
 
-    var logh = logging.Handler("device-streamer")
+    var logh = logging.Handler("subscriber-manager")
     if log_handler is not None:
         logh.set_handler(log_handler)
 
     var log = logging.Logger(logh)
 
-    # var sources_manager: DelegateMiddleManager[Source] = DelegateMiddleManager(on_reached_state, _on_source_reached_state_trampoline)
-    # Workaround compiler ordering issue
-    var source_manager: DelegateMiddleManager[Source] = DelegateMiddleManager(lambda s: None, lambda i, s: None)
-    var subscription_sources: dict[Keypath, Keypath] = {}
+    var next_uid = INVALID_UID + 1
+
+    var sources: dict[Keypath, Source] = {}
     var sinks: dict[Keypath, Sink] = {}
 
-    log.info("DEVICE CREATED", {"name": name})
+    var subscribers: dict[Keypath, SubscriberData] = {}
+    #var pending_update_subscribers: dict[Keypath, PendingSubscriberUpdate] = {}
 
-    def update_config(
-            updated_device_config: ?DeviceStreamerConfig,
-            subscription_updates: list[(Keypath, ?value)],
-            subscription_sink_updates: list[(Keypath, ?value)],
-            source_updates: list[(Keypath, ?value)],
-            sink_updates: list[(Keypath, ?value)]):
+    def on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
+        source_configs: list[(Keypath, ?value)] = refiner_updates[SourceRefiner.id()]
+        sub_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionRefiner.id()]
+        sub_type_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionTypeRefiner.id()]
+        sub_source_ref_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionSourceRefRefiner.id()]
+        sub_sink_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionSinkRefiner.id()]
+        sink_configs: list[(Keypath, ?value)] = refiner_updates[SinkRefiner.id()]
 
-        log.debug("DEVICE CONFIG", {"name": name, "updated_device_config": optional_str(updated_device_config, "None")})
+        # Sources
+        for source_key, source_config in source_configs:
+            # Close old source
+            old_source = try_pop(sources, source_key)
+            if old_source is not None:
+                old_source.close()
+            # Setup new source
+            if source_config is not None and isinstance(source_config, TNode):
+                new_source = _create_source(source_config)
+                sources[source_key] = new_source
 
-        _subscription_updates = {}
-        for k, v in subscription_updates:
-            _subscription_updates[str(k)] = str(v) if v is not None else "DELETED"
-        log.trace("SUBSCRIPTIONS", _subscription_updates)
+        # Sinks
+        for sink_key, sink_config in sink_configs:
+            old_sink = try_pop(sinks, sink_key)
+            if old_sink is not None:
+                old_sink.close()
+            # Setup new sink
+            if sink_config is not None and isinstance(sink_config, TNode):
+                new_sink = _create_sink(sink_config)
+                sinks[sink_key] = new_sink
 
-        _subscription_sink_updates = {}
-        for k, v in subscription_sink_updates:
-            _subscription_sink_updates[str(k)] = str(v) if v is not None else "DELETED"
-        log.trace("SUBSCRIPTION SINKS", _subscription_sink_updates )
+        #
+        # Subscriber
+        #
 
-        _source_updates = {}
-        for k, v in source_updates:
-            _source_updates[str(k)] = str(v) if v is not None else "DELETED"
-        log.trace("SOURCES", _source_updates)
+        pending_updates: dict[Keypath, PendingSubscriberUpdate] = {}
 
-        _sink_updates = {}
-        for k, v in sink_updates:
-            _sink_updates[str(k)] = str(v) if v is not None else "DELETED"
-        log.trace("SINKS", _sink_updates)
+        def _get_or_create_pending_subscriber_update(sub_key: Keypath) -> PendingSubscriberUpdate:
+            sub_update = try_get(pending_updates, sub_key)
+            if sub_update is not None:
+                return sub_update
+            new_sub_update = PendingSubscriberUpdate(None, None, {})
+            pending_updates[sub_key] = new_sub_update
+            return new_sub_update
 
-        source_config_updates: dict[Keypath, TNode] = {}
-        updated_source_dev_sub_keys: dict[Keypath, set[Keypath]] = {}
-        dev_sub_updates: dict[Keypath, SubscriptionUpdate] = {}
+        # Subscriber sources
+        for sub_source_ref_key, sub_source_ref_config in sub_source_ref_configs:
+            if sub_source_ref_config is not None and isinstance(sub_source_ref_config, TNode):
+                sub_update = _get_or_create_pending_subscriber_update(sub_source_ref_key)
+                #source_ref = sub_source_ref_config.try_str() # actonc: #### findAttr' fails for __builtin__.value . try_str
+                _sub_source_ref_config: TNode = sub_source_ref_config
+                source_ref = _sub_source_ref_config.try_str()
+                if source_ref is not None:
+                    sub_update.source_key = Keypath([Key([source_ref])])
 
-        # Prepare source configs
-        for source_key, state in source_updates:
-            source_config_updates[source_key] = state if state is not None and isinstance(state, TNode) else tnode_empty()
+        # Subscriber sinks
+        for sub_sink_key, sub_sink_config in sub_sink_configs:
+            sub_key = sub_sink_key.try_slice(0, 1)
+            sink_key = sub_sink_key.try_slice(1, 2)
+            if sub_key is not None and sink_key is not None:
+                sub_update = _get_or_create_pending_subscriber_update(sub_key)
+                _sub_sink_config = sub_sink_config if sub_sink_config is not None and isinstance(sub_sink_config, TNode) else tnode_empty()
+                sub_update.sink_configs[sink_key] = _sub_sink_config
 
-        # Update sinks
-        if sink_updates:
-            for sink_key, state in sink_updates:
-                _update_sink(sink_key, state)
-
-        # Prepare subscriptions
-        for dev_sub_key, state in subscription_updates:
-            if state is not None and isinstance(state, SubscriptionSourceConfig):
-                config: SubscriptionSourceConfig = state
-                source_key = _get_subscription_source_key(config.config)
-                subscription_sources[dev_sub_key] = source_key
-                sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
-                sub_update.config = config
-                dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
+        #sub_config_updates: dict[]
+        for sub_key, sub_config in sub_configs:
+            sub_update = _get_or_create_pending_subscriber_update(sub_key)
+            if sub_config is not None and isinstance(sub_config, TNode):
+                sub_update.config = sub_config
             else:
-                source_key = try_pop(subscription_sources, dev_sub_key)
-                if source_key is not None:
-                    dict_set_add(updated_source_dev_sub_keys, source_key, dev_sub_key)
+                sub_update.delete()
 
-        # Prepare subscription sinks
-        for dev_sub_sink_key, state in subscription_sink_updates:
-            dev_sub_key = dev_sub_sink_key.try_slice(0, 2)
-            sink_key = dev_sub_sink_key.try_slice(2, 3)
-            if dev_sub_key is not None and sink_key is not None:
-                if dev_sub_key in subscription_sources:
-                    sub_update = get_or_create(dev_sub_updates, dev_sub_key, SubscriptionUpdate)
-                    sub_sink: ?SubscriptionSink = None
-                    if state is not None and isinstance(state, TNode):
-                        sub_sink = _create_subscription_sink(sink_key, state)
-                    sub_update.sinks.append((sink_key, sub_sink))
+        new_sub_type_keys: set[Keypath] = set(None)
+        for sub_type_key, sub_type_config in sub_type_configs:
+            if sub_type_config is not None:
+                new_sub_type_keys.add(sub_type_key)
 
-        # Update sources / subscriptions
-        for source_key, dev_sub_keys in updated_source_dev_sub_keys.items():
-            source_sub_updates: list[(Keypath, ?SubscriptionUpdate)] = []
-            for dev_sub_key in dev_sub_keys:
-                source_sub_updates.append((dev_sub_key, try_get(dev_sub_updates, dev_sub_key)))
+        for sub_key, pending_update in pending_updates.items():
+            sub = try_get(subscribers, sub_key)
+            if pending_update.is_delete():
+                sub_data = try_get(subscribers, sub_key)
+                if sub_data is not None:
+                    sub_data.subscriber.close()
+                    sub_data.pending_replacement = pending_update
+            else:
+                if sub_key in new_sub_type_keys:
+                    # New/changed subscriber-type
+                    sub_data = try_get(subscribers, sub_key)
+                    if sub_data is not None:
+                        pending_replacement = sub_data.pending_replacement
+                        if pending_replacement is not None:
+                            pending_replacement.merge(pending_update)
+                        else:
+                            sub_data.subscriber.close()
+                            sub_data.pending_replacement = pending_update
+                    else:
+                        new_sub = _create_subscriber(sub_key, pending_update)
+                        subscribers[sub_key] = SubscriberData(new_sub)
+                else:
+                    # Existing, with same subscriber-type
+                    sub_data = try_get(subscribers, sub_key)
+                    if sub_data is not None:
+                        pending_replacement = sub_data.pending_replacement
+                        if pending_replacement is not None:
+                            pending_replacement.merge(pending_update)
+                        else:
+                            sub_data.subscriber.update_config(_create_subscription_update(pending_update))
 
-            def _update_fn(s: Source):
-                s.update_config(try_get(source_config_updates, source_key), source_sub_updates)
-            source = _update_source(source_key, _update_fn)
-            if not source.has_subscriptions():
-                DelegateMiddleManager_remove_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
+    def _create_source(config: TNode) -> Source:
+        if config.has_child(SOURCE_TYPE_TAG_NETCONF):
+            return telemetrify.main.source.netconf.create_netconf_source(gen_uid(), config, env.cap, shared_schema, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_VMANAGE_HTTP):
+            return telemetrify.main.source.vmanage.create_vmanage_source(gen_uid(), config, env.cap, shared_schema, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_MOCK_NETCONF):
+            return telemetrify.main.source.mock.netconf.create_mock_netconf_source(gen_uid(), config, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_MOCK_VMANAGE_HTTP):
+            return telemetrify.main.source.mock.vmanage.create_mock_vmanage_source(gen_uid(), config, logh)
+        raise Exception("Unknown source config: " + str(config))
 
-    def _get_subscription_source_key(config: TNode) -> Keypath:
-        if config[SUBSCRIPTION_TYPE_KEY_ACTION_POLLER].exists():
-            return SOURCE_KEY_NETCONF
-        elif config[SUBSCRIPTION_TYPE_KEY_GET_POLLER].exists():
-            return SOURCE_KEY_NETCONF
-        elif config[SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER].exists():
-            return SOURCE_KEY_VMANAGE_HTTP
-        elif config[SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER].exists():
-            return SOURCE_KEY_MOCK_NETCONF
+    def _create_sink(config: TNode):
+        if config.has_child(SINK_TYPE_TAG_M3DB):
+            return telemetrify.main.sink.m3db.create_m3db_sink(gen_uid(), config, env.cap, shared_schema, logh)
+        # elif config.has_child(SINK_TYPE_TAG_NSO_DP):
+        #     return telemetrify.main.sink.nso.create_nso_dp_sink(gen_uid(), config, env, shared_schema, logh)
+        elif config.has_child(SINK_TYPE_TAG_NSO_CDB):
+            return telemetrify.main.sink.nso.create_nso_cdb_sink(gen_uid(), config, env, shared_schema, logh)
+        raise Exception("Unknown sink config: " + str(config))
 
-        raise Exception("Unknown subscription type: " + str(config))
+    def _create_subscriber(sub_key: Keypath, pending_update: PendingSubscriberUpdate) -> Subscriber:
+        sub_config = pending_update.config
+        if sub_config is not None:
+            sub_type = get_subscription_type(sub_config)
+            if sub_type is not None:
+                sub = _create_subscriber_type(sub_key, sub_type)
+                sub.update_config(_create_subscription_update(pending_update))
+                return sub
+        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
 
-    def _update_source(source_key: Keypath, update_fn: proc(Source) -> None) -> Source:
-        _source: ?Source = DelegateMiddleManager_try_get_delegate(source_manager, source_key)
-        if _source is not None:
-            update_fn(_source)
-            return _source
-        else:
-            if source_key == SOURCE_KEY_NETCONF:
-                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
-                source_act = telemetrify.main.source.netconf.NetconfSource(_reached_state_cb, env.cap, shared_schema, logh)
-                source = Source(source_act.set_target_state, source_act.update_config)
-                DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
-                return source
+    def _create_subscriber_type(sub_key: Keypath, sub_type: Id) -> Subscriber:
+        def close_cb():
+            _on_subscriber_closed(sub_key)
+        if sub_type == SUBSCRIPTION_TYPE_TAG_NETCONF_RPC_POLLER:
+           sub_act = telemetrify.main.subscriber.netconf.NetconfRpcPollSubscription(gen_uid(), close_cb, shared_schema, logh)
+           return Subscriber(sub_act.update_config, sub_act.close)
+        elif sub_type == SUBSCRIPTION_TYPE_TAG_NETCONF_GET_POLLER:
+            sub_act = telemetrify.main.subscriber.netconf.NetconfGetPollSubscription(gen_uid(), close_cb, shared_schema, logh)
+            return Subscriber(sub_act.update_config, sub_act.close)
+        elif sub_type == SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER:
+            sub_act = telemetrify.main.subscriber.vmanage.VManagePollSubscription(gen_uid(), close_cb, shared_schema, logh)
+            return Subscriber(sub_act.update_config, sub_act.close)
+        raise Exception("Unknown subscription type: " + str(sub_type))
 
-            elif source_key == SOURCE_KEY_VMANAGE_HTTP:
-                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
-                source_act = telemetrify.main.source.vmanage.VManageSource(_reached_state_cb, env.cap, shared_schema, logh)
-                source = Source(source_act.set_target_state, source_act.update_config)
-                DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
-                return source
+    def _create_subscription_update(pending_update: PendingSubscriberUpdate) -> SubscriberUpdate:
+        source_key = pending_update.source_key
+        source: ?Source = try_get(sources, source_key) if source_key is not None else None
 
-            if source_key == SOURCE_KEY_MOCK_NETCONF:
-                _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(source_manager, source_key) # https://github.com/actonlang/acton/issues/1448
-                source_act = telemetrify.main.source.mock.netconf.MockNetconfSource(_reached_state_cb, shared_schema, logh)
-                source = Source(source_act.set_target_state, source_act.update_config)
-                DelegateMiddleManager_add_delegate(source_manager, _id, source, update_fn) # https://github.com/actonlang/acton/issues/1448
-                return source
+        sub_sinks: list[(Keypath, ?SubscriberSink)] = []
+        for sink_key, config in pending_update.sink_configs.items():
+            sub_sinks.append((sink_key, _create_subscriber_sink(sink_key, config) if config is not None else None))
 
-        raise Exception("Unknown source type: " + str(source_key))
+        return SubscriberUpdate(pending_update.config, source, sub_sinks)
 
-    def _update_sink(sink_key: Keypath, config: ?value):
-        old_sink = try_pop(sinks, sink_key)
-        if old_sink is not None:
-            old_sink.close()
-
-        if config is not None and isinstance(config, TNode):
-            if config[PTag('tlm', 'm3db')].exists():
-                sink_act = telemetrify.main.sink.m3db.M3dbSink(env.cap, config, shared_schema, logh)
-                sinks[sink_key] = Sink(sink_act.write, sink_act.close)
-                return
-            # elif config[PTag('tlm', 'nso-data-provider')].exists():
-            #     ...
-            #     sinks[sink_key] = sink
-            #     return
-            elif config[PTag('tlm', 'nso-cdb')].exists():
-                sink_act = telemetrify.main.sink.nso.NsoCdbSink(env, config, shared_schema, logh)
-                sinks[sink_key] = Sink(sink_act.write, sink_act.close)
-                return
-
-    def _create_subscription_sink(sink_key: Keypath, config: TNode) -> ?SubscriptionSink:
+    def _create_subscriber_sink(sink_key: Keypath, config: TNode) -> ?SubscriberSink:
         sink: ?Sink = try_get(sinks, sink_key)
 
         if sink is not None:
@@ -214,7 +308,7 @@ actor DeviceStreamer(
                     # TODO
                     # raise Exception("Unknown transform type: " + str(_transform_elem))
 
-            return SubscriptionSink(config, sink, transforms, head_cb)
+            return SubscriberSink(sink_key, config, sink, transforms, head_cb)
 
         return None
 
@@ -236,70 +330,20 @@ actor DeviceStreamer(
             return Transform(transform_act.transform, transform_act.close)
         return None
 
-    def set_target_state(target_state: int):
-        log.debug("DEVICE SET TARGET STATE", {"name": name, "target_state": state_str(target_state)})
-        if not DelegateMiddleManager_set_target_state(source_manager, target_state):
-            log.error("DEVICE UNEXPECTED STATE ignoring", {"name": name, "target_state": state_str(target_state)})
+    def _on_subscriber_closed(sub_key: Keypath):
+        sub_data = try_get(subscribers, sub_key)
+        if sub_data is not None:
+            pending_replacement = sub_data.pending_replacement
+            if pending_replacement is not None:
+                sub_data.subscriber = _create_subscriber(sub_key, pending_replacement)
+                sub_data.pending_replacement = None
+            else:
+                del subscribers[sub_key]
 
-    def on_reached_state(state: int):
-        log.info("DEVICE REACHED STATE " + state_str(state), {"name": name})
-
-        if source_manager.target_state == STATE_CLOSED:
-            for sink in sinks.values():
-                sink.close()
-            #sinks.clear()
-            sinks = {}
-
-        reached_state_cb(state)
-
-    def _on_source_reached_state_trampoline(_id: DelegateId, state: int):
-        # manager.on_delegate_reached_state(_id, state)
-        DelegateMiddleManager_on_delegate_reached_state(source_manager, _id, state) # https://github.com/actonlang/acton/issues/1448
-
-    # Workaround compiler ordering issue
-    source_manager._reached_state_cb = on_reached_state
-    source_manager._delegate_manager._on_delegate_reached_state_trampoline_fn = _on_source_reached_state_trampoline
-
-class DeviceStreamerWrapper(object):
-    @property
-    set_target_state_fn: action(int) -> None
-    @property
-    update_config_fn: action(
-            ?DeviceStreamerConfig,
-            list[(Keypath, ?value)],
-            list[(Keypath, ?value)],
-            list[(Keypath, ?value)],
-            list[(Keypath, ?value)]) -> None
-
-    def __init__(self,
-            set_target_state_fn: action(int) -> None,
-            update_config_fn: action(
-                ?DeviceStreamerConfig,
-                list[(Keypath, ?value)],
-                list[(Keypath, ?value)],
-                list[(Keypath, ?value)],
-                list[(Keypath, ?value)]) -> None):
-
-        self.set_target_state_fn = set_target_state_fn
-        self.update_config_fn = update_config_fn
-
-    def update_config(self,
-            updated_device_config: ?DeviceStreamerConfig,
-            subscription_updates: list[(Keypath, ?value)],
-            subscription_sink_updates: list[(Keypath, ?value)],
-            source_updates: list[(Keypath, ?value)],
-            sink_updates: list[(Keypath, ?value)]):
-
-        self.update_config_fn(
-            updated_device_config,
-            subscription_updates,
-            subscription_sink_updates,
-            source_updates,
-            sink_updates)
-
-extension DeviceStreamerWrapper(Delegate):
-    def set_target_state(self, target_state: int) -> None:
-        self.set_target_state_fn(target_state)
+    def gen_uid() -> int:
+        uid = next_uid
+        next_uid = uid + 1
+        return uid
 
 actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
@@ -325,19 +369,14 @@ actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler:
         pass # TODO: Could keep refcount and release when not used
 
 actor main(env):
-    # var device_streamers: DelegateManager[DeviceStreamerWrapper] = DelegateManager(
-    #     _on_device_streamer_reached_state_trampoline,
-    #     lambda s: None,
-    #     target_state=STATE_RUNNING)
-    # Workaround compiler ordering issue
-    var device_streamers: DelegateManager[DeviceStreamerWrapper] = DelegateManager(lambda i, s: None, lambda s: None)
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
     var shared_resources: ?SharedResources = None
+    var subscriber_manager: ?SubscriberManager = None
 
     var logh = logging.Handler("telemetrify")
     var log = logging.Logger(logh)
 
-    logh.set_output_level(logging.NOTICE)
+    logh.set_output_level(logging.TRACE)
     logh.add_sink(logging.StdoutSink())
 
     def _on_maapi_connect_error(e):
@@ -350,7 +389,9 @@ actor main(env):
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
             log.info("MAAPI loaded schema!!!!", None)
-            shared_resources = SharedResources(env, shared_schema, logh)
+            _shared_resources: SharedResources = SharedResources(env, shared_schema, logh)
+            shared_resources = _shared_resources
+            subscriber_manager = SubscriberManager(env, shared_schema, _shared_resources, logh)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
         else:
@@ -370,36 +411,26 @@ actor main(env):
         log.info("CDB (cmd) connected!!!!", None)
         cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
             [
-                DeviceSettingsRefiner,
-                DeviceNedIdBaseRefiner,
-                DeviceStreamerRefiner,
-                DeviceSourceNetconfRefiner,
-                DeviceSourceVmanageRefiner,
-                DeviceSourceMockNetconfRefiner,
-                DeviceSourceRefiner,
-                DeviceSubscriptionSourceBaseRefiner,
-                DeviceSubscriptionSourceRefiner,
-                DeviceSubscriptionSinkBaseRefiner,
-                DeviceSubscriptionSinkRefiner,
+                SourceRefiner,
                 SinkRefiner,
-                DeviceSinksRefiner,
+                SubscriptionSourceRefBaseRefiner,
+                SubscriptionSourceRefRefiner,
+                SubscriptionRefiner,
+                SubscriptionTypeRefiner,
+                SubscriptionSinkBaseRefiner,
+                SubscriptionSinkRefiner,
                 LoggingLevelRefiner,
             ],
             [([
-                #DeviceSettingsRefiner.id(), # For DEBUG printouts only
-                #DeviceNedIdBaseRefiner.id(), # For DEBUG printouts only
-                DeviceStreamerRefiner.id(),
-                #DeviceSourceNetconfRefiner.id(), # For DEBUG printouts only
-                #DeviceSourceVmanageRefiner.id(), # For DEBUG printouts only
-                #DeviceSourceMockNetconfRefiner.id(), # For DEBUG printouts only
-                DeviceSourceRefiner.id(),
-                #DeviceSubscriptionSourceBaseRefiner.id(), # For DEBUG printouts only
-                DeviceSubscriptionSourceRefiner.id(),
-                #DeviceSubscriptionSinkBaseRefiner.id(), # For DEBUG printouts purposes
-                DeviceSubscriptionSinkRefiner.id(),
-                #SinkRefiner.id(), # For DEBUG printouts purposes
-                DeviceSinksRefiner.id(),
-                LoggingLevelRefiner.id()
+                SourceRefiner.id(),
+                SinkRefiner.id(),
+                SubscriptionSourceRefBaseRefiner.id(),
+                SubscriptionSourceRefRefiner.id(),
+                SubscriptionRefiner.id(),
+                SubscriptionTypeRefiner.id(),
+                SubscriptionSinkBaseRefiner.id(),
+                SubscriptionSinkRefiner.id(),
+                LoggingLevelRefiner.id(),
             ],
             lambda r: _on_config_update(r, s))], _on_config_cache_error,
             logh)
@@ -413,84 +444,15 @@ actor main(env):
                 _updates[str(k)] = str(v) if v is not None else "DELETED"
             log.debug("refiner updates", _updates)
 
-        dev_config: list[(Keypath, ?value)] = refiner_updates[DeviceStreamerRefiner.id()]
-        sub_config: list[(Keypath, ?value)] = refiner_updates[DeviceSubscriptionSourceRefiner.id()]
-        sub_sink_config: list[(Keypath, ?value)] = refiner_updates[DeviceSubscriptionSinkRefiner.id()]
-        source_config: list[(Keypath, ?value)] = refiner_updates[DeviceSourceRefiner.id()]
-        # sink_config: list[(Keypath, ?value)] = refiner_updates[SinkRefiner.id()]
-        sink_config: list[(Keypath, ?value)] = refiner_updates[DeviceSinksRefiner.id()]
-
-        updated_device_keys: set[Keypath] = set([])
-
-        updated_subscriptions: dict[Keypath, list[(Keypath, ?value)]] = {}
-        updated_subscription_sinks: dict[Keypath, list[(Keypath, ?value)]] = {}
-        updated_device_sources: dict[Keypath, list[(Keypath, ?value)]] = {}
-        updated_device_sinks: dict[Keypath, list[(Keypath, ?value)]] = {}
-        updated_device_configs: dict[Keypath, DeviceStreamerConfig] = {}
-
-        for dev_sub_key, state in sub_config:
-            device_key = dev_sub_key.try_slice(0, 1)
-            if device_key is not None:
-                dict_list_append(updated_subscriptions, device_key, (dev_sub_key, state))
-                updated_device_keys.add(device_key)
-
-        for dev_sub_sink_key, state in sub_sink_config:
-            device_key = dev_sub_sink_key.try_slice(0, 1)
-            if device_key is not None:
-                dict_list_append(updated_subscription_sinks, device_key, (dev_sub_sink_key, state))
-                updated_device_keys.add(device_key)
-
-        for device_source_key, state in source_config:
-            device_key = device_source_key.try_slice(0, 1)
-            source_key = device_source_key.try_slice(1, 2)
-            if device_key is not None and source_key is not None:
-                dict_list_append(updated_device_sources, device_key, (source_key, state))
-                updated_device_keys.add(device_key)
-
-        for device_sink_key, state in sink_config:
-            device_key = device_sink_key.try_slice(0, 1)
-            sink_key = device_sink_key.try_slice(1, 2)
-            if device_key is not None and sink_key is not None:
-                dict_list_append(updated_device_sinks, device_key, (sink_key, state))
-                updated_device_keys.add(device_key)
-
-        for device_key, state in dev_config:
-            if state is not None and isinstance(state, DeviceStreamerConfig):
-                updated_device_keys.add(device_key)
-                updated_device_configs[device_key] = state
-            else:
-                DelegateManager_remove(device_streamers, device_key) # https://github.com/actonlang/acton/issues/1448
-                updated_device_keys.discard(device_key)
-
-        for updated_device_key in updated_device_keys:
-            def _update_fn(d):
-                d.update_config(
-                    try_get(updated_device_configs, updated_device_key),
-                    updated_subscriptions.get(updated_device_key, []),
-                    updated_subscription_sinks.get(updated_device_key, []),
-                    updated_device_sources.get(updated_device_key, []),
-                    updated_device_sinks.get(updated_device_key, []))
-
-            entry = DelegateManager_try_get(device_streamers, updated_device_key)
-            if entry is not None:
-                _update_fn(entry)
-            else:
-                _device_name_key = updated_device_key.try_get_key(0)
-                if _device_name_key is not None:
-                    device_name = _device_name_key[0]
-                    _shared_resources = shared_resources
-                    if isinstance(device_name, str) and _shared_resources is not None:
-                        _id, reached_state_cb = DelegateManager_reserve(device_streamers, updated_device_key) # https://github.com/actonlang/acton/issues/1448
-                        ds_act = DeviceStreamer(env, device_name, reached_state_cb, shared_schema, _shared_resources, logh)
-                        device_streamer = DeviceStreamerWrapper(ds_act.set_target_state, ds_act.update_config)
-                        DelegateManager_add(device_streamers, _id, device_streamer, _update_fn) # https://github.com/actonlang/acton/issues/1448
+        if subscriber_manager is not None:
+            subscriber_manager.on_config_update(refiner_updates, shared_schema)
 
         # Logging
         _on_logging_level(refiner_updates[LoggingLevelRefiner.id()])
 
-    def _on_device_streamer_reached_state_trampoline(_id: DelegateId, state: int):
-        # device_streamers.on_delegate_reached_state(_id, state)
-        DelegateManager_on_delegate_reached_state(device_streamers, _id, state) # https://github.com/actonlang/acton/issues/1448
+    # def _on_device_streamer_reached_state_trampoline(_id: DelegateId, state: int):
+    #     # device_streamers.on_delegate_reached_state(_id, state)
+    #     DelegateManager_on_delegate_reached_state(device_streamers, _id, state) # https://github.com/actonlang/acton/issues/1448
 
     def _on_logging_level(updates: list[(Keypath, ?value)]):
         level: ?int = None
@@ -534,9 +496,9 @@ actor main(env):
         log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
         await async env.exit(1)
 
-    # Workaround compiler ordering issue
-    device_streamers._on_delegate_reached_state_trampoline_fn = _on_device_streamer_reached_state_trampoline
-    DelegateManager_set_target_state(device_streamers, STATE_RUNNING)
+    # # Workaround compiler ordering issue
+    # device_streamers._on_delegate_reached_state_trampoline_fn = _on_device_streamer_reached_state_trampoline
+    # DelegateManager_set_target_state(device_streamers, STATE_RUNNING)
 
     log.info("Starting up...", None)
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)

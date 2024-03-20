@@ -60,6 +60,5 @@ debug:
 .PHONY: debug
 
 test:
-	out/bin/telemetrify.main.test.common
-	out/bin/telemetrify.nsoapi.test.hash
+	acton test
 .PHONY: test

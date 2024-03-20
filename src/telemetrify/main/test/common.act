@@ -68,7 +68,7 @@ class EventTester(object):
                 else:
                     self.report_result(True, None)
             else:
-                self.report_result(None, AssertionError("Expected events: " + list_str(self._expected_events) + " actual events: " + list_str(self._actual_events)))
+                self.report_result(False, AssertionError("Expected events: " + list_str(self._expected_events) + " actual events: " + list_str(self._actual_events)))
 
     def expect(self, events: list[str], next_step: ?action() -> None):
         self._expected_events.extend(events)
@@ -76,297 +76,277 @@ class EventTester(object):
         self.__next_index += len(events)
         self.__next_step = next_step
 
-actor DelegateWorkerTester(report_result, log_handler):
+    def step(self, next_step: ?action() -> None = None):
+        self.__next_step = next_step
+        self.on_event(None)
+
+actor MockSource(uid: int, on_closed: action() -> None):
+    # Workaround compiler ordering issue
+    #var server = ServerMixin(uid, _on_server_closed)
+    var server = ServerMixin(uid, lambda: None)
+
+    def attach(client_uid: int, state_cb: action(int, int) -> None):
+        server.attach(client_uid, state_cb)
+
+    def detach(client_uid: int):
+        server.detach(client_uid)
+
+    def close():
+        server.on_closing()
+
+    def on_started():
+        server.on_started()
+
+    def on_stopped():
+        server.on_stopped()
+
+    def _on_server_closed():
+        on_closed()
+
+    # Workaround compiler ordering issue
+    server.on_closed = _on_server_closed
+
+actor MockSink(uid: int, on_closed: action() -> None):
+    # Workaround compiler ordering issue
+    #var server = ServerMixin(uid, _on_server_closed)
+    var server = ServerMixin(uid, lambda: None)
+
+    def attach(client_uid: int, state_cb: action(int, int) -> None):
+        server.attach(client_uid, state_cb)
+
+    def detach(client_uid: int):
+        server.detach(client_uid)
+
+    def close():
+        server.on_closing()
+
+    def write(node: Node, source_params: TNode, sink_config: TNode, done_cb: ?action() -> None) -> None:
+        if done_cb is not None:
+            done_cb()
+
+    def on_stopped():
+        server.on_stopped()
+
+    def _on_server_closed():
+        on_closed()
+
+    # Workaround compiler ordering issue
+    server.on_closed = _on_server_closed
+
+#
+# (Source)ServerMixin
+#
+
+actor SourceServerMixinTester_1(report_result, log_handler):
     log = logging.Logger(log_handler)
 
     var e = EventTester(report_result)
-    var w = DelegateWorker(lambda s: None, lambda: None, lambda: None)
 
-    def _init():
-        e.reset()
-        w = DelegateWorker(on_reached_state, on_start, on_stop)
+    def on_closed():
+        e.on_event("SOURCE CLOSED")
 
-    def on_reached_state(s):
-        e.on_event(state_str(s))
+    var source_act = MockSource(1, on_closed)
+    var source = Source(1, source_act.attach, source_act.detach, source_act.close)
 
-    def on_start():
-        e.on_event("DO_START")
-        DelegateWorker_on_inner_started(w)
-
-    def on_stop():
-        e.on_event("DO_STOP")
-        DelegateWorker_on_inner_stopped(w)
-
-    def test1():
+    def test():
         try:
-            _init()
+            e.expect(["SOURCE CLOSED"], None)
 
-            e.expect(["STOPPED"], None)
-
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_STOPPED), "Invalid target state")
+            source.close()
         except Exception as ex:
             report_result(False, ex)
 
-    def test2():
-        try:
-            _init()
+def _test_source_server_mixin_1(report_result, log_handler: logging.Handler) -> None:
+    SourceServerMixinTester_1(report_result, log_handler).test()
 
-            e.expect(["DO_START", "RUNNING"], test2_1)
-
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_RUNNING), "Invalid target state")
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test2_1():
-        try:
-            e.expect(["RUNNING"], test2_2)
-
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_RUNNING), "Invalid target state")
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test2_2():
-        try:
-            e.expect(["DO_STOP", "DO_START", "RUNNING"], test2_3)
-
-            DelegateWorker_try_restart_inner(w)
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test2_3():
-        try:
-            e.expect(["DO_STOP", "STOPPED"], test2_4)
-
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_STOPPED), "Invalid target state")
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test2_4():
-        try:
-            e.expect(["STOPPED"], None)
-
-            DelegateWorker_try_restart_inner(w) # Expecting NOOP
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_STOPPED), "Invalid target state") # Verify STOPPED without any DO_STOP from the above restart
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test3():
-        try:
-            _init()
-
-            e.expect(["CLOSED"], None)
-
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_CLOSED), "Invalid target state")
-
-            testing.assertFalse(DelegateWorker_set_target_state(w, STATE_RUNNING), "A closed worker can only be closed")
-
-            testing.assertFalse(DelegateWorker_set_target_state(w, STATE_STOPPED), "A closed worker can only be closed")
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test4():
-        try:
-            _init()
-
-            e.expect(["DO_START", "RUNNING"], test4_1)
-
-            testing.assertTrue(DelegateWorker_set_target_state(w, STATE_RUNNING), "Invalid target state")
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test4_1():
-        try:
-            e.expect(["DO_STOP", "CLOSED"], None)
-
-            ok = DelegateWorker_set_target_state(w, STATE_CLOSED)
-            testing.assertTrue(ok, "Invalid target state")
-        except Exception as ex:
-            report_result(False, ex)
-
-actor DelegateMockActor(reached_state_cb: action(int) -> None):
-    def set_target_state(target_state: int) -> None:
-        reached_state_cb(target_state)
-
-class DelegateMock(object):
-    @property
-    inner: DelegateMockActor
-
-    def __init__(self, inner: DelegateMockActor):
-        self.inner = inner
-
-extension DelegateMock(Delegate):
-    def set_target_state(self, target_state: int) -> None:
-        self.inner.set_target_state(target_state)
-
-actor DelegateMiddleManagerTester(report_result, log_handler):
+actor SourceServerMixinTester_2(report_result, log_handler):
     log = logging.Logger(log_handler)
 
     var e = EventTester(report_result)
-    var m: DelegateMiddleManager[DelegateMock] = DelegateMiddleManager(lambda s: None, lambda i, s: None, lambda: None, lambda: None)
 
-    key0 = Keypath([Key([0])])
-    key1 = Keypath([Key([1])])
+    var source_act = MockSource(1, lambda: None)
+    var source = Source(1, source_act.attach, source_act.detach, source_act.close)
 
-    def _init(log_delegates: bool = False):
-        e.reset()
-        m = DelegateMiddleManager(
-            on_reached_state,
-            _on_delegate_reached_state_trampoline_log if log_delegates else _on_delegate_reached_state_trampoline,
-            on_start,
-            on_stop)
+    def on_source_state_trampoline(source_uid: int, source_state: int):
+        e.on_event("SOURCE " + str(source_uid) + " " + state_str(source_state))
 
-    def on_reached_state(s):
-        e.on_event(state_str(s))
+    def test():
+        try:
+            e.expect(["SOURCE 1 STOPPED"], test_1)
+
+            source.attach(0, on_source_state_trampoline)
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test_1():
+        try:
+            e.expect(["SOURCE 1 RUNNING"], test_2)
+
+            source_act.on_started()
+        except Exception as ex:
+            report_result(False, ex)
+
+    def test_2():
+        try:
+            e.expect(["SOURCE 1 STOPPED"], None)
+
+            source_act.on_stopped()
+        except Exception as ex:
+            report_result(False, ex)
+
+def _test_source_server_mixin_2(report_result, log_handler: logging.Handler) -> None:
+    SourceServerMixinTester_2(report_result, log_handler).test()
+
+#
+# SubscriberSourceMixin
+#
+
+actor SubscriberSourceMixinTester_1(report_result, log_handler):
+    log = logging.Logger(log_handler)
+
+    var e = EventTester(report_result)
+
+    var source_act_1 = MockSource(1, lambda: None)
+    var source_1 = Source(1, source_act_1.attach, source_act_1.detach, source_act_1.close)
+
+    var source_act_2 = MockSource(2, lambda: None)
+    var source_2 = Source(2, source_act_2.attach, source_act_2.detach, source_act_2.close)
+
+    var m = SubscriberSourceMixin(0, lambda: None, lambda: None, lambda i, s: None)
 
     def on_start():
-        e.on_event("DO_START")
-        DelegateMiddleManager_on_inner_started(m)
+        e.on_event("START")
+        m.on_started()
 
-    def on_stop():
-        e.on_event("DO_STOP")
-        DelegateMiddleManager_on_inner_stopped(m)
+    def on_stopping():
+        e.on_event("STOP")
+        m.on_stopped()
 
-    action def _on_delegate_reached_state_trampoline(_id: DelegateId, state: int):
-        DelegateMiddleManager_on_delegate_reached_state(m, _id, state)
-        #raise ValueError("DEBUG " + str(_id) + " " + state_str(state) + " " + str(m._delegate_manager._pending_state_transition))
+    def on_source_state_trampoline(source_uid: int, source_state: int):
+        m.on_source_state(source_uid, source_state)
 
-    action def _on_delegate_reached_state_trampoline_log(_id: DelegateId, state: int):
-        k_str: ?str = None
-        kp = _id.key
-        if len(kp) == 1:
-            k = kp.try_get_key(0)
-            if k is not None:
-                if len(k) == 1:
-                    k_str = str(k[0])
-        e.on_event((k_str if k_str is not None else str(_id.key)) + "-" + str(_id.seqno) + "_" + state_str(state))
-        DelegateMiddleManager_on_delegate_reached_state(m, _id, state)
-
-    def add_delegate(key: Keypath) -> DelegateMock:
-        _id, _reached_state_cb = DelegateMiddleManager_reserve_delegate(m, key)
-        delegate = DelegateMock(DelegateMockActor(_reached_state_cb))
-        DelegateMiddleManager_add_delegate(m, _id, delegate, lambda s: None)
-        return delegate
-
-    def test1():
+    def test():
         try:
-            _init()
-
-            add_delegate(key0)
-            add_delegate(key1)
-
-            e.expect(["STOPPED"], None)
-
-            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_STOPPED), "Invalid target state")
+            # Add source and start it
+            e.expect(["START"], test_1)
+            m = SubscriberSourceMixin(0, on_start, on_stopping, on_source_state_trampoline)
+            source_act_1.on_started()
+            m.update_source(source_1)
         except Exception as ex:
             report_result(False, ex)
 
-    def test2():
+    def test_1():
         try:
-            _init()
-
-            add_delegate(key0)
-            add_delegate(key1)
-
-            e.expect(["DO_START", "RUNNING"], test2_1)
-
-            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+            # Change source but don't start the new one yet
+            _verify_source(source_1)
+            e.expect(["STOP"], test_2)
+            m.update_source(source_2)
         except Exception as ex:
             report_result(False, ex)
 
-    def test2_1():
+    def test_2():
         try:
-            e.expect(["RUNNING"], test2_2)
-
-            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+            # Start the new source
+            e.expect(["START"], test_3)
+            source_act_2.on_started()
         except Exception as ex:
             report_result(False, ex)
 
-    def test2_2():
+    def test_3():
         try:
-            e.expect(["DO_STOP", "DO_START", "RUNNING"], test2_3)
-
-            DelegateMiddleManager_try_restart_inner(m)
+            # Verify new source
+            _verify_source(source_2)
+            e.step()
         except Exception as ex:
             report_result(False, ex)
 
-    def test2_3():
-        try:
-            e.expect(["DO_STOP", "STOPPED"], test2_4)
+    def _verify_source(expected_source: Source):
+        _actual_source = m.get_source()
+        if _actual_source is not None:
+            testing.assertEqual(_actual_source.uid(), expected_source.uid(), "Wrong source_uid")
+        else:
+            raise AssertionError("No actual source. Expected source_uid: " + str(expected_source.uid()))
 
-            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_STOPPED), "Invalid target state")
+def _test_subscriber_source_mixin_1(report_result, log_handler: logging.Handler) -> None:
+    SubscriberSourceMixinTester_1(report_result, log_handler).test()
+
+#
+# SubscriberSourceMixin
+#
+
+def _create_subscriber_sink(sink_key: Keypath, sink_uid: int) -> SubscriberSink:
+    sink_act = MockSink(sink_uid, lambda: None)
+    sink = Sink(sink_uid, sink_act.attach, sink_act.detach, sink_act.close, sink_act.write)
+    config = tnode_empty()
+    head_cb: action(Node, TNode, ?action() -> None) -> None = action lambda n, p, d: sink.write(n, p, config, d)
+    return SubscriberSink(sink_key, config, sink, [], head_cb)
+
+actor SubscriberSinksMixinTester_1(report_result, log_handler):
+    log = logging.Logger(log_handler)
+
+    var e = EventTester(report_result)
+
+    var sink_key_1 = Keypath([Key(["sink-A"])])
+    var sub_sink_1 = _create_subscriber_sink(sink_key_1, 1)
+
+    var sink_key_2 = Keypath([Key(["sink-B"])])
+    var sub_sink_2 = _create_subscriber_sink(sink_key_2, 2)
+
+    var sink_key_3 = Keypath([Key(["sink-A"])]) # Yes same key as sink_key_1
+    var sub_sink_3 = _create_subscriber_sink(sink_key_3, 3)
+
+    var m = SubscriberSinksMixin(0, lambda: None, lambda w: None, lambda i: None, lambda: None, lambda: None)
+
+    def on_resync():
+        e.on_event("RESYNC")
+
+    def write_reset(write_cb: action(Node, TNode) -> None):
+        write_cb(tnode_empty(), tnode_empty())
+
+    def on_write_reset_done_trampoline(sink_uid: int):
+        m.on_write_reset_done(sink_uid)
+
+    def on_reset():
+        e.on_event("ON_RESET")
+
+    def on_quiescent():
+        e.on_event("ON_QUIESCENT")
+
+    def test():
+        try:
+            # Add two sinks
+            e.expect(["RESYNC"], test_1)
+
+            m = SubscriberSinksMixin(0, on_resync, write_reset, on_write_reset_done_trampoline, on_reset, on_quiescent)
+            m.update([(sink_key_1, sub_sink_1), (sink_key_2, sub_sink_2)])
         except Exception as ex:
             report_result(False, ex)
 
-    def test2_4():
+    def test_1():
         try:
-            e.expect(["STOPPED"], None)
-
-            DelegateMiddleManager_try_restart_inner(m) # Expecting NOOP
-            DelegateMiddleManager_set_target_state(m, STATE_STOPPED) # Verify STOPPED without any DO_STOP from the above restart
+            # Remove 2nd sink
+            e.expect(["ON_RESET"], test_2)
+            m.write(tnode_empty(), tnode_empty()) # Clear reset
+            m.update([(sink_key_2, None)])
         except Exception as ex:
             report_result(False, ex)
 
-    def test3():
+    def test_2():
         try:
-            _init(True)
-
-            add_delegate(key0)
-
-            e.expect(["DO_START", "RUNNING", "0-0_RUNNING"], test3_1)
-
-            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
+            # Add sink with same key as previous, i.e. replace sink_1 with sink_3
+            e.expect(["RESYNC", "ON_RESET"], test_3)
+            m.write(tnode_empty(), tnode_empty()) # Clear reset
+            m.update([(sink_key_3, sub_sink_3)])
         except Exception as ex:
             report_result(False, ex)
 
-    def test3_1():
+    def test_3():
         try:
-            e.expect(["0-0_CLOSED"], None)
-
-            DelegateMiddleManager_remove_delegate(m, key0)
+            # Remove the only sink
+            e.expect(["ON_QUIESCENT"], None)
+            m.update([(sink_key_3, None)])
         except Exception as ex:
             report_result(False, ex)
 
-    def test4():
-        try:
-            _init(True)
-
-            add_delegate(key0)
-
-            e.expect(["DO_START", "RUNNING", "0-0_RUNNING"], test4_1)
-
-            testing.assertTrue(DelegateMiddleManager_set_target_state(m, STATE_RUNNING), "Invalid target state")
-        except Exception as ex:
-            report_result(False, ex)
-
-    def test4_1():
-        try:
-            e.expect(["0-0_CLOSED", "0-1_RUNNING"], None)
-
-            DelegateMiddleManager_remove_delegate(m, key0)
-            add_delegate(key0)
-        except Exception as ex:
-            report_result(False, ex)
-
-def _test_delegate_worker_1(report_result, log_handler: logging.Handler) -> None:
-    DelegateWorkerTester(report_result, log_handler).test1()
-
-def _test_delegate_worker_2(report_result, log_handler: logging.Handler) -> None:
-    DelegateWorkerTester(report_result, log_handler).test2()
-
-def _test_delegate_worker_3(report_result, log_handler: logging.Handler) -> None:
-    DelegateWorkerTester(report_result, log_handler).test3()
-
-def _test_delegate_worker_4(report_result, log_handler: logging.Handler) -> None:
-    DelegateWorkerTester(report_result, log_handler).test4()
-
-def _test_delegate_middle_manager_1(report_result, log_handler: logging.Handler) -> None:
-    DelegateMiddleManagerTester(report_result, log_handler).test1()
-
-def _test_delegate_middle_manager_2(report_result, log_handler: logging.Handler) -> None:
-    DelegateMiddleManagerTester(report_result, log_handler).test2()
-
-def _test_delegate_middle_manager_3(report_result, log_handler: logging.Handler) -> None:
-    DelegateMiddleManagerTester(report_result, log_handler).test3()
-
-def _test_delegate_middle_manager_4(report_result, log_handler: logging.Handler) -> None:
-    DelegateMiddleManagerTester(report_result, log_handler).test4()
+def _test_subscriber_sinks_mixin_1(report_result, log_handler: logging.Handler) -> None:
+    SubscriberSinksMixinTester_1(report_result, log_handler).test()

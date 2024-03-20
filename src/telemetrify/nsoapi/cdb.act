@@ -133,6 +133,16 @@ actor CdbConnection(env: Env, port: int, name: str,
     # Workaround compiler ordering issue
     var conn: ?net.TCPConnection = None
 
+    # TODO: When we have destructor support in acton!
+    def __del__():
+        close()
+
+    def close():
+        _conn = conn
+        if _conn is not None:
+            _conn.close(lambda c: None)
+            conn = None
+
     def _write(data: bytes):
         #log.trace("TCP send:", {"data": data})
         if conn is not None:
