@@ -6,4 +6,4 @@
 # overridden by variables in CI.
 export NSO_IMAGE_PATH ?= gitlab.dev.terastrm.net:4567/abs/nso-docker/
 export PKG_PATH ?= gitlab.dev.terastrm.net:4567/abs/
-export NSO_VERSION ?= 6.1.4
+export NSO_VERSION ?= 6.1.5
