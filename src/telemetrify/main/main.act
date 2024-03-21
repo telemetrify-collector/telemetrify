@@ -376,7 +376,7 @@ actor main(env):
     var logh = logging.Handler("telemetrify")
     var log = logging.Logger(logh)
 
-    logh.set_output_level(logging.TRACE)
+    logh.set_output_level(logging.NOTICE)
     logh.add_sink(logging.StdoutSink())
 
     def _on_maapi_connect_error(e):
