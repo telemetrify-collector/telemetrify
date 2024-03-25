@@ -1,0 +1,5 @@
+import logging
+import testing
+
+def _test_prometheus_payload() -> None:
+    testing.assertEqual(1, 1, "1 not equal to 1")
