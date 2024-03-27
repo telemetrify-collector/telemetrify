@@ -1,5 +1,22 @@
 import logging
 import testing
+import tsdb.common
+import tsdb.prometheus
 
 def _test_prometheus_payload() -> None:
-    testing.assertEqual(1, 1, "1 not equal to 1")
+
+    logh = logging.Handler("tsdb.test._test_prometheus_payload")
+    #logh.set_output_level(logging.DEBUG)
+    #logh.add_sink(logging.StdoutSink())
+
+    #log = logging.Logger(logh)
+
+    #log.debug("Set metrics var", None)
+    #metrics = [ tsdb.common.Metric("foo", {"id": "prom"}, 12, 1711478045) ]
+
+    #log.debug("Assembling payload", None)
+    #payload = tsdb.prometheus.assemble_payload(metrics, logh)
+    #payload = tsdb.prometheus.assemble_payload(metrics, None)
+
+    #testing.assertEqual(1, 1, "Dummy assert")
+    pass
