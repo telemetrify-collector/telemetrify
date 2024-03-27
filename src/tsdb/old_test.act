@@ -149,8 +149,8 @@ actor main(env):
         prom_send_start = time.time()
         prometheus.send_metrics(metrics, lambda x, y: on_prom_response(x, y, prom_send_start))
 
-    bar = prom_metrics(20)
-    after 20: send_prom()
+    bar = prom_metrics(300)
+    after 300: send_prom()
 
     def metric_iters(i: int) -> bool:
         if i == 0:
@@ -167,11 +167,11 @@ actor main(env):
         after 1: metric_iters(i - 1)
         return True
 
-    foo = metric_iters(20)
+    foo = metric_iters(300)
     print(str(foo))
 
     def exit():
         await async env.exit(0)
 
-    after 25: exit()
+    after 305: exit()
     
