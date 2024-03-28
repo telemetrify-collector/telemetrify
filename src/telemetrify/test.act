@@ -767,6 +767,98 @@ actor test_etv_tnode(env: Env, opts: Opts):
     print("Starting up...")
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, None, opts.record_to)
 
+class DeviceSettings(object):
+    @property
+    username: ?str
+    @property
+    password: ?str
+
+    def __init__(self, username: ?str, password: ?str):
+        self.username = username
+        self.password = password
+
+    def __str__(self) -> str:
+        return "DeviceSettings(username=" + optional_str(self.username, "") + ", password=" + optional_str(self.password, "") + ")"
+
+    def __repr__(self):
+        return self.__str__()
+
+class DeviceSettingsRefiner(Refiner):
+    @property
+    _device_authgroup: dict[Keypath, Keypath]
+    @property
+    _authgroup_configs: dict[Keypath, DeviceSettings]
+    @property
+    _authgroup_devices: dict[Keypath, set[Keypath]]
+
+    def __init__(self):
+        Refiner.__init__(
+            self,
+            [
+                SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'authgroups'), PTag('ncs', 'group'), Key.wildcard()]), SUB_TYPE_RUNNING), True),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'authgroup')]), SUB_TYPE_RUNNING), True),
+                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'address')]), SUB_TYPE_RUNNING), True),
+                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'port')]), SUB_TYPE_RUNNING), True),
+                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'netconf'), PTag('ncs', 'ned-id')]), SUB_TYPE_RUNNING), True)
+            ],
+            [])
+
+        self._device_authgroup = {}
+        self._authgroup_configs = {}
+        self._authgroup_devices = {}
+
+    @staticmethod
+    def id() -> int:
+        return 1001
+
+    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        # for subpath, keypaths in input_subs.items():
+        #     print(str(subpath) + ":")
+        #     for keypath in keypaths:
+        #         print("  " + str(keypath))
+        updated: set[Keypath] = set([])
+
+        updated_authgroups = input_subs[self.subscription_dependencies[0].identity]
+        if updated_authgroups is not None:
+            for authgroup_keys in updated_authgroups:
+                authgroup_key: ?Key = authgroup_keys.try_get_key(0)
+                if authgroup_key is not None:
+                    default_map = root[PTag("ncs", "devices")][PTag("ncs", "authgroups")][PTag('ncs', 'group')][authgroup_key][PTag('ncs', 'default-map')]
+                    if default_map.exists():
+                        username = default_map[PTag('ncs', 'remote-name')].try_str()
+                        password = default_map[PTag('ncs', 'remote-password')].try_str()
+                        authconfig = DeviceSettings(username, password)
+                        self._authgroup_configs[authgroup_keys] = authconfig
+                    else:
+                        try_pop(self._authgroup_configs, authgroup_keys)
+                    set_update(updated, self._authgroup_devices.get(authgroup_keys, set([])))
+
+        updated_device_authgroup = input_subs[self.subscription_dependencies[1].identity]
+        if updated_device_authgroup is not None:
+            for device_keys in updated_device_authgroup:
+                device_key: ?Key = device_keys.try_get_key(0)
+                if device_key is not None:
+                    authgroup_name: ?str = root[PTag("ncs", "devices")][PTag("ncs", "device")][device_key][PTag('ncs', 'authgroup')].try_str()
+                    if authgroup_name is not None:
+                        authgroup_keys = Keypath([Key([authgroup_name])])
+                        self._device_authgroup[device_keys] = authgroup_keys
+                        dict_set_add(self._authgroup_devices, authgroup_keys, device_keys)
+                    else:
+                        authgroup_keys = try_pop(self._device_authgroup, device_keys)
+                        if authgroup_keys is not None:
+                            dict_set_discard(self._authgroup_devices, authgroup_keys, device_keys)
+                    updated.add(device_keys)
+
+        #print("UPDATED: " + list_str(list(iter(updated))))
+
+        return list(iter(updated))
+
+    def state(self, keys: Keypath) -> ?value:
+        authgroup_keys = try_get(self._device_authgroup, keys)
+        if authgroup_keys is not None:
+            return try_get(self._authgroup_configs, authgroup_keys)
+        return None
+
 actor test_subscriber(env: Env, opts: Opts):
     def _on_maapi_connect_error(e):
         print("MAAPI connect failed:", e)

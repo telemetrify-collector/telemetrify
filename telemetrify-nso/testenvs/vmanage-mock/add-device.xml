@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config xmlns="http://tail-f.com/ns/config/1.0">
+  <devices xmlns="http://tail-f.com/ns/ncs">
+    <authgroups>
+      <group>
+        <name>vrnetlab</name>
+        <default-map>
+          <remote-name>vrnetlab</remote-name>
+          <remote-password>VR-netlab9</remote-password>
+        </default-map>
+      </group>
+    </authgroups>
+    <device>
+      <name>vmanage-netsim1</name>
+      <address>vmanage-netsim1</address>
+      <port>830</port>
+      <authgroup>vrnetlab</authgroup>
+      <device-type>
+        <netconf>
+          <ned-id xmlns:ned-vmanage-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-vmanage-yang-nc-1.0">ned-vmanage-yang-nc-1.0:ned-vmanage-yang-nc-1.0</ned-id>
+        </netconf>
+      </device-type>
+      <state>
+        <admin-state>southbound-locked</admin-state>
+      </state>
+    </device>
+  </devices>
+</config>

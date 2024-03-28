@@ -53,7 +53,7 @@ reading YANG models and exposing an interface for configuration.
 
 1. [Install Acton](https://www.acton-lang.org/install/)
    - TLDR: `./actup` for quick install locally in project
-2. Build base NSO in Docker images, using NSO version in `telemetrify-nso/nidvars.mk` (currently 6.1.4)
+2. Build base NSO in Docker images, using NSO version in `telemetrify-nso/nidvars.mk` (currently 6.1.5)
    - `git clone https://gitlab.com/nso-developer/nso-docker.git`
    - place NSO installer in `nso-docker/nso-installer-files`
    - `make -C nso-docker build-all tag-release-all`

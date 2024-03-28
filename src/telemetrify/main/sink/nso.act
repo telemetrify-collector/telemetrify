@@ -25,12 +25,20 @@ from telemetrify.nso.writer import *
 from telemetrify.nsoapi.maapi import *
 from telemetrify.main.common import *
 
-actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+def create_nso_cdb_sink(uid: int, config: TNode, env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    sink_act = NsoCdbSink(uid, config, env, shared_schema, log_handler)
+    return Sink(uid, sink_act.attach, sink_act.detach, sink_act.close, sink_act.write)
+
+actor NsoCdbSink(uid: int, config: TNode, env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
     var logh = logging.Handler("nso-cdb-sink")
     if log_handler is not None:
         logh.set_handler(log_handler)
 
     var log = logging.Logger(logh)
+
+    # Workaround compiler ordering issue
+    #var server = ServerMixin(uid, _on_server_closed)
+    var server = ServerMixin(uid, lambda: None)
 
     var maapi_connection: ?telemetrify.nsoapi.maapi.MaapiConnection = None
     var writer: ?telemetrify.nso.writer.MaapiWriter = None
@@ -39,6 +47,15 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
     var state = STATE_STARTING
 
     log.info("SINK nso-cdb CREATED", None)
+
+    def attach(client_uid: int, state_cb: action(int, int) -> None):
+        server.attach(client_uid, state_cb)
+
+    def detach(client_uid: int):
+        server.detach(client_uid)
+
+    def close():
+        server.on_closing()
 
     def write(node: Node, source_params: TNode, sink_config: TNode, done_cb: ?action() -> None) -> None:
         if state != STATE_CLOSED:
@@ -140,7 +157,7 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
             if done_cb is not None:
                 done_cb()
 
-    def close():
+    def _on_server_closed():
         _close()
 
     def _close():
@@ -157,8 +174,11 @@ actor NsoCdbSink(env: Env, config: TNode, shared_schema: schema.SharedSchema, lo
             tasks.clear()
             log.info("SINK nso-cdb CLOSED", None)
 
-    # TODO: When we have destructors support in acton
+    # TODO: When we have destructors support in acton!
     def __del__():
         _close()
+
+    # Workaround compiler ordering issue
+    server.on_closed = _on_server_closed
 
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)

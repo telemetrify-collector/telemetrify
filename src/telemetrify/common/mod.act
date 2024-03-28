@@ -681,6 +681,9 @@ class TNode(Node):
     def merge(self, other: TNode) -> TNode:
         return self
 
+    def clone(self):
+        return self._copy_deep(None)
+
     def _copy_deep(self, new_op: ?int) -> TNode:
         return self
 

@@ -257,11 +257,15 @@ actor MaapiConnection(env: Env, port: int,
     # Workaround compiler ordering issue
     var conn: ?net.TCPConnection = None
 
+    # TODO: When we have destructor support in acton!
+    def __del__():
+        close()
+
     def close():
-        # TODO: Impl support for destructor in actonc and/or manual close?
-        # if conn is not None:
-        #     conn.close()
-        pass
+        _conn = conn
+        if _conn is not None:
+            _conn.close(lambda c: None)
+            conn = None
 
     def _write(data: bytes):
         #log.trace("MaapiConnection TCP send", {"data": data})

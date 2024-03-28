@@ -16,184 +16,43 @@ from telemetrify.common.utils import *
 from telemetrify.nso.subscriber import Refiner, PassthroughRefiner, MirrorRefiner, SubscriptionSpec, SubscriptionIdentity, SUB_TYPE_RUNNING
 from telemetrify.main.common import *
 
-class DeviceSettingsRefiner(Refiner):
-    @property
-    _device_authgroup: dict[Keypath, Keypath]
-    @property
-    _authgroup_configs: dict[Keypath, DeviceSettings]
-    @property
-    _authgroup_devices: dict[Keypath, set[Keypath]]
+SOURCE_TYPE_TAG_NETCONF = PTag('tlm', 'netconf')
+SOURCE_TYPE_TAG_VMANAGE_HTTP = PTag('tlm', 'vmanage-http')
+SOURCE_TYPE_TAG_MOCK_NETCONF = PTag('tlm', 'mock-netconf')
+SOURCE_TYPE_TAG_MOCK_VMANAGE_HTTP = PTag('tlm', 'mock-vmanage-http')
 
-    def __init__(self):
-        Refiner.__init__(
-            self,
-            [
-                SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'authgroups'), PTag('ncs', 'group'), Key.wildcard()]), SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'authgroup')]), SUB_TYPE_RUNNING), True),
-                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'address')]), SUB_TYPE_RUNNING), True),
-                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'port')]), SUB_TYPE_RUNNING), True),
-                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('ncs', 'netconf'), PTag('ncs', 'ned-id')]), SUB_TYPE_RUNNING), True)
-            ],
-            [])
+SUBSCRIPTION_TYPE_TAG_NETCONF_RPC_POLLER = PTag('tlm', 'netconf-rpc-poll')
+SUBSCRIPTION_TYPE_TAG_NETCONF_GET_POLLER = PTag('tlm', 'netconf-get-poll')
+SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER = PTag('tlm', 'vmanage-poll')
 
-        self._device_authgroup = {}
-        self._authgroup_configs = {}
-        self._authgroup_devices = {}
+SUBSCRIPTION_TYPES = set([
+        SUBSCRIPTION_TYPE_TAG_NETCONF_RPC_POLLER,
+        SUBSCRIPTION_TYPE_TAG_NETCONF_GET_POLLER,
+        SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER,
+    ])
 
-    @staticmethod
-    def id() -> int:
-        return 1001
+SINK_TYPE_TAG_M3DB = PTag('tlm', 'm3db')
+SINK_TYPE_TAG_NSO_DP = PTag('tlm', 'nso-data-provider')
+SINK_TYPE_TAG_NSO_CDB = PTag('tlm', 'nso-cdb')
 
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        # for subpath, keypaths in input_subs.items():
-        #     print(str(subpath) + ":")
-        #     for keypath in keypaths:
-        #         print("  " + str(keypath))
-        updated: set[Keypath] = set([])
+def get_subscription_type(sub_source_node: TNode) -> ?Id:
+    for child_id in sub_source_node.iter_ids():
+        if child_id in SUBSCRIPTION_TYPES:
+            return child_id
+    return None
 
-        updated_authgroups = input_subs[self.subscription_dependencies[0].identity]
-        if updated_authgroups is not None:
-            for authgroup_keys in updated_authgroups:
-                authgroup_key: ?Key = authgroup_keys.try_get_key(0)
-                if authgroup_key is not None:
-                    default_map = root[PTag("ncs", "devices")][PTag("ncs", "authgroups")][PTag('ncs', 'group')][authgroup_key][PTag('ncs', 'default-map')]
-                    if default_map.exists():
-                        username = default_map[PTag('ncs', 'remote-name')].try_str()
-                        password = default_map[PTag('ncs', 'remote-password')].try_str()
-                        authconfig = DeviceSettings(username, password)
-                        self._authgroup_configs[authgroup_keys] = authconfig
-                    else:
-                        try_pop(self._authgroup_configs, authgroup_keys)
-                    set_update(updated, self._authgroup_devices.get(authgroup_keys, set([])))
+def get_subscription_source_ned_id(sub_source_node: TNode) -> ?HTag:
+    return sub_source_node[PTag('tlm', 'schema')][PTag('tlm', 'ned-id')].try_htag()
 
-        updated_device_authgroup = input_subs[self.subscription_dependencies[1].identity]
-        if updated_device_authgroup is not None:
-            for device_keys in updated_device_authgroup:
-                device_key: ?Key = device_keys.try_get_key(0)
-                if device_key is not None:
-                    authgroup_name: ?str = root[PTag("ncs", "devices")][PTag("ncs", "device")][device_key][PTag('ncs', 'authgroup')].try_str()
-                    if authgroup_name is not None:
-                        authgroup_keys = Keypath([Key([authgroup_name])])
-                        self._device_authgroup[device_keys] = authgroup_keys
-                        dict_set_add(self._authgroup_devices, authgroup_keys, device_keys)
-                    else:
-                        authgroup_keys = try_pop(self._device_authgroup, device_keys)
-                        if authgroup_keys is not None:
-                            dict_set_discard(self._authgroup_devices, authgroup_keys, device_keys)
-                    updated.add(device_keys)
+def get_subscription_base_source_params(sub_source_node: TNode) -> TNode:
+    source_params = tnode_root()
+    metadata_node = sub_source_node[PTag('tlm', 'metadata')]
+    source_label_node = metadata_node[SOURCE_PARAM_SOURCE_LABEL]
+    if source_label_node:
+        source_params.leaf(None, SOURCE_PARAM_SOURCE_LABEL, source_label_node.try_value())
+    return source_params
 
-        #print("UPDATED: " + list_str(list(iter(updated))))
-
-        return list(iter(updated))
-
-    def state(self, keys: Keypath) -> ?value:
-        authgroup_keys = try_get(self._device_authgroup, keys)
-        if authgroup_keys is not None:
-            return try_get(self._authgroup_configs, authgroup_keys)
-        return None
-
-class DeviceNedIdBaseRefiner(MirrorRefiner):
-    @property
-    _workaround_actonc_issue_1598: bool
-
-    def __init__(self):
-        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
-        MirrorRefiner.__init__(self,
-            [
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'netconf'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'generic'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'cli'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'snmp'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'live-status-protocol'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'netconf'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'live-status-protocol'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'generic'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'live-status-protocol'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'cli'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('ncs', 'devices'),
-                    PTag('ncs', 'device'),
-                    Key.wildcard(),
-                    PTag('ncs', 'live-status-protocol'),
-                    Key.wildcard(),
-                    PTag('ncs', 'device-type'),
-                    PTag('ncs', 'snmp'),
-                    PTag('ncs', 'ned-id'),
-                    ]),
-                    SUB_TYPE_RUNNING), True)
-            ],
-            Keypath([
-                PTag('ncs', 'devices'),
-                PTag('ncs', 'device'),
-                Key.wildcard()
-                ])
-            )
-
-    @staticmethod
-    def id() -> int:
-        return 1012
-
-class DeviceSourceNetconfRefiner(PassthroughRefiner):
+class SourceRefiner(PassthroughRefiner):
     @property
     _workaround_actonc_issue_1598: bool
 
@@ -202,327 +61,14 @@ class DeviceSourceNetconfRefiner(PassthroughRefiner):
         PassthroughRefiner.__init__(
             self,
             SubscriptionSpec(SubscriptionIdentity(Keypath([
-                PTag('ncs', 'devices'),
-                PTag('ncs', 'device'),
-                Key.wildcard(),
                 PTag('tlm', 'telemetrify'),
-                PTag('tlm', 'sources'),
-                PTag('tlm', 'netconf')]),
+                PTag('tlm', 'source'),
+                Key.wildcard()]),
                 SUB_TYPE_RUNNING), True))
 
     @staticmethod
     def id() -> int:
         return 1002
-
-class DeviceSourceVmanageRefiner(PassthroughRefiner):
-    @property
-    _workaround_actonc_issue_1598: bool
-
-    def __init__(self):
-        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
-        PassthroughRefiner.__init__(
-            self,
-            SubscriptionSpec(SubscriptionIdentity(Keypath([
-                PTag('ncs', 'devices'),
-                PTag('ncs', 'device'),
-                Key.wildcard(),
-                PTag('tlm', 'telemetrify'),
-                PTag('tlm', 'sources'),
-                PTag('tlm', 'vmanage-http')]),
-                SUB_TYPE_RUNNING), True))
-
-    @staticmethod
-    def id() -> int:
-        return 1019
-
-class DeviceSourceMockNetconfRefiner(PassthroughRefiner):
-    @property
-    _workaround_actonc_issue_1598: bool
-
-    def __init__(self):
-        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
-        PassthroughRefiner.__init__(
-            self,
-            SubscriptionSpec(SubscriptionIdentity(Keypath([
-                PTag('ncs', 'devices'),
-                PTag('ncs', 'device'),
-                Key.wildcard(),
-                PTag('tlm', 'telemetrify'),
-                PTag('tlm', 'sources'),
-                PTag('tlm', 'mock-netconf')]),
-                SUB_TYPE_RUNNING), True))
-
-    @staticmethod
-    def id() -> int:
-        return 1022
-
-SOURCE_KEY_NETCONF = Keypath([Key(['netconf'])])
-SOURCE_KEY_VMANAGE_HTTP = Keypath([Key(['vmanage-http'])])
-SOURCE_KEY_MOCK_NETCONF = Keypath([Key(['mock-netconf'])])
-
-SUBSCRIPTION_TYPE_KEY_ACTION_POLLER = PTag('tlm', 'netconf-rpc-poll')
-SUBSCRIPTION_TYPE_KEY_GET_POLLER = PTag('tlm', 'netconf-get-poll')
-SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER = PTag('tlm', 'vmanage-poll')
-SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER = PTag('tlm', 'mock-netconf-get-poll')
-
-_SUBSCRIPTION_TYPE_SOURCE_LOOKUP = {
-    SUBSCRIPTION_TYPE_KEY_ACTION_POLLER: SOURCE_KEY_NETCONF,
-    SUBSCRIPTION_TYPE_KEY_GET_POLLER: SOURCE_KEY_NETCONF,
-    SUBSCRIPTION_TYPE_KEY_VMANAGE_POLLER: SOURCE_KEY_VMANAGE_HTTP,
-    SUBSCRIPTION_TYPE_KEY_MOCK_GET_POLLER: SOURCE_KEY_MOCK_NETCONF,
-}
-
-class DeviceSourceRefiner(Refiner):
-    @property
-    device_source_configs: dict[Keypath, dict[Keypath, TNode]]
-    @property
-    device_source_subs: dict[Keypath, set[Keypath]]
-    @property
-    device_sub_sources: dict[Keypath, Keypath]
-
-    def __init__(self):
-        Refiner.__init__(
-            self,
-            [],
-            [
-                DeviceSubscriptionSourceBaseRefiner.id(),
-                DeviceSourceNetconfRefiner.id(),
-                DeviceSourceVmanageRefiner.id(),
-                DeviceSourceMockNetconfRefiner.id(),
-            ])
-
-        self.device_source_configs = {}
-        self.device_source_subs = {}
-        self.device_sub_sources = {}
-
-    @staticmethod
-    def id() -> int:
-        return 1003
-
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        updated: set[Keypath] = set([])
-
-        dev_sub_source_refiner, dev_sub_keys = input_refiners[DeviceSubscriptionSourceBaseRefiner.id()]
-
-        for dev_sub_key in dev_sub_keys:
-            dev_key = dev_sub_key.try_slice(0, 1)
-            sub_key = dev_sub_key.try_slice(1, 2)
-            if dev_key is not None and sub_key is not None:
-                source_key: ?Keypath = None
-
-                state = dev_sub_source_refiner.state(dev_sub_key)
-                if state is not None and isinstance(state, TNode):
-                    sub_source_node: TNode = state
-                    for sub_type_id in sub_source_node.iter_ids():
-                        try:
-                            source_key = _SUBSCRIPTION_TYPE_SOURCE_LOOKUP[sub_type_id]
-                        except KeyError:
-                            raise ValueError("Missing _SUBSCRIPTION_TYPE_SOURCE_LOOKUP entry for: " + str(sub_type_id))
-                        else:
-                            break
-
-                if source_key is not None:
-                    dev_source_key = dev_key + source_key
-                    if dev_source_key not in self.device_source_subs:
-                        updated.add(dev_source_key)
-                    dict_set_add(self.device_source_subs, dev_source_key, sub_key)
-                    self.device_sub_sources[dev_sub_key] = source_key
-                else:
-                    source_key = try_pop(self.device_sub_sources, dev_sub_key)
-                    if source_key is not None:
-                        dev_source_key = dev_key + source_key
-                        dict_set_discard(self.device_source_subs, dev_source_key, sub_key)
-                        if dev_source_key not in self.device_source_subs:
-                            updated.add(dev_source_key)
-
-        source_deps = [
-            (SOURCE_KEY_NETCONF, input_refiners[DeviceSourceNetconfRefiner.id()]),
-            (SOURCE_KEY_VMANAGE_HTTP, input_refiners[DeviceSourceVmanageRefiner.id()]),
-            (SOURCE_KEY_MOCK_NETCONF, input_refiners[DeviceSourceMockNetconfRefiner.id()]),
-        ]
-
-        for source_key, (source_refiner, device_keys) in source_deps:
-            for device_key in device_keys:
-                state = source_refiner.state(device_key)
-                if state is not None and isinstance(state, TNode):
-                    updated.add(device_key + source_key)
-                    sources = get_or_create(self.device_source_configs, device_key, lambda: {})
-                    sources[source_key] = state
-                else:
-                    sources = try_get(self.device_source_configs, device_key)
-                    if sources is not None:
-                        source = try_pop(sources, source_key)
-                        if source is not None:
-                            updated.add(device_key + source_key)
-                            if not sources:
-                                del self.device_source_configs[device_key]
-
-        return list(iter(updated))
-
-    def state(self, keys: Keypath) -> ?value:
-        if keys in self.device_source_subs:
-            device_key = keys.try_slice(0, 1)
-            source_key = keys.try_slice(1, 2)
-            if device_key is not None and source_key is not None:
-                sources = try_get(self.device_source_configs, device_key)
-                if sources is not None:
-                    return try_get(sources, source_key)
-        return None
-
-class DeviceStreamerRefiner(Refiner):
-    @property
-    device_configs: dict[Keypath, DeviceStreamerConfig]
-
-    def __init__(self):
-        Refiner.__init__(
-            self,
-            [
-                #SubscriptionSpec(SubscriptionIdentity(Keypath([PTag('ncs', 'devices'), PTag('ncs', 'device'), Key.wildcard(), PTag('tlm', 'telemetrify')]), SUB_TYPE_RUNNING), True)
-            ],
-            [
-                DeviceSubscriptionSourceBaseRefiner.id(),
-                DeviceSettingsRefiner.id()
-            ])
-
-        self.device_configs = {}
-
-    @staticmethod
-    def id() -> int:
-        return 1004
-
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        updated: set[Keypath] = set([])
-
-        sub_refiner, sub_keys = input_refiners[DeviceSubscriptionSourceBaseRefiner.id()]
-        device_settings_refiner, device_settings_keys = input_refiners[DeviceSettingsRefiner.id()]
-
-        update_device_settings_keys = set(device_settings_keys)
-
-        for sub_key in sub_keys:
-            device_key = sub_key.try_slice(0, 1)
-            if device_key is not None:
-                subscriptions_node = root[PTag('ncs', 'devices')][PTag('ncs', 'device')][device_key[0]][PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')]
-                if subscriptions_node:
-                    if device_key not in self.device_configs:
-                        self.device_configs[device_key] = DeviceStreamerConfig(None)
-                        update_device_settings_keys.add(device_key)
-                        updated.add(device_key)
-                else:
-                    try_pop(self.device_configs, device_key)
-                    updated.add(device_key)
-
-        for device_key in update_device_settings_keys:
-            device_config = try_get(self.device_configs, device_key)
-            if device_config is not None:
-                _device_settings = device_settings_refiner.state(device_key)
-                device_config.device_settings = _device_settings if _device_settings is not None and isinstance(_device_settings, DeviceSettings) else None
-                updated.add(device_key)
-
-        return list(iter(updated))
-
-    def state(self, keys: Keypath) -> ?value:
-        return try_get(self.device_configs, keys)
-
-class DeviceSubscriptionSourceRefiner(Refiner):
-    @property
-    subscription_source_configs: dict[Keypath, SubscriptionSourceConfig]
-    @property
-    device_to_dev_sub_keys: dict[Keypath, set[Keypath]]
-
-    def __init__(self):
-        Refiner.__init__(
-            self,
-            [],
-            [
-                DeviceSubscriptionSourceBaseRefiner.id(),
-                DeviceNedIdBaseRefiner.id()
-            ])
-
-        self.subscription_source_configs = {}
-        self.device_to_dev_sub_keys = {}
-
-    @staticmethod
-    def id() -> int:
-        return 1014
-
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        _sub_refiner, dev_sub_keys = input_refiners[DeviceSubscriptionSourceBaseRefiner.id()]
-        _ned_id_refiner, ned_id_keys = input_refiners[DeviceNedIdBaseRefiner.id()]
-
-        updated: set[Keypath] = set(dev_sub_keys)
-
-        for device_key in ned_id_keys:
-            _dev_sub_keys = try_get(self.device_to_dev_sub_keys, device_key)
-            if _dev_sub_keys is not None:
-                set_update(updated, _dev_sub_keys)
-
-        for dev_sub_key in updated:
-            device_key = dev_sub_key.try_slice(0, 1)
-            sub_key = dev_sub_key.try_slice(1, 2)
-            if device_key is not None and sub_key is not None:
-                device_config = root[PTag('ncs', 'devices')][PTag('ncs', 'device')][device_key[0]]
-                subscription_source_node = device_config[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_key[0]][PTag('tlm', 'source')]
-                if subscription_source_node:
-                    schema_settings = SchemaSettings.from_device_config_and_schema_config(device_config, subscription_source_node[PTag('tlm', 'schema')])
-                    self.subscription_source_configs[dev_sub_key] = SubscriptionSourceConfig(subscription_source_node, schema_settings)
-                    dict_set_add(self.device_to_dev_sub_keys, device_key, dev_sub_key)
-                else:
-                    try_pop(self.subscription_source_configs, dev_sub_key)
-                    dict_set_discard(self.device_to_dev_sub_keys, device_key, dev_sub_key)
-
-        return list(iter(updated))
-
-    def state(self, keys: Keypath) -> ?value:
-        return try_get(self.subscription_source_configs, keys)
-
-class DeviceSubscriptionSourceBaseRefiner(PassthroughRefiner):
-    @property
-    _workaround_actonc_issue_1598: bool
-
-    def __init__(self):
-        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
-        PassthroughRefiner.__init__(
-            self,
-            SubscriptionSpec(SubscriptionIdentity(Keypath([
-                PTag('ncs', 'devices'),
-                PTag('ncs', 'device'),
-                Key.wildcard(),
-                PTag('tlm', 'telemetrify'),
-                PTag('tlm', 'subscription'),
-                Key.wildcard(),
-                PTag('tlm', 'source')
-                ]),
-                SUB_TYPE_RUNNING), True)
-            )
-
-    @staticmethod
-    def id() -> int:
-        return 1005
-
-class DeviceSubscriptionSinkBaseRefiner(PassthroughRefiner):
-    @property
-    _workaround_actonc_issue_1598: bool
-
-    def __init__(self):
-        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
-        PassthroughRefiner.__init__(
-            self,
-            SubscriptionSpec(SubscriptionIdentity(Keypath([
-                PTag('ncs', 'devices'),
-                PTag('ncs', 'device'),
-                Key.wildcard(),
-                PTag('tlm', 'telemetrify'),
-                PTag('tlm', 'subscription'),
-                Key.wildcard(),
-                PTag('tlm', 'sink'),
-                Key.wildcard()
-                ]),
-                SUB_TYPE_RUNNING), True)
-            )
-
-    @staticmethod
-    def id() -> int:
-        return 1006
 
 class SinkRefiner(PassthroughRefiner):
     @property
@@ -542,142 +88,261 @@ class SinkRefiner(PassthroughRefiner):
 
     @staticmethod
     def id() -> int:
-        return 1007
+        return 1004
 
-class DeviceSinksRefiner(Refiner):
-    # @property
-    # device_sinks: dict[Keypath, TNode]
+class SubscriptionSourceRefBaseRefiner(PassthroughRefiner):
     @property
-    sinks: dict[Keypath, value]
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'subscription'),
+                Key.wildcard(),
+                PTag('tlm', 'source'),
+                PTag('tlm', 'source-ref')]),
+                SUB_TYPE_RUNNING), True)
+            )
+
+    @staticmethod
+    def id() -> int:
+        return 1006
+
+class SubscriptionSourceRefRefiner(Refiner):
     @property
-    device_sink_subs: dict[Keypath, dict[Keypath, set[Keypath]]]
+    subscription_source_refs: dict[Keypath, TNode]
     @property
-    sink_devices: dict[Keypath, set[Keypath]]
+    source_to_sub_keys: dict[Keypath, set[Keypath]]
 
     def __init__(self):
         Refiner.__init__(
             self,
             [],
             [
-                DeviceSubscriptionSinkBaseRefiner.id(),
-                SinkRefiner.id()
+                SubscriptionSourceRefBaseRefiner.id(),
+                SourceRefiner.id()
             ])
 
-        self.sinks = {}
-        self.device_sink_subs = {}
-        self.sink_devices = {}
+        self.subscription_source_refs = {}
+        self.source_to_sub_keys = {}
+
+    @staticmethod
+    def id() -> int:
+        return 1011
+
+    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        sub_refiner, sub_keys = input_refiners[SubscriptionSourceRefBaseRefiner.id()]
+        _source_refiner, source_keys = input_refiners[SourceRefiner.id()]
+
+        updated: set[Keypath] = set(sub_keys)
+
+        for source_key in source_keys:
+            _sub_keys = try_get(self.source_to_sub_keys, source_key)
+            if _sub_keys is not None:
+                set_update(updated, _sub_keys)
+
+        for sub_key in updated:
+            subscription_source_ref_node = root[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_key[0]][PTag('tlm', 'source')][PTag('tlm', 'source-ref')]
+            if subscription_source_ref_node:
+                self.subscription_source_refs[sub_key] = subscription_source_ref_node
+                source_ref = subscription_source_ref_node[PTag('tlm', 'source-ref')].try_str()
+                if source_ref is not None:
+                    source_key = Keypath([Key([source_ref])])
+                    dict_set_add(self.source_to_sub_keys, source_key, sub_key)
+            else:
+                old_subscription_source_ref_node = try_pop(self.subscription_source_refs, sub_key)
+                if old_subscription_source_ref_node is not None:
+                    source_ref = old_subscription_source_ref_node.try_str()
+                    if source_ref is not None:
+                        source_key = Keypath([Key([source_ref])])
+                        dict_set_discard(self.source_to_sub_keys, source_key, sub_key)
+
+        return list(iter(updated))
+
+    def state(self, keys: Keypath) -> ?value:
+        return try_get(self.subscription_source_refs, keys)
+
+class SubscriptionRefiner(MirrorRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        MirrorRefiner.__init__(self,
+            [
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('tlm', 'telemetrify'),
+                    PTag('tlm', 'subscription'),
+                    Key.wildcard(),
+                    PTag('tlm', 'source'),
+                    PTag('tlm', 'netconf-rpc-poll')]),
+                    SUB_TYPE_RUNNING), True),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('tlm', 'telemetrify'),
+                    PTag('tlm', 'subscription'),
+                    Key.wildcard(),
+                    PTag('tlm', 'source'),
+                    PTag('tlm', 'netconf-get-poll')]),
+                    SUB_TYPE_RUNNING), True),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('tlm', 'telemetrify'),
+                    PTag('tlm', 'subscription'),
+                    Key.wildcard(),
+                    PTag('tlm', 'source'),
+                    PTag('tlm', 'vmanage-poll')]),
+                    SUB_TYPE_RUNNING), True),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('tlm', 'telemetrify'),
+                    PTag('tlm', 'subscription'),
+                    Key.wildcard(),
+                    PTag('tlm', 'source'),
+                    PTag('tlm', 'schema')]),
+                    SUB_TYPE_RUNNING), True),
+                SubscriptionSpec(SubscriptionIdentity(Keypath([
+                    PTag('tlm', 'telemetrify'),
+                    PTag('tlm', 'subscription'),
+                    Key.wildcard(),
+                    PTag('tlm', 'source'),
+                    PTag('tlm', 'metadata')]),
+                    SUB_TYPE_RUNNING), True),
+            ],
+            Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'subscription'),
+                Key.wildcard(),
+                PTag('tlm', 'source')]))
+
+    @staticmethod
+    def id() -> int:
+        return 1012
+
+class SubscriptionTypeRefiner(Refiner):
+    @property
+    sub_to_sub_type: dict[Keypath, Id]
+
+    def __init__(self):
+        Refiner.__init__(
+            self,
+            [],
+            [
+                SubscriptionRefiner.id(),
+            ])
+
+        self.sub_to_sub_type = {}
+
+    @staticmethod
+    def id() -> int:
+        return 1013
+
+    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        sub_refiner, sub_keys = input_refiners[SubscriptionRefiner.id()]
+
+        updated: set[Keypath] = set(None)
+
+        for sub_key in sub_keys:
+            sub_config = sub_refiner.state(sub_key)
+            if sub_config is not None and isinstance(sub_config, TNode):
+                new_sub_type = get_subscription_type(sub_config)
+                if not eq_optional(new_sub_type, try_get(self.sub_to_sub_type, sub_key)):
+                    if new_sub_type is not None:
+                        self.sub_to_sub_type[sub_key] = new_sub_type
+                    else:
+                        try_pop(self.sub_to_sub_type, sub_key)
+                    updated.add(sub_key)
+            else:
+                old_sub_type = try_pop(self.sub_to_sub_type, sub_key)
+                if old_sub_type is not None:
+                    updated.add(sub_key)
+
+        return list(iter(updated))
+
+    def state(self, keys: Keypath) -> ?value:
+        return try_get(self.sub_to_sub_type, keys)
+
+class SubscriptionSinkBaseRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'subscription'),
+                Key.wildcard(),
+                PTag('tlm', 'sink'),
+                Key.wildcard()
+                ]),
+                SUB_TYPE_RUNNING), True)
+            )
 
     @staticmethod
     def id() -> int:
         return 1008
 
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        updated: set[Keypath] = set([])
-
-        dev_sub_sink_refiner, dev_sub_sink_keys = input_refiners[DeviceSubscriptionSinkBaseRefiner.id()]
-        sink_refiner, sink_keys = input_refiners[SinkRefiner.id()]
-
-        for dev_sub_sink_key in dev_sub_sink_keys:
-            device_key = dev_sub_sink_key.try_slice(0, 1)
-            sub_key = dev_sub_sink_key.try_slice(1, 2)
-            sink_key = dev_sub_sink_key.try_slice(2, 3)
-            if device_key is not None and sub_key is not None and sink_key is not None:
-                state = dev_sub_sink_refiner.state(dev_sub_sink_key)
-                if state is not None:
-                    sink_subs = get_or_create(self.device_sink_subs, device_key, lambda: {})
-                    if sink_key not in sink_subs:
-                        updated.add(device_key + sink_key)
-                    get_or_create(sink_subs, sink_key, lambda: set([])).add(sub_key)
-                    get_or_create(self.sink_devices, sink_key, lambda: set([])).add(device_key)
-                else:
-                    sink_subs = try_get(self.device_sink_subs, device_key)
-                    if sink_subs is not None:
-                        subs = try_get(sink_subs, sink_key)
-                        if subs is not None:
-                            subs.discard(sub_key)
-                            if not subs:
-                                del sink_subs[sink_key]
-                                dict_set_discard(self.sink_devices, sink_key, device_key)
-                                updated.add(device_key + sink_key)
-                        if not sink_subs:
-                            del self.device_sink_subs[device_key]
-
-        for sink_key in sink_keys:
-            state = sink_refiner.state(sink_key)
-            if state is not None:
-                self.sinks[sink_key] = state
-            else:
-                try_pop(self.sinks, sink_key)
-            updated_devices = try_get(self.sink_devices, sink_key)
-            if updated_devices is not None:
-                for device_key in updated_devices:
-                    updated.add(device_key + sink_key)
-
-        return list(iter(updated))
-
-    def state(self, keys: Keypath) -> ?value:
-        device_key = keys.try_slice(0, 1)
-        sink_key = keys.try_slice(1, 2)
-        if device_key is not None and sink_key is not None:
-            devices = try_get(self.sink_devices, sink_key)
-            if devices is not None:
-                if device_key in devices:
-                    return try_get(self.sinks, sink_key)
-        return None
-
-class DeviceSubscriptionSinkRefiner(Refiner):
+class SubscriptionSinkRefiner(Refiner):
     @property
-    dev_sub_sinks: dict[Keypath, TNode]
+    subscription_sink_configs: dict[Keypath, TNode]
     @property
-    sink_dev_subs: dict[Keypath, set[Keypath]]
+    sink_to_sub_sink_keys: dict[Keypath, set[Keypath]]
 
     def __init__(self):
         Refiner.__init__(
             self,
             [],
             [
-                DeviceSubscriptionSinkBaseRefiner.id(),
-                SinkRefiner.id()
+                SubscriptionSinkBaseRefiner.id(),
+                SinkRefiner.id(),
+                SubscriptionTypeRefiner.id(),
             ])
 
-        self.dev_sub_sinks = {}
-        self.sink_dev_subs = {}
+        self.subscription_sink_configs = {}
+        self.sink_to_sub_sink_keys = {}
 
     @staticmethod
     def id() -> int:
-        return 1009
+        return 1014
 
     def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        updated: set[Keypath] = set([])
-
-        dev_sub_sink_refiner, dev_sub_sink_keys = input_refiners[DeviceSubscriptionSinkBaseRefiner.id()]
+        sub_sink_refiner, sub_sink_keys = input_refiners[SubscriptionSinkBaseRefiner.id()]
         _sink_refiner, sink_keys = input_refiners[SinkRefiner.id()]
+        sub_type_refiner, sub_type_keys = input_refiners[SubscriptionTypeRefiner.id()]
 
-        for dev_sub_sink_key in dev_sub_sink_keys:
-            device_key = dev_sub_sink_key.try_slice(0, 1)
-            sub_key = dev_sub_sink_key.try_slice(1, 2)
-            sink_key = dev_sub_sink_key.try_slice(2, 3)
-            if device_key is not None and sub_key is not None and sink_key is not None:
-                state = dev_sub_sink_refiner.state(dev_sub_sink_key)
-                if state is not None and isinstance(state, TNode):
-                    self.dev_sub_sinks[dev_sub_sink_key] = state
-                    dict_set_add(self.sink_dev_subs, sink_key, device_key + sub_key)
-                else:
-                    try_pop(self.dev_sub_sinks, dev_sub_sink_key)
-                    dict_set_discard(self.sink_dev_subs, sink_key, device_key + sub_key)
-                updated.add(dev_sub_sink_key)
+        updated: set[Keypath] = set(sub_sink_keys)
+
+        # If subscription-type changed, update all sub sink elements
+        for sub_type_key in sub_type_keys:
+            sub_type = sub_type_refiner.state(sub_type_key)
+            if sub_type is not None and isinstance(sub_type, Id):
+                subscription_sink_list = root[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_type_key[0]][PTag('tlm', 'sink')]
+                for sink_key_0 in subscription_sink_list.iter_ids():
+                    updated.add(sub_type_key + Keypath([sink_key_0]))
 
         for sink_key in sink_keys:
-            dev_sub_keys = try_get(self.sink_dev_subs, sink_key)
-            if dev_sub_keys is not None:
-                for dev_sub_key in dev_sub_keys:
-                    dev_sub_sink_key = dev_sub_key + sink_key
-                    updated.add(dev_sub_sink_key)
+            _sub_sink_keys = try_get(self.sink_to_sub_sink_keys, sink_key)
+            if _sub_sink_keys is not None:
+                set_update(updated, _sub_sink_keys)
+
+        for sub_sink_key in updated:
+            sub_key = sub_sink_key.try_slice(0, 1)
+            sink_key = sub_sink_key.try_slice(1, 2)
+            if sub_key is not None and sink_key is not None:
+                subscription_sink_node = root[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_key[0]][PTag('tlm', 'sink')][sink_key[0]]
+                if subscription_sink_node:
+                    self.subscription_sink_configs[sub_sink_key] = subscription_sink_node
+                    dict_set_add(self.sink_to_sub_sink_keys, sink_key, sub_sink_key)
+                else:
+                    try_pop(self.subscription_sink_configs, sub_sink_key)
+                    dict_set_discard(self.sink_to_sub_sink_keys, sink_key, sub_sink_key)
 
         return list(iter(updated))
 
     def state(self, keys: Keypath) -> ?value:
-        return try_get(self.dev_sub_sinks, keys)
+        return try_get(self.subscription_sink_configs, keys)
 
 class LoggingLevelRefiner(PassthroughRefiner):
     @property

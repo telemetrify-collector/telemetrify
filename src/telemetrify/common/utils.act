@@ -195,6 +195,67 @@ class BiMultiDict[K(Hashable), V(Hashable)](object):
         self.key_to_val = {}
         self.val_to_key = {}
 
+class UniqueAndSharedKeyDict[U(Hashable), S(Hashable), V](object):
+    @property
+    unique_to_shared_and_val: dict[U, (S, V)]
+    @property
+    shared_to_unique: dict[S, U]
+
+    def __init__(self):
+        self.unique_to_shared_and_val = {}
+        self.shared_to_unique = {}
+
+    def __len__(self) -> int:
+        return len(self.unique_to_shared_and_val)
+
+    def unique_keys(self):
+        return self.unique_to_shared_and_val.keys()
+
+    def shared_value_iter(self) -> Iterator[(S, V)]:
+        return iter(self.unique_to_shared_and_val.values())
+
+    def has_unique(self, unique: U) -> bool:
+        return unique in self.unique_to_shared_and_val
+
+    def set(self, unique: U, shared: S, v: V):
+        try_pop(self.shared_to_unique, shared)
+        self.unique_to_shared_and_val[unique] = (shared, v)
+
+    def try_get_unique(self, unique: U) -> ?V:
+        shared_v: ?(S, V) = try_get(self.unique_to_shared_and_val, unique)
+        if shared_v is not None:
+            return shared_v.1
+        return None
+
+    def try_pop_unique(self, unique: U) -> ?V:
+        shared_v: ?(S, V) = try_pop(self.unique_to_shared_and_val, unique)
+        if shared_v is not None:
+            try_pop(self.shared_to_unique, shared_v.0)
+            return shared_v.1
+        return None
+
+    def try_pop_shared(self, shared: S) -> ?V:
+        unique = try_pop(self.shared_to_unique, shared)
+        if unique is not None:
+            shared_v = try_pop(self.unique_to_shared_and_val, unique)
+            if shared_v is not None:
+                return shared_v.1
+        return None
+
+    def try_pop_shared_item(self, shared: S) -> ?(U, V):
+        unique = try_pop(self.shared_to_unique, shared)
+        if unique is not None:
+            shared_v = try_pop(self.unique_to_shared_and_val, unique)
+            if shared_v is not None:
+                return (unique, shared_v.1)
+        return None
+
+    def clear(self):
+        # self.unique_to_shared_and_val.clear()
+        # self.shared_to_unique.clear()
+        self.unique_to_shared_and_val = {}
+        self.shared_to_unique = {}
+
 protocol TryGetMapping[A(Eq), B](Mapping[A, B]):
     try_get: (A) -> ?B
 

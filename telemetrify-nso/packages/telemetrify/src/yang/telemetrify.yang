@@ -31,166 +31,174 @@ module telemetrify {
       "Initial revision.";
   }
 
-  augment "/ncs:devices/ncs:device" {
-    container telemetrify {
-      list subscription {
-        key "name";
+  container telemetrify {
+    list subscription {
+      key "name";
 
-        leaf name {
-          type string;
+      leaf name {
+        type string;
+      }
+
+      container source {
+        leaf source-ref {
+          mandatory true;
+          type leafref {
+            path "/tlm:telemetrify/tlm:source/tlm:name";
+          }
         }
 
-        container source {
-          choice subscription-type {
-            mandatory true;
+        choice subscription-type {
+          mandatory true;
 
-            container netconf-rpc-poll {
-              presence true;
-              must "../../../tlm:sources/tlm:netconf";
-
-              leaf path {
-                mandatory true;
-                description "RPC/Action tag-path";
-                type string;
-              }
-
-              leaf period {
-                mandatory true;
-                description "Polling period";
-                type uint32; // TODO: xs:duration?
-                units "ms";
-              }
-
-              // TODO: Input parameters?
+          container netconf-rpc-poll {
+            presence true;
+            must "deref(current()/../tlm:source-ref)/../tlm:netconf
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf" {
+              tailf:dependency "/tlm:telemetrify/tlm:source";
             }
 
-            container netconf-get-poll {
-              presence true;
-              must "../../../tlm:sources/tlm:netconf";
-
-              leaf path {
-                mandatory true;
-                description "Get tag-path";
-                type string;
-              }
-
-              leaf period {
-                mandatory true;
-                description "Polling period";
-                type uint32; // TODO: xs:duration?
-                units "ms";
-              }
-
-              // TODO: Input parameters?
-            }
-
-            container vmanage-poll {
-              presence true;
-              must "../../../tlm:sources/tlm:vmanage-http";
-
-              leaf path {
-                mandatory true;
-                description "Path to fetch";
-                type string;
-              }
-
-              leaf period {
-                mandatory true;
-                description "Polling period";
-                type uint32; // TODO: xs:duration?
-                units "ms";
-              }
-            }
-
-            container mock-netconf-get-poll {
-              tailf:hidden debug;
-              presence true;
-              must "../../../tlm:sources/tlm:mock-netconf";
-
-              choice mock-netconf-get-poll-type {
-                mandatory true;
-
-                container ios-xe-ip-sla-stats {
-                  presence true;
-                }
-              }
-
-              leaf period {
-                mandatory true;
-                description "Polling period";
-                type uint32; // TODO: xs:duration?
-                units "ms";
-              }
-            }
-          }
-
-          container schema {
-            description "Schema settings for source (pre-transform).";
-            when "../netconf-rpc-poll
-                or ../netconf-get-poll";
-            uses schema-settings-g;
-          }
-
-          // TODO: Transform at source
-          // uses transform-g;
-        }
-
-        list sink {
-          key "name";
-
-          leaf name {
-            type leafref {
-              path "/tlm:telemetrify/tlm:sink/tlm:name";
-            }
-          }
-
-          // leaf path-prefix {
-          //   when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
-          //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
-          //   }
-          //   type string;
-          // }
-
-          list base-tags {
-            when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
-              tailf:dependency "/tlm:telemetrify/tlm:sinks";
-            }
-
-            key "name";
-
-            leaf name {
-              type string;
-            }
-
-            leaf value {
+            leaf path {
               mandatory true;
+              description "RPC/Action tag-path";
               type string;
             }
+
+            leaf period {
+              mandatory true;
+              description "Polling period";
+              type uint32; // TODO: xs:duration?
+              units "ms";
+            }
+
+            // TODO: Input parameters?
           }
 
-          // leaf replace-path {
-          //   when "deref(../tlm:name)/../tlm:target/tlm:nso-cdb" {
-          //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
-          //   }
-          //   description "Output to a mutable datatree sink target will replace content under
-          //                the specified path. I.e. old content we be deleted before each new write.";
-          //   type string;
-          // }
+          container netconf-get-poll {
+            presence true;
+            must "deref(current()/../tlm:source-ref)/../tlm:netconf
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf" {
+              tailf:dependency "/tlm:telemetrify/tlm:source";
+            }
 
-          // Per sink transform
-          uses transform-g;
+            leaf path {
+              mandatory true;
+              description "Get tag-path";
+              type string;
+            }
 
-          // TODO
-          // container schema {
-          //   description "Schema settings for sink (post-transform).";
-          //   uses schema-settings-g;
-          // }
+            leaf period {
+              mandatory true;
+              description "Polling period";
+              type uint32; // TODO: xs:duration?
+              units "ms";
+            }
 
-          // Moar params? default namespaces etc...
+            // TODO: Input parameters?
+          }
+
+          container vmanage-poll {
+            presence true;
+            must "deref(current()/../tlm:source-ref)/../tlm:vmanage-http
+                or deref(current()/../tlm:source-ref)/../tlm:mock-vmanage-http" {
+              tailf:dependency "/tlm:telemetrify/tlm:source";
+            }
+
+            leaf path {
+              mandatory true;
+              description "Path to fetch";
+              type string;
+            }
+
+            leaf period {
+              mandatory true;
+              description "Polling period";
+              type uint32; // TODO: xs:duration?
+              units "ms";
+            }
+          }
+        }
+
+        container schema {
+          description "Schema settings for source (pre-transform).";
+          when "../netconf-rpc-poll
+              or ../netconf-get-poll";
+          uses schema-settings-g;
+        }
+
+        // TODO: Transform at source
+        // uses transform-g;
+
+        container metadata {
+          leaf source-label {
+            description "Label of source/subscription. E.g. device/hostname/nickname/etc...";
+            type string;
+          }
         }
       }
 
-      container sources {
+      list sink {
+        key "sink-ref";
+
+        leaf sink-ref {
+          type leafref {
+            path "/tlm:telemetrify/tlm:sink/tlm:name";
+          }
+        }
+
+        // leaf path-prefix {
+        //   when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
+        //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
+        //   }
+        //   type string;
+        // }
+
+        list base-tags {
+          when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
+            tailf:dependency "/tlm:telemetrify/tlm:sinks";
+          }
+
+          key "name";
+
+          leaf name {
+            type string;
+          }
+
+          leaf value {
+            mandatory true;
+            type string;
+          }
+        }
+
+        // leaf replace-path {
+        //   when "deref(../tlm:name)/../tlm:target/tlm:nso-cdb" {
+        //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
+        //   }
+        //   description "Output to a mutable datatree sink target will replace content under
+        //                the specified path. I.e. old content we be deleted before each new write.";
+        //   type string;
+        // }
+
+        // Per sink transform
+        uses transform-g;
+
+        // TODO
+        // container schema {
+        //   description "Schema settings for sink (post-transform).";
+        //   uses schema-settings-g;
+        // }
+
+        // Moar params? default namespaces etc...
+      }
+    }
+
+    list source {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      choice source-type {
         container netconf {
           presence true;
 
@@ -252,35 +260,14 @@ module telemetrify {
           tailf:hidden debug;
           presence true;
         }
+
+        container mock-vmanage-http {
+          tailf:hidden debug;
+          presence true;
+        }
       }
     }
-  }
 
-  grouping transform-g {
-    list transform {
-      ordered-by user;
-      key "name";
-
-      leaf name {
-        type string;
-      }
-      // TODO: Transformation language?
-    }
-  }
-
-  grouping schema-settings-g {
-    leaf ned-id {
-      description
-        "Override ned-id otherwise gathered from /devices/device/device-type/*/ned-id or from
-        /devices/device/live-status-protocol/device-type/*/ned-id.";
-
-      type identityref {
-        base ned:ned-id;
-      }
-    }
-  }
-
-  container telemetrify {
     list sink {
       key "name";
 
@@ -291,12 +278,12 @@ module telemetrify {
       choice target {
         mandatory true;
 
-        container nso-data-provider {
-          presence true;
-          leaf base-path {
-            type string;
-          }
-        }
+        // container nso-data-provider {
+        //   presence true;
+        //   leaf base-path {
+        //     type string;
+        //   }
+        // }
 
         container nso-cdb {
           presence true;
@@ -389,6 +376,30 @@ module telemetrify {
 
     tailf:action stop {
       tailf:actionpoint restart-telemetrify;
+    }
+  }
+
+  grouping transform-g {
+    list transform {
+      ordered-by user;
+      key "name";
+
+      leaf name {
+        type string;
+      }
+      // TODO: Transformation language?
+    }
+  }
+
+  grouping schema-settings-g {
+    leaf ned-id {
+      description
+        "Override ned-id otherwise gathered from /devices/device/device-type/*/ned-id or from
+        /devices/device/live-status-protocol/device-type/*/ned-id.";
+
+      type identityref {
+        base ned:ned-id;
+      }
     }
   }
 }
