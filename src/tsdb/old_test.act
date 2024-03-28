@@ -14,6 +14,7 @@
 import file
 import net
 import time
+import random
 import logging
 import tsdb.http
 import tsdb.common
@@ -87,13 +88,17 @@ actor main(env):
     #var outstanding = 0
     #var count = 0
 
-    def on_m3_response(conn: tsdb.m3.Client, success: bool):
+    def on_m3_response(conn: tsdb.m3.Client, success: bool, send_start: time.Instant):
+        send_end = time.time()
+        print("M3 send time: ", send_end.since(send_start).str_ms(), " ms")
         if success:
             print("M3 metric delivered successfully")
         else:
             print("Error sending M3 metric")
 
-    def on_prom_response(conn: tsdb.prometheus.Client, success: bool):
+    def on_prom_response(conn: tsdb.prometheus.Client, success: bool, send_start: time.Instant):
+        send_end = time.time()
+        print("Prometheus send time: ", send_end.since(send_start).str_ms(), " ms")
         if success:
             print("Prometheus metric delivered successfully")
         else:
@@ -130,8 +135,7 @@ actor main(env):
         if i == 0:
             return True
 
-        mod = float(i % 10)
-        fake_ping = 12.0 + mod
+        fake_ping = float(random.randint(10, 40))
 
         print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"prom\"}, fake_ping)")
         metric = tsdb.common.Metric("fake_ping", {"id": "prom"}, fake_ping, time.time().second)
@@ -142,31 +146,32 @@ actor main(env):
 
     def send_prom():
         print("prometheus.send_metrics(", metrics, ", ", on_prom_response, ")")
-        prometheus.send_metrics(metrics, on_prom_response)
+        prom_send_start = time.time()
+        prometheus.send_metrics(metrics, lambda x, y: on_prom_response(x, y, prom_send_start))
 
-    bar = prom_metrics(20)
-    after 20: send_prom()
+    bar = prom_metrics(300)
+    after 300: send_prom()
 
     def metric_iters(i: int) -> bool:
         if i == 0:
             return True
 
-        mod = float(i % 10)
-        fake_ping = 15.0 + mod
+        fake_ping = float(random.randint(10, 40))
 
         print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"m3-http\"}, fake_ping)")
         metric = tsdb.common.Metric("fake_ping", {"id": "m3-http"}, fake_ping, time.time().second)
         print("m3.send_metric(", metric, ", ", on_m3_response, ")")
-        m3.send_metric(metric, on_m3_response)
+        m3_send_start = time.time()
+        m3.send_metric(metric, lambda x, y,: on_m3_response(x, y, m3_send_start))
 
         after 1: metric_iters(i - 1)
         return True
 
-    foo = metric_iters(20)
+    foo = metric_iters(300)
     print(str(foo))
 
     def exit():
         await async env.exit(0)
 
-    after 25: exit()
+    after 305: exit()
     

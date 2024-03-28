@@ -23,6 +23,37 @@ from tsdb.common import Metric
 def pack(time_series: list[(list[(str, str)], list[(float, int)])]) -> bytes:
     NotImplemented
 
+def assemble_payload(metrics: list[Metric]) -> bytes:
+
+    #log = logging.Logger(log_handler)
+
+    metric_data: list[(list[(str, str)], list[(float, int)])] = []
+    metric_dict: dict[str, list[Metric]] = {}
+    
+    for metric in metrics:
+        series_id = metric.name + str(metric.tags)
+
+        if series_id not in metric_dict:
+             metric_dict[series_id] = []
+
+        metric_dict[series_id].append(metric)
+
+    for metric_series in metric_dict.values():
+        labels = [("__name__", metric_series[0].name)]
+        for name, value in metric_series[0].tags.items():
+            labels.append((name, value))
+
+        samples = []
+        for metric in metric_series:
+            samples.append((metric.value, metric.timestamp * 1000))
+
+        metric_data.append((labels, samples))
+
+    #log.debug("send_metric metric_data", {"metric": metric_data})
+    metric_proto = pack(metric_data)
+    #log.debug("send_metric metric_proto", {"metric_proto": metric_proto})
+    return snappy.compress(metric_proto)
+
 actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
 
     logh = logging.Handler("tsdb.prometheus.Client")
@@ -48,32 +79,8 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
         def _on_response(client: http.Client, response: http.Response):
             log.debug("HTTP response status: " + str(response.status), None)
             log.debug(response.body.decode(), None)
+            await async on_response(self, response.status == 200)
 
-        metric_data: list[(list[(str, str)], list[(float, int)])] = []
-        metric_dict: dict[str, list[Metric]] = {}
-        
-        for metric in metrics:
-            series_id = metric.name + str(metric.tags)
-
-            if series_id not in metric_dict:
-                 metric_dict[series_id] = []
-
-            metric_dict[series_id].append(metric)
-
-        for metric_series in metric_dict.values():
-            labels = [("__name__", metric_series[0].name)]
-            for name, value in metric_series[0].tags.items():
-                labels.append((name, value))
-
-            samples = []
-            for metric in metric_series:
-                samples.append((metric.value, metric.timestamp * 1000))
-
-            metric_data.append((labels, samples))
-
-        log.debug("send_metric metric_data", {"metric": metric_data})
-        metric_proto = pack(metric_data)
-        log.debug("send_metric metric_proto", {"metric_proto": metric_proto})
-        metric_payload = snappy.compress(metric_proto)
+        metric_payload = assemble_payload(metrics)
 
         http_client.post(api_endpoint, metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
