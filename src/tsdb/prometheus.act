@@ -23,9 +23,9 @@ from tsdb.common import Metric
 def pack(time_series: list[(list[(str, str)], list[(float, int)])]) -> bytes:
     NotImplemented
 
-def assemble_payload(metrics: list[Metric], log_handler: ?logging.Handler) -> bytes:
+def assemble_payload(metrics: list[Metric]) -> bytes:
 
-    log = logging.Logger(log_handler)
+    #log = logging.Logger(log_handler)
 
     metric_data: list[(list[(str, str)], list[(float, int)])] = []
     metric_dict: dict[str, list[Metric]] = {}
@@ -49,9 +49,9 @@ def assemble_payload(metrics: list[Metric], log_handler: ?logging.Handler) -> by
 
         metric_data.append((labels, samples))
 
-    log.debug("send_metric metric_data", {"metric": metric_data})
+    #log.debug("send_metric metric_data", {"metric": metric_data})
     metric_proto = pack(metric_data)
-    log.debug("send_metric metric_proto", {"metric_proto": metric_proto})
+    #log.debug("send_metric metric_proto", {"metric_proto": metric_proto})
     return snappy.compress(metric_proto)
 
 actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
@@ -81,6 +81,6 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
             log.debug(response.body.decode(), None)
             await async on_response(self, response.status == 200)
 
-        metric_payload = assemble_payload(metrics, logh)
+        metric_payload = assemble_payload(metrics)
 
         http_client.post(api_endpoint, metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
