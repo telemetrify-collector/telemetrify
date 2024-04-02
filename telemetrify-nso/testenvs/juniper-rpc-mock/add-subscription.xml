@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<config xmlns="http://tail-f.com/ns/config/1.0">
+  <telemetrify xmlns="urn:telekom:abs:telemetrify">
+    <subscription>
+      <name>sub1</name>
+      <source>
+        <source-ref>netconf</source-ref>
+        <netconf-rpc-poll>
+          <path>jrpc:get-interface-information</path>
+          <input>
+            <path>jrpc:level-extra</path>
+            <value>detail</value>
+          </input>
+          <period>5000</period>
+        </netconf-rpc-poll>
+        <schema>
+          <ned-id xmlns:ned-junos-23.1-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-junos-23.1-yang-nc-1.0">ned-junos-23.1-yang-nc-1.0:ned-junos-23.1-yang-nc-1.0</ned-id>
+        </schema>
+      </source>
+      <!-- <sink>
+        <sink-ref>cdb</sink-ref>
+        <transform>
+          <name>cat8k-ip-sla</name>
+        </transform>
+      </sink> -->
+      <!-- <sink>
+        <sink-ref>m3db</sink-ref>
+      </sink> -->
+      <sink>
+        <sink-ref>mock</sink-ref>
+      </sink>
+    </subscription>
+    <source>
+      <name>netconf</name>
+      <mock-netconf>
+        <juniper-rpc>
+          <get-interface-information>
+            <number-of-interfaces>3</number-of-interfaces>
+          </get-interface-information>
+        </juniper-rpc>
+      </mock-netconf>
+      <!-- <netconf>
+        <address>cat1-mock</address>
+        <port>443</port>
+        <username>vrnetlab</username>
+        <password>VR-netlab9</password>
+      </netconf> -->
+    </source>
+    <sink>
+      <name>cdb</name>
+      <nso-cdb>
+      </nso-cdb>
+    </sink>
+    <sink>
+      <name>m3db</name>
+      <m3db>
+        <address>m3db</address>
+        <port>7201</port>
+      </m3db>
+    </sink>
+    <sink>
+      <name>mock</name>
+      <mock>
+        <log-level>debug</log-level>
+      </mock>
+    </sink>
+    <logging>
+      <!-- <level>debug</level> -->
+      <level>trace</level>
+    </logging>
+  </telemetrify>
+</config>

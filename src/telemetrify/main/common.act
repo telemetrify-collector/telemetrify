@@ -322,15 +322,15 @@ class SubscriberMixin(object):
         if self.log.output_level >= logging.TRACE:
             self.log.trace("_check_state", {
                 "state": state_str(self.state),
-                "source_state": state_str(self.state),
+                "source_state": state_str(self.source_mixin.source_state),
                 "sinks_reset": self.sinks_mixin.is_reset(),
                 "sinks_quiescent": self.sinks_mixin.is_quiescent()})
 
         if self.state == STATE_STOPPED:
-            if self.source_mixin.state == STATE_RUNNING and self.sinks_mixin.is_reset():
+            if self.source_mixin.source_state == STATE_RUNNING and self.sinks_mixin.is_reset():
                 self._start()
         elif self.state == STATE_RUNNING:
-            if self.source_mixin.state != STATE_RUNNING:
+            if self.source_mixin.source_state != STATE_RUNNING:
                 self._stop()
         elif self.state == STATE_CLOSING:
             if self.sinks_mixin.is_quiescent():
@@ -353,7 +353,7 @@ class SubscriberMixin(object):
             self.log.trace("on_stopped", None)
         if self.state not in [STATE_CLOSING, STATE_CLOSED]:
             self.state = STATE_STOPPED
-        self.source_mixin.on_stopped()
+            self.source_mixin.on_stopped()
         self._check_state()
 
     def on_source_state(self, source_uid: int, source_state: int):
@@ -414,8 +414,8 @@ class SubscriberSourceMixin(object):
     uid: int
     @property
     state: int
-    # @property
-    # _source_state: int
+    @property
+    source_state: int
     @property
     _source: ?Source
     @property
@@ -439,6 +439,7 @@ class SubscriberSourceMixin(object):
         self.uid = uid
 
         self.state = STATE_STOPPED
+        self.source_state = STATE_STOPPED
 
         self._source = None
         self._has_pending_source = False
@@ -487,6 +488,8 @@ class SubscriberSourceMixin(object):
         source = self._source
         if not (source is not None and source_uid == source.uid()):
             return
+
+        self.source_state = source_state
 
         if source_state == STATE_RUNNING:
             if self.state == STATE_STOPPED:

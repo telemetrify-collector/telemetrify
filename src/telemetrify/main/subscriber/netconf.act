@@ -21,7 +21,8 @@ import telemetrify.nsoapi.schema as schema
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
-from telemetrify.nsoapi.schema import QName, SchemaPath
+from telemetrify.nsoapi.schema import SchemaPath
+from telemetrify.yang.xpath import *
 from telemetrify.main.common import *
 from telemetrify.main.config import *
 from telemetrify.main.source.netconf import *
@@ -74,7 +75,7 @@ actor NetconfRpcPollSubscription(
         lambda: None,
         lambda w: None,
         lambda i: None,
-        on_closed,
+        lambda: None,
         log)
 
     log.info("SUBSCRIBER netconf-rpc-poll CREATED", None)
@@ -109,6 +110,18 @@ actor NetconfRpcPollSubscription(
         else:
             log.error("SUBSCRIBER netconf-rpc-poll POLL interrupted", None)
 
+        curr_ts = time.monotonic()
+        next_ts = last_ts.add(period)
+
+        if next_ts < curr_ts:
+            # Allow drift when reply arrived later than next period
+            # TODO: Quantize to period?
+            next_ts = curr_ts
+
+        delay = next_ts.since(curr_ts)
+        log.debug("  ... delay " + str(delay.to_float()) + "s", None)
+        after delay.to_float(): _do_rpc_request(seqno, next_ts)
+
     def update_config(update: SubscriberUpdate):
         subscriber_base.update_config(update)
 
@@ -119,14 +132,24 @@ actor NetconfRpcPollSubscription(
 
         poll = config[SUBSCRIPTION_TYPE_TAG_NETCONF_RPC_POLLER]
         path = poll[PTag('tlm', 'path')].try_str()
+        input_params = poll[PTag('tlm', 'input')]
         period_ms = poll[PTag('tlm', 'period')].try_int()
 
         if path is not None:
-            # TODO: Proper parsing into ptag-/key-path
-            #_tag = schema.QName.netconf_to_value(path, None)
-            _tag = QName.netconf_to_value(path, None)
-            if _tag is not None:
-                _update_rpc_params(config, Keypath([_tag]))
+            keypath = xpath_to_keypath(path)
+            if keypath is not None:
+                params = tnode_root()
+                for p_elem in input_params:
+                    p_path = p_elem[PTag('tlm', 'path')].try_str()
+                    if p_path is not None:
+                        p_keypath = xpath_to_keypath(p_path)
+                        if p_keypath is not None:
+                            p_value = p_elem[PTag('tlm', 'value')].try_str()
+                            if p_value is not None:
+                                params.tree_path(None, p_keypath.get_slice(0, -1)).leaf(None, p_keypath[-1], p_value)
+                            else:
+                                params.tree_path(None, p_keypath)
+                _update_rpc_params(config, keypath, params)
 
         if period_ms is not None and rpc_xml is not None:
             period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
@@ -134,7 +157,7 @@ actor NetconfRpcPollSubscription(
         else:
             pass # TODO: Indicate config error
 
-    def _update_rpc_params(config: TNode, rpc_path: Keypath):
+    def _update_rpc_params(config: TNode, rpc_path: Keypath, input_params: Node):
         _rpc_xml: ?xml.Node = None
         _is_action = False
         _schema_path: ?SchemaPath = None
@@ -175,11 +198,18 @@ actor NetconfRpcPollSubscription(
             if is_cursor_ok:
                 rpc_itag = cursor.lookup_itag(cursor.node().tag)
                 if rpc_itag is not None:
+                    # RPC
                     rpc_name = rpc_itag.name
                     ns = rpc_itag.ns
                     nsdefs = [(None, ns)] if ns is not None else []
-                    _rpc_xml = xml.Node(rpc_itag.name, nsdefs, None, [], [], None, None)
                     _schema_path = cursor.get_schema_path()
+
+                    # Params
+                    xml_input_params: list[xml.Node] = netconf.node_to_netconf(input_params, cursor, ns)
+
+                    # RPC XML
+                    _rpc_xml = xml.Node(rpc_itag.name, nsdefs, None, [], xml_input_params, None, None)
+
                     # TODO: Configurable input params?
 
         rpc_xml = _rpc_xml
@@ -222,6 +252,10 @@ actor NetconfRpcPollSubscription(
     def on_write_reset_done_trampoline(sink_uid: int) -> None:
         subscriber_base.on_write_reset_done(sink_uid)
 
+    def _on_closed():
+        log.debug("SUBSCRIBER netconf-rpc-poll CLOSED", None)
+        on_closed()
+
     # # Workaround compiler ordering issue
     subscriber_base._start_fn = _start
     subscriber_base._stop_fn = _stop
@@ -230,6 +264,7 @@ actor NetconfRpcPollSubscription(
     #subscriber_base.sinks_mixin.resync_source = lambda: None
     subscriber_base.sinks_mixin.write_reset_fn = write_reset
     subscriber_base.sinks_mixin.on_reset_done_trampoline_fn = on_write_reset_done_trampoline
+    subscriber_base.on_closed_fn = _on_closed
 
 #
 # Netconf Get poller
@@ -277,7 +312,7 @@ actor NetconfGetPollSubscription(
         lambda: None,
         lambda w: None,
         lambda i: None,
-        on_closed,
+        lambda: None,
         log)
 
     log.info("SUBSCRIBER netconf-get-poll CREATED", None)
@@ -325,10 +360,6 @@ actor NetconfGetPollSubscription(
             # TODO: Quantize to period?
             next_ts = curr_ts
 
-        # log.info("  last_ts:", last_ts, None)
-        # log.info("  curr_ts:", curr_ts, None)
-        # log.info("  next_ts:", next_ts, None)
-
         delay = next_ts.since(curr_ts)
         log.debug("  ... delay " + str(delay.to_float()) + "s", None)
         after delay.to_float(): _do_get_request(seqno, next_ts)
@@ -346,11 +377,9 @@ actor NetconfGetPollSubscription(
         period_ms = poll[PTag('tlm', 'period')].try_int()
 
         if path is not None:
-            # TODO: Proper parsing into ptag-/key-path
-            #_tag = schema.QName.netconf_to_value(path, None)
-            _tag = QName.netconf_to_value(path, None)
-            if _tag is not None:
-                _update_get_params(config, Keypath([_tag]))
+            keypath = xpath_to_keypath(path)
+            if keypath is not None:
+                _update_get_params(config, keypath)
 
         if period_ms is not None and get_xml is not None:
             period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
@@ -411,11 +440,12 @@ actor NetconfGetPollSubscription(
                         if _filter_node is not None:
                             _filter_node = xml.Node("filter", [], None, [], [_filter_node], None, None)
 
+                    nc_nsdefs = [(None, netconf.NS_NC_1_1)]
                     if _filter_node is not None:
-                        _get_xml = xml.Node("get", [], None, [], [_filter_node], None, None)
+                        _get_xml = xml.Node("get", nc_nsdefs, None, [], [_filter_node], None, None)
                     else:
                         # TODO: this shoule be some form of error, right?
-                        _get_xml = xml.Node("get", [], None, [], [], None, None)
+                        _get_xml = xml.Node("get", nc_nsdefs, None, [], [], None, None)
                     _schema_path = cursor.get_schema_path()
                     # TODO: Configurable input params?
 
@@ -458,6 +488,10 @@ actor NetconfGetPollSubscription(
     def on_write_reset_done_trampoline(sink_uid: int) -> None:
         subscriber_base.on_write_reset_done(sink_uid)
 
+    def _on_closed():
+        log.debug("SUBSCRIBER netconf-get-poll CLOSED", None)
+        on_closed()
+
     # # Workaround compiler ordering issue
     subscriber_base._start_fn = _start
     subscriber_base._stop_fn = _stop
@@ -466,3 +500,4 @@ actor NetconfGetPollSubscription(
     #subscriber_base.sinks_mixin.resync_source = lambda: None
     subscriber_base.sinks_mixin.write_reset_fn = write_reset
     subscriber_base.sinks_mixin.on_reset_done_trampoline_fn = on_write_reset_done_trampoline
+    subscriber_base.on_closed_fn = _on_closed

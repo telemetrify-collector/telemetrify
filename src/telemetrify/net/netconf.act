@@ -17,7 +17,7 @@ import process
 import xml
 
 import telemetrify.common.mod as mod
-from telemetrify.common.mod import ITag
+import telemetrify.nsoapi.schema as schema
 from telemetrify.common.io import IncompleteReadError, Buffer
 from telemetrify.common.utils import *
 
@@ -323,7 +323,7 @@ def _netconf_to_xnode(xml_node: xml.Node, nsmaps: NsMaps, default_op: int) -> mo
     # TODO: Use netconf operation attribute
     _op = default_op
 
-    tag = ITag(_ns, xml_node.tag)
+    tag = mod.ITag(_ns, xml_node.tag)
 
     # if not xml_node.children: # list.__bool__ bugged?
     if len(xml_node.children) > 0:
@@ -341,3 +341,53 @@ def _netconf_to_xnode(xml_node: xml.Node, nsmaps: NsMaps, default_op: int) -> mo
                 _val += _tail
             val = _val
         return mod.XLeaf(_op, tag, _nsmaps.lookup, val)
+
+def node_to_netconf(node: mod.Node, cursor: schema.Cursor, ancestor_default_ns: ?str) -> list[xml.Node]:
+    tag: ?mod.Tag = node.tag()
+    if tag is not None and tag.is_root():
+        children: list[xml.Node] = []
+        child_nodes = node.children()
+        for child_node in child_nodes:
+            children.extend(_node_to_netconf(child_node, cursor, ancestor_default_ns))
+        return children
+    else:
+        return _node_to_netconf(node, cursor, ancestor_default_ns)
+
+def _node_to_netconf(node: mod.Node, cursor: schema.Cursor, ancestor_default_ns: ?str) -> list[xml.Node]:
+    result: list[xml.Node] = []
+
+    xml_tag: ?str = None
+    nsdefs = []
+
+    tag: ?mod.Tag = node.tag()
+    if tag is not None and cursor.push(tag):
+        itag = cursor.lookup_itag(cursor.node().tag)
+        if itag is not None:
+            xml_tag = itag.name
+            xml_ns = itag.ns
+            if xml_ns is not None and not eq_optional(xml_ns, ancestor_default_ns):
+                nsdefs.append((None, xml_ns))
+
+            _value = node.value()
+            if _value is not None:
+                value_type = cursor.node().value_type
+                if value_type is not None:
+                    netconf_value = value_type.value_to_netconf(_value, cursor)
+                    if netconf_value is not None:
+                        if isinstance(netconf_value, str): # leaf
+                            result.append(xml.Node(xml_tag if xml_tag is not None else "", nsdefs, None, [], [], netconf_value, None))
+                        elif isinstance(netconf_value, list): # leaf-list
+                            for elem_str in netconf_value:
+                                result.append(xml.Node(xml_tag if xml_tag is not None else "", nsdefs, None, [], [], elem_str, None))
+                    else:
+                        result.append(xml.Node(xml_tag if xml_tag is not None else "", nsdefs, None, [], [], None, None))
+            else:
+                children: list[xml.Node] = []
+                child_nodes = node.children()
+                for child_node in child_nodes:
+                    children.extend(_node_to_netconf(child_node, cursor, xml_ns))
+                result.append(xml.Node(xml_tag if xml_tag is not None else "", nsdefs, None, [], children, None, None))
+
+        cursor.pop()
+
+    return result

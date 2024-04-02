@@ -375,6 +375,18 @@ def list_str[T](a: list[T]) -> str:
         unsafe_list_append(l, str(x))
     return "[" + ", ".join(l) + "]"
 
+def list_repr[T](a: list[T]) -> str:
+    l: list[str] = []
+    for x in a:
+        unsafe_list_append(l, repr(x))
+    return "[" + ", ".join(l) + "]"
+
+def list_optional_repr[T](a: list[?T]) -> str:
+    l: list[str] = []
+    for x in a:
+        unsafe_list_append(l, optional_repr(x))
+    return "[" + ", ".join(l) + "]"
+
 def set_update[T(Hashable)](target: set[T], source: Iterable[T]):
     for item in source:
         target.add(item)
@@ -441,6 +453,9 @@ def dict_dict_try_pop[K1(Hashable), K2(Hashable), V](d1: dict[K1, dict[K2, V]], 
 
 def optional_str[T](v: ?T, default: str) -> str:
     return str(v) if v is not None else default
+
+def optional_repr[T](v: ?T, default: str = "None") -> str:
+    return repr(v) if v is not None else default
 
 def min2[T(Ord)](a: T, b: T) -> T:
     return a if a <= b else b
