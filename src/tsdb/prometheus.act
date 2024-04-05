@@ -54,12 +54,9 @@ def assemble_payload(metrics: list[Metric]) -> bytes:
     #log.debug("send_metric metric_proto", {"metric_proto": metric_proto})
     return snappy.compress(metric_proto)
 
-actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler):
+actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str, on_connect: action(Client) -> None, on_error: action(Client, str) -> None, log_handler: ?logging.Handler=None):
 
-    logh = logging.Handler("tsdb.prometheus.Client")
-    if log_handler is not None:
-        logh.set_handler(log_handler)
-    log = logging.Logger(logh)
+    log = logging.Logger(log_handler)
 
     def _on_connect(client: http.Client):
         log.info("TSDB HTTP client connected!", None)
