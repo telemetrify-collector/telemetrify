@@ -1,11 +1,11 @@
 class Metric(object):
-    @property
+    """Metric
+
+    The timestamps is a Unix timestamp in milliseconds.
+    """
     name: str
-    @property
     tags: dict[str, str]
-    @property
     value: float
-    @property
     timestamp: int
 
     def __init__(self, name: str, tags: dict[str, str], value: float, timestamp: int):
