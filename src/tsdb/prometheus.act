@@ -45,7 +45,7 @@ def assemble_payload(metrics: list[Metric]) -> bytes:
 
         samples = []
         for metric in metric_series:
-            samples.append((metric.value, metric.timestamp * 1000))
+            samples.append((metric.value, metric.timestamp))
 
         metric_data.append((labels, samples))
 
