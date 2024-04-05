@@ -831,96 +831,93 @@ class Type(object):
 
     @staticmethod
     def builtin_types() -> dict[TypeId, Type]:
-        types: dict[TypeId, Type] = {}
-        def append(t: Type) -> None:
-            types[t.type_id] = t
 
-        append(Type(TypeId(0, "int8"), None, C_INT8))
-        append(Type(TypeId(0, "int16"), None, C_INT16))
-        append(Type(TypeId(0, "int32"), None, C_INT32))
-        append(Type(TypeId(0, "int64"), None, C_INT64))
-        append(Type(TypeId(0, "uint8"), None, C_INT8))
-        append(Type(TypeId(0, "uint16"), None, C_UINT16))
-        append(Type(TypeId(0, "uint32"), None, C_UINT32))
-        append(Type(TypeId(0, "uint64"), None, C_UINT64))
-        append(Type(TypeId(0, "string"), None, C_BUF))
-        append(Type(TypeId(0, "boolean"), None, C_BOOL))
-        append(Type(TypeId(0, "hex-list"), None, C_BINARY)) # Not enabled in ConfD/NCS
-        append(Type(TypeId(0, "hexList"), None, C_BINARY)) # Not enabled in ConfD/NCS
-        append(Type(TypeId(0, "octet-list"), None, C_BINARY)) # TODO: E.g. \d+\(.\d+)
-        append(Type(TypeId(0, "octetList"), None, C_BINARY)) # TODO: E.g. \d+\(.\d+)
-        append(Type(TypeId(0, "md5-digest-string"), None, C_BUF))
-        append(Type(TypeId(0, "des3-cbc-encrypted-string"), None, C_BUF))
-        append(Type(TypeId(0, "aes-cfb-128-encrypted-string"), None, C_BUF))
-        append(Type(TypeId(0, "aes-256-cfb-128-encrypted-string"), None, C_BUF))
-        append(Type(TypeId(0, "inetAddressIPv4"), None, C_IPV4))
-        append(Type(TypeId(0, "inetAddressIPv6"), None, C_IPV6))
-        append(Type(TypeId(0, "Counter32"), None, C_UINT32))
-        append(Type(TypeId(0, "Counter64"), None, C_UINT64))
-        append(Type(TypeId(0, "Gauge32"), None, C_UINT32))
-        append(Type(TypeId(0, "inetPortNumber"), None, C_UINT16))
-        append(Type(TypeId(0, "inetAddressDNS"), None, C_BUF))
-        append(Type(TypeId(0, "oid"), None, C_OID)) # TODO: First identified must be 0,1,2)
-        append(UnionType(TypeId(0, "inetAddressIP"), None, [types[TypeId(0, "inetAddressIPv4")], types[TypeId(0, "inetAddressIPv6")]]))
-        append(UnionType(TypeId(0, "inetAddress"), None, [types[TypeId(0, "inetAddressIP")], types[TypeId(0, "inetAddressDNS")]]))
-        append(Type(TypeId(0, "ipv4Prefix"), None, C_IPV4PREFIX))
-        append(Type(TypeId(0, "ipv6Prefix"), None, C_IPV6PREFIX))
-        append(UnionType(TypeId(0, "ipPrefix"), None, [types[TypeId(0, "ipv4Prefix")], types[TypeId(0, "ipv6Prefix")]]))
-        append(Type(TypeId(0, "size"), None, C_UINT64)) # TODO: with 2^10^x prefixes G,M,K,B
-        append(Type(TypeId(0, "MD5DigestString"), None, C_BUF))
-        append(Type(TypeId(0, "SHA256DigestString"), None, C_BUF))
-        append(Type(TypeId(0, "SHA512DigestString"), None, C_BUF))
-        append(Type(TypeId(0, "cryptHash"), None, C_BUF))
-        append(Type(TypeId(0, "DES3CBCIVEncryptedString"), None, C_BUF))
-        append(Type(TypeId(0, "AESCFB128IVEncryptedString"), None, C_BUF))
-        append(Type(TypeId(0, "AES256CFB128IVEncryptedString"), None, C_BUF))
-        append(Type(TypeId(0, "byte"), None, C_INT8))
-        append(Type(TypeId(0, "short"), None, C_INT16))
-        append(Type(TypeId(0, "int"), None, C_INT32))
-        append(Type(TypeId(0, "long"), None, C_INT64))
-        append(Type(TypeId(0, "unsignedByte"), None, C_INT8))
-        append(Type(TypeId(0, "unsignedShort"), None, C_INT16))
-        append(Type(TypeId(0, "unsignedInt"), None, C_INT32))
-        append(Type(TypeId(0, "unsignedLong"), None, C_INT64))
-        append(Type(TypeId(0, "double"), None, C_DOUBLE))
-        append(Type(TypeId(0, "objectRef"), None, C_INSTANCE_IDENTIFIER))
-        append(Type(TypeId(0, "identityref"), None, C_IDENTITYREF))
-        append(Type(TypeId(0, "dateTime"), None, C_DATETIME))
-        append(Type(TypeId(0, "date"), None, C_DATE))
-        append(Type(TypeId(0, "time"), None, C_TIME))
-        append(Type(TypeId(0, "duration"), None, C_DURATION))
-        append(Type(TypeId(0, "decimal"), None, C_DOUBLE))
-        append(Type(TypeId(0, "integer"), None, C_INT64))
-        append(Type(TypeId(0, "float"), None, C_DOUBLE))
-        append(Type(TypeId(0, "hexBinary"), None, C_BINARY))
-        append(Type(TypeId(0, "binary"), None, C_BINARY)) # TODO: base64
-        append(Type(TypeId(0, "base64Binary"), None, C_BINARY)) # TODO: base64
-        append(RestrictedNumberType(TypeId(0, "nonNegativeInteger"), None, C_UINT64, [TypeRange(0, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
-        append(RestrictedNumberType(TypeId(0, "nonPositiveInteger"), None, C_INT64, [TypeRange(None, 0, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
-        append(RestrictedNumberType(TypeId(0, "negativeInteger"), None, C_INT64, [TypeRange(None, -1, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
-        append(RestrictedNumberType(TypeId(0, "positiveInteger"), None, C_UINT64, [TypeRange(1, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]))
-        append(Type(TypeId(0, "normalizedString"), None, C_BUF)) # TODO: Replace whitespace with space e.g. ' '
-        append(Type(TypeId(0, "token"), None, C_BUF)) # TODO: Replace any consecutive whitespace with single space e.g. ' '
-        append(Type(TypeId(0, "NOTATION"), None, C_BUF)) # TODO: Replace any consecutive whitespace with single space e.g. ' '
-        append(Type(TypeId(0, "language"), None, C_BUF)) # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
-        append(Type(TypeId(0, "NMTOKEN"), None, C_BUF)) # TODO: [A-Za-z0-9._:-]+
-        append(Type(TypeId(0, "Name"), None, C_BUF)) # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
-        append(Type(TypeId(0, "NCName"), None, C_BUF)) # TODO: [^:]*
-        append(Type(TypeId(0, "ID"), None, C_BUF)) # TODO: [^:]*
-        append(Type(TypeId(0, "IDREF"), None, C_BUF)) # TODO: [^:]*
-        append(Type(TypeId(0, "ENTITY"), None, C_BUF)) # TODO: [^:]*
-        append(ListType(TypeId(0, "NMTOKEN-LIST"), None, types[TypeId(0, "NMTOKEN")]))
-        append(ListRestrictionType(TypeId(0, "NMTOKENS"), types[TypeId(0, "NMTOKEN")], [TypeRange(1, None, 0)]))
-        append(ListType(TypeId(0, "IDREF-LIST"), None, types[TypeId(0, "NCName")]))
-        append(ListRestrictionType(TypeId(0, "IDREFS"), types[TypeId(0, "NCName")], [TypeRange(1, None, 0)]))
-        append(ListRestrictionType(TypeId(0, "ENTITIES"), types[TypeId(0, "NCName")], [TypeRange(1, None, 0)]))
-        append(Type(TypeId(0, "dottedQuad"), None, C_DQUAD))
-        append(Type(TypeId(0, "hexString"), None, C_HEXSTR))
-        append(Type(TypeId(0, "ipv4AddressAndPrefixLength"), None, C_IPV4_AND_PLEN))
-        append(Type(TypeId(0, "ipv6AddressAndPrefixLength"), None, C_IPV6_AND_PLEN))
-        append(UnionType(TypeId(0, "ipAddressAndPrefixLength"), None, [types[TypeId(0, "ipv4AddressAndPrefixLength")], types[TypeId(0, "ipv6AddressAndPrefixLength")]]))
-
-        return types
+        return {
+            TypeId(0, "int8"): Type(TypeId(0, "int8"), None, C_INT8),
+            TypeId(0, "int16"): Type(TypeId(0, "int16"), None, C_INT16),
+            TypeId(0, "int32"): Type(TypeId(0, "int32"), None, C_INT32),
+            TypeId(0, "int64"): Type(TypeId(0, "int64"), None, C_INT64),
+            TypeId(0, "uint8"): Type(TypeId(0, "uint8"), None, C_INT8),
+            TypeId(0, "uint16"): Type(TypeId(0, "uint16"), None, C_UINT16),
+            TypeId(0, "uint32"): Type(TypeId(0, "uint32"), None, C_UINT32),
+            TypeId(0, "uint64"): Type(TypeId(0, "uint64"), None, C_UINT64),
+            TypeId(0, "string"): Type(TypeId(0, "string"), None, C_BUF),
+            TypeId(0, "boolean"): Type(TypeId(0, "boolean"), None, C_BOOL),
+            TypeId(0, "hex-list"): Type(TypeId(0, "hex-list"), None, C_BINARY), # Not enabled in ConfD/NCS
+            TypeId(0, "hexList"): Type(TypeId(0, "hexList"), None, C_BINARY), # Not enabled in ConfD/NCS
+            TypeId(0, "octet-list"): Type(TypeId(0, "octet-list"), None, C_BINARY), # TODO: E.g. \d+\(.\d+,
+            TypeId(0, "octetList"): Type(TypeId(0, "octetList"), None, C_BINARY), # TODO: E.g. \d+\(.\d+,
+            TypeId(0, "md5-digest-string"): Type(TypeId(0, "md5-digest-string"), None, C_BUF),
+            TypeId(0, "des3-cbc-encrypted-string"): Type(TypeId(0, "des3-cbc-encrypted-string"), None, C_BUF),
+            TypeId(0, "aes-cfb-128-encrypted-string"): Type(TypeId(0, "aes-cfb-128-encrypted-string"), None, C_BUF),
+            TypeId(0, "aes-256-cfb-128-encrypted-string"): Type(TypeId(0, "aes-256-cfb-128-encrypted-string"), None, C_BUF),
+            TypeId(0, "inetAddressIPv4"): Type(TypeId(0, "inetAddressIPv4"), None, C_IPV4),
+            TypeId(0, "inetAddressIPv6"): Type(TypeId(0, "inetAddressIPv6"), None, C_IPV6),
+            TypeId(0, "Counter32"): Type(TypeId(0, "Counter32"), None, C_UINT32),
+            TypeId(0, "Counter64"): Type(TypeId(0, "Counter64"), None, C_UINT64),
+            TypeId(0, "Gauge32"): Type(TypeId(0, "Gauge32"), None, C_UINT32),
+            TypeId(0, "inetPortNumber"): Type(TypeId(0, "inetPortNumber"), None, C_UINT16),
+            TypeId(0, "inetAddressDNS"): Type(TypeId(0, "inetAddressDNS"), None, C_BUF),
+            TypeId(0, "oid"): Type(TypeId(0, "oid"), None, C_OID), # TODO: First identified must be 0,1,2,
+            TypeId(0, "inetAddressIP"): UnionType(TypeId(0, "inetAddressIP"), None, [types[TypeId(0, "inetAddressIPv4")], types[TypeId(0, "inetAddressIPv6")]]),
+            TypeId(0, "inetAddress"): UnionType(TypeId(0, "inetAddress"), None, [types[TypeId(0, "inetAddressIP")], types[TypeId(0, "inetAddressDNS")]]),
+            TypeId(0, "ipv4Prefix"): Type(TypeId(0, "ipv4Prefix"), None, C_IPV4PREFIX),
+            TypeId(0, "ipv6Prefix"): Type(TypeId(0, "ipv6Prefix"), None, C_IPV6PREFIX),
+            TypeId(0, "ipPrefix"): UnionType(TypeId(0, "ipPrefix"), None, [types[TypeId(0, "ipv4Prefix")], types[TypeId(0, "ipv6Prefix")]]),
+            TypeId(0, "size"): Type(TypeId(0, "size"), None, C_UINT64), # TODO: with 2^10^x prefixes G,M,K,B
+            TypeId(0, "MD5DigestString"): Type(TypeId(0, "MD5DigestString"), None, C_BUF),
+            TypeId(0, "SHA256DigestString"): Type(TypeId(0, "SHA256DigestString"), None, C_BUF),
+            TypeId(0, "SHA512DigestString"): Type(TypeId(0, "SHA512DigestString"), None, C_BUF),
+            TypeId(0, "cryptHash"): Type(TypeId(0, "cryptHash"), None, C_BUF),
+            TypeId(0, "DES3CBCIVEncryptedString"): Type(TypeId(0, "DES3CBCIVEncryptedString"), None, C_BUF),
+            TypeId(0, "AESCFB128IVEncryptedString"): Type(TypeId(0, "AESCFB128IVEncryptedString"), None, C_BUF),
+            TypeId(0, "AES256CFB128IVEncryptedString"): Type(TypeId(0, "AES256CFB128IVEncryptedString"), None, C_BUF),
+            TypeId(0, "byte"): Type(TypeId(0, "byte"), None, C_INT8),
+            TypeId(0, "short"): Type(TypeId(0, "short"), None, C_INT16),
+            TypeId(0, "int"): Type(TypeId(0, "int"), None, C_INT32),
+            TypeId(0, "long"): Type(TypeId(0, "long"), None, C_INT64),
+            TypeId(0, "unsignedByte"): Type(TypeId(0, "unsignedByte"), None, C_INT8),
+            TypeId(0, "unsignedShort"): Type(TypeId(0, "unsignedShort"), None, C_INT16),
+            TypeId(0, "unsignedInt"): Type(TypeId(0, "unsignedInt"), None, C_INT32),
+            TypeId(0, "unsignedLong"): Type(TypeId(0, "unsignedLong"), None, C_INT64),
+            TypeId(0, "double"): Type(TypeId(0, "double"), None, C_DOUBLE),
+            TypeId(0, "objectRef"): Type(TypeId(0, "objectRef"), None, C_INSTANCE_IDENTIFIER),
+            TypeId(0, "identityref"): Type(TypeId(0, "identityref"), None, C_IDENTITYREF),
+            TypeId(0, "dateTime"): Type(TypeId(0, "dateTime"), None, C_DATETIME),
+            TypeId(0, "date"): Type(TypeId(0, "date"), None, C_DATE),
+            TypeId(0, "time"): Type(TypeId(0, "time"), None, C_TIME),
+            TypeId(0, "duration"): Type(TypeId(0, "duration"), None, C_DURATION),
+            TypeId(0, "decimal"): Type(TypeId(0, "decimal"), None, C_DOUBLE),
+            TypeId(0, "integer"): Type(TypeId(0, "integer"), None, C_INT64),
+            TypeId(0, "float"): Type(TypeId(0, "float"), None, C_DOUBLE),
+            TypeId(0, "hexBinary"): Type(TypeId(0, "hexBinary"), None, C_BINARY),
+            TypeId(0, "binary"): Type(TypeId(0, "binary"), None, C_BINARY), # TODO: base64
+            TypeId(0, "base64Binary"): Type(TypeId(0, "base64Binary"), None, C_BINARY), # TODO: base64
+            TypeId(0, "nonNegativeInteger"): RestrictedNumberType(TypeId(0, "nonNegativeInteger"), None, C_UINT64, [TypeRange(0, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]),
+            TypeId(0, "nonPositiveInteger"): RestrictedNumberType(TypeId(0, "nonPositiveInteger"), None, C_INT64, [TypeRange(None, 0, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]),
+            TypeId(0, "negativeInteger"): RestrictedNumberType(TypeId(0, "negativeInteger"), None, C_INT64, [TypeRange(None, -1, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]),
+            TypeId(0, "positiveInteger"): RestrictedNumberType(TypeId(0, "positiveInteger"), None, C_UINT64, [TypeRange(1, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)]),
+            TypeId(0, "normalizedString"): Type(TypeId(0, "normalizedString"), None, C_BUF), # TODO: Replace whitespace with space e.g. ' '
+            TypeId(0, "token"): Type(TypeId(0, "token"), None, C_BUF), # TODO: Replace any consecutive whitespace with single space e.g. ' '
+            TypeId(0, "NOTATION"): Type(TypeId(0, "NOTATION"), None, C_BUF), # TODO: Replace any consecutive whitespace with single space e.g. ' '
+            TypeId(0, "language"): Type(TypeId(0, "language"), None, C_BUF), # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
+            TypeId(0, "NMTOKEN"): Type(TypeId(0, "NMTOKEN"), None, C_BUF), # TODO: [A-Za-z0-9._:-]+
+            TypeId(0, "Name"): Type(TypeId(0, "Name"), None, C_BUF), # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
+            TypeId(0, "NCName"): Type(TypeId(0, "NCName"), None, C_BUF), # TODO: [^:]*
+            TypeId(0, "ID"): Type(TypeId(0, "ID"), None, C_BUF), # TODO: [^:]*
+            TypeId(0, "IDREF"): Type(TypeId(0, "IDREF"), None, C_BUF), # TODO: [^:]*
+            TypeId(0, "ENTITY"): Type(TypeId(0, "ENTITY"), None, C_BUF), # TODO: [^:]*
+            TypeId(0, "NMTOKEN-LIST"): ListType(TypeId(0, "NMTOKEN-LIST"), None, types[TypeId(0, "NMTOKEN")]),
+            TypeId(0, "NMTOKENS"): ListRestrictionType(TypeId(0, "NMTOKENS"), types[TypeId(0, "NMTOKEN")], [TypeRange(1, None, 0)]),
+            TypeId(0, "IDREF-LIST"): ListType(TypeId(0, "IDREF-LIST"), None, types[TypeId(0, "NCName")]),
+            TypeId(0, "IDREFS"): ListRestrictionType(TypeId(0, "IDREFS"), types[TypeId(0, "NCName")], [TypeRange(1, None, 0)]),
+            TypeId(0, "ENTITIES"): ListRestrictionType(TypeId(0, "ENTITIES"), types[TypeId(0, "NCName")], [TypeRange(1, None, 0)]),
+            TypeId(0, "dottedQuad"): Type(TypeId(0, "dottedQuad"), None, C_DQUAD),
+            TypeId(0, "hexString"): Type(TypeId(0, "hexString"), None, C_HEXSTR),
+            TypeId(0, "ipv4AddressAndPrefixLength"): Type(TypeId(0, "ipv4AddressAndPrefixLength"), None, C_IPV4_AND_PLEN),
+            TypeId(0, "ipv6AddressAndPrefixLength"): Type(TypeId(0, "ipv6AddressAndPrefixLength"), None, C_IPV6_AND_PLEN),
+            TypeId(0, "ipAddressAndPrefixLength"): UnionType(TypeId(0, "ipAddressAndPrefixLength"), None, [types[TypeId(0, "ipv4AddressAndPrefixLength")], types[TypeId(0, "ipv6AddressAndPrefixLength")]]),
+        }
 
     @staticmethod
     def unknown_type() -> Type:
