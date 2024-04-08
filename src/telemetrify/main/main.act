@@ -21,6 +21,7 @@ import telemetrify.ietf.l3vpn_svc
 import telemetrify.ietf.cat8k
 import telemetrify.main.sink.m3db
 import telemetrify.main.sink.nso
+import telemetrify.main.sink.mock
 import telemetrify.main.source.netconf
 import telemetrify.main.source.vmanage
 import telemetrify.main.source.mock.netconf
@@ -206,12 +207,12 @@ actor SubscriberManager(
                 new_sub_type_keys.add(sub_type_key)
 
         for sub_key, pending_update in pending_updates.items():
-            sub = try_get(subscribers, sub_key)
+            log.debug("MAIN sub UPDATE", {"sub_key": sub_key, "pending_update": pending_update})
             if pending_update.is_delete():
                 sub_data = try_get(subscribers, sub_key)
                 if sub_data is not None:
                     sub_data.subscriber.close()
-                    sub_data.pending_replacement = pending_update
+                    sub_data.pending_replacement = None
             else:
                 if sub_key in new_sub_type_keys:
                     # New/changed subscriber-type
@@ -254,6 +255,8 @@ actor SubscriberManager(
         #     return telemetrify.main.sink.nso.create_nso_dp_sink(gen_uid(), config, env, shared_schema, logh)
         elif config.has_child(SINK_TYPE_TAG_NSO_CDB):
             return telemetrify.main.sink.nso.create_nso_cdb_sink(gen_uid(), config, env, shared_schema, logh)
+        elif config.has_child(SINK_TYPE_TAG_MOCK):
+            return telemetrify.main.sink.mock.create_mock_sink(gen_uid(), config, logh)
         raise Exception("Unknown sink config: " + str(config))
 
     def _create_subscriber(sub_key: Keypath, pending_update: PendingSubscriberUpdate) -> Subscriber:
@@ -458,36 +461,8 @@ actor main(env):
         level: ?int = None
         for _keypath, state in updates:
             if state is not None and isinstance(state, TNode):
-                #_val = state.try_str()
                 _leaf: TNode = state
-                _val = _leaf.try_str()
-                if _val is not None:
-                    if _val == 'off':
-                        level = logging.OFF
-                    elif _val == 'emergency':
-                        level = logging.EMERGENCY
-                    elif _val == 'alert':
-                        level = logging.ALERT
-                    elif _val == 'critical':
-                        level = logging.CRITICAL
-                    elif _val == 'error':
-                        level = logging.ERROR
-                    elif _val == 'warning':
-                        level = logging.WARNING
-                    elif _val == 'info':
-                        level = logging.INFO
-                    elif _val == 'notice':
-                        level = logging.NOTICE
-                    elif _val == 'debug':
-                        level = logging.DEBUG
-                    elif _val == 'verbose':
-                        level = logging.VERBOSE
-                    elif _val == 'trace':
-                        level = logging.TRACE
-                    elif _val == 'all':
-                        level = logging.ALL
-                    else:
-                        raise Exception("Unimplemented logging level value: " + str(_val))
+                level = get_log_level(_leaf)
 
         if level is not None:
             logh.set_output_level(level)

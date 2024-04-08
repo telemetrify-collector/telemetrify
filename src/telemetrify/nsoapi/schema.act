@@ -105,6 +105,12 @@ class SchemaPath(object):
         self.tags = tags
         self.mount_ids = mount_ids
 
+    def __str__(self) -> str:
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        return "SchemaPath(%s, %s)" % (list_repr(self.tags), list_optional_repr(self.mount_ids))
+
 actor SharedSchema(schema: Schema):
     def __dummy() -> Schema:
         """Needed to prevent schema param from being removed by optimizer"""
@@ -996,7 +1002,7 @@ class Type(object):
                     retval = Any.netconf_to_value(s, shallow_type, cursor, prefix_to_ns)
         return retval
 
-    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?str:
+    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str]):
         retval = None
         parent = self.parent_type
         if parent is not None:
@@ -1059,6 +1065,14 @@ class EnumType(Type):
                         if isinstance(_ename, EBinary) and isinstance(_ordinal, EInt):
                             name_to_ordinal[str(_ename)] = _ordinal.val
             return EnumType(type_id, parent_type, name_to_ordinal)
+        return None
+
+    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str]):
+        if v is not None:
+            if isinstance(v, str):
+                return v
+            elif isinstance(v, int):
+                return try_get(self.ordinal_to_name, v)
         return None
 
     def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
@@ -1132,6 +1146,13 @@ class UnionType(Type):
     def netconf_to_value(self, s: str, cursor: Cursor, prefix_to_ns: ?(?str) -> ?str) -> ?value:
         for t in self.types:
             res = t.netconf_to_value(s, cursor, prefix_to_ns)
+            if res is not None:
+                return res
+        return None
+
+    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str]):
+        for t in self.types:
+            res = t.value_to_netconf(v, cursor)
             if res is not None:
                 return res
         return None
@@ -1369,6 +1390,18 @@ class ListType(Type):
         # Not really viable to parse multiple elements of any type ('string'-type in particular)
         # hence here we only allow single value
         return self.elem_type.netconf_to_value(s, cursor, prefix_to_ns)
+
+    def value_to_netconf(self, v: ?value, cursor: Cursor) -> ?value:
+        if v is not None and isinstance(v, list):
+            res: list[str] = []
+            for elem_v in v:
+                elem_str = self.elem_type.value_to_netconf(elem_v, cursor)
+                if elem_str is not None and isinstance(elem_str, str):
+                    res.append(elem_str)
+                else:
+                    return None
+            return res
+        return None
 
     def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
         # if v is not None and isinstance(v, Iterable):
@@ -1874,7 +1907,7 @@ class Integer:
         return try_parse_int(s)
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if isinstance(v, int):
             return str(v)
         return None
@@ -1910,7 +1943,7 @@ class Bit:
         return try_parse_int(s)
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if isinstance(v, int):
             return str(v)
         return None
@@ -1940,7 +1973,7 @@ class Float_:
         return try_parse_float(s)
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if isinstance(v, float):
             return str(v)
         return None
@@ -1964,7 +1997,7 @@ class Boolean:
             return None
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if isinstance(v, bool):
             return 'true' if v else 'false'
         return None
@@ -1981,7 +2014,7 @@ class IPv4:
         return IPv4Address.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -1997,7 +2030,7 @@ class IPv6:
         return IPv6Address.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2015,7 +2048,7 @@ class IPv4Prefix:
         return IPv4Network.try_parse(s.strip(" \t\r\n")) # TODO: Verify that host bits are all zero
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2033,7 +2066,7 @@ class IPv6Prefix:
         return IPv6Network.try_parse(s.strip(" \t\r\n")) # TODO: Verify that host bits are all zero
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2052,7 +2085,7 @@ class IPv4AndPrefixLen:
         return IPv4Network.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2070,7 +2103,7 @@ class IPv6AndPrefixLen:
         return IPv6Network.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2089,7 +2122,7 @@ class DateTime_:
         return DateTime.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2122,7 +2155,7 @@ class Date_:
         return Date.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2151,7 +2184,7 @@ class Time_:
         return Time.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2181,7 +2214,7 @@ class Duration_:
         return Duration.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         # TODO: Implement
         return None
 
@@ -2210,7 +2243,7 @@ class Enumeration:
         return s
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if v is not None and isinstance(v, str):
             return v
         return None
@@ -2325,7 +2358,7 @@ class Oid_:
         return Oid(retval) if len(retval) > 0 else None
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if v is not None and isinstance(v, list): # if v is not None and isinstance(v, list[int]):
             # return ".".join(str(x) for x in v)
             sl = []
@@ -2353,7 +2386,7 @@ class Binary:
         return s.encode()
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if v is not None and isinstance(v, bytes):
             _v: bytes = v
             return _v.decode()
@@ -2373,7 +2406,7 @@ class Decimal64_:
         return Decimal64.try_parse(s.strip(" \t\r\n"))
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if v is not None and isinstance(v, Decimal64):
             return str(v)
         return None
@@ -2401,7 +2434,7 @@ class DottedQuad:
         return None
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if v is not None and isinstance(v, bytes):
             sl = []
             for b in v:
@@ -2432,7 +2465,7 @@ class HexString:
         return None
 
     @staticmethod
-    def value_to_netconf(v: ?value) -> ?str:
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if v is not None and isinstance(v, bytes):
             sl = []
             for b in v:
@@ -2516,7 +2549,7 @@ class Any:
         elif conf_type == C_IPV6PREFIX:
             return IPv6Prefix.netconf_to_value(s)
         elif conf_type == C_DEFAULT:
-            return V_DEFAULT
+            return None # Must be resolved in Type
         elif conf_type == C_DECIMAL64:
             return Decimal64_.netconf_to_value(s)
         elif conf_type == C_DQUAD:
@@ -2530,8 +2563,86 @@ class Any:
         return None
 
     @staticmethod
-    def value_to_netconf(v: ?value, cursor: Cursor) -> ?str:
-        # TODO
+    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
+        conf_type = cursor.node().conf_type
+        if conf_type == C_NOEXISTS:
+            return None
+        elif conf_type == C_XMLTAG:
+            return None # Deprecated / Not in use?
+        elif conf_type == C_SYMBOL:
+            return None # Not in use?
+        elif conf_type == C_STR:
+            return str(v) if v is not None else None
+        elif conf_type == C_BUF:
+            return str(v) if v is not None else None
+        elif conf_type == C_INT8:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_INT16:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_INT32:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_INT64:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_UINT8:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_UINT16:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_UINT32:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_UINT64:
+            return Integer.value_to_netconf(v, cursor)
+        elif conf_type == C_DOUBLE:
+            return Float_.value_to_netconf(v, cursor)
+        elif conf_type == C_IPV4:
+            return IPv4.value_to_netconf(v, cursor)
+        elif conf_type == C_IPV6:
+            return IPv6.value_to_netconf(v, cursor)
+        elif conf_type == C_BOOL:
+            return Boolean.value_to_netconf(v, cursor)
+        elif conf_type == C_QNAME:
+            return QName.value_to_netconf(v, cursor)
+        elif conf_type == C_DATETIME:
+            return DateTime_.value_to_netconf(v, cursor)
+        elif conf_type == C_DATE:
+            return Date_.value_to_netconf(v, cursor)
+        elif conf_type == C_TIME:
+            return Time_.value_to_netconf(v, cursor)
+        elif conf_type == C_DURATION:
+            return Duration_.value_to_netconf(v, cursor)
+        elif conf_type == C_ENUM_VALUE:
+            return Enumeration.value_to_netconf(v, cursor)
+        elif conf_type == C_BIT32:
+            return Bit.value_to_netconf(v, cursor)
+        elif conf_type == C_BIT64:
+            return Bit.value_to_netconf(v, cursor)
+        elif conf_type == C_BITBIG:
+            return Bit.value_to_netconf(v, cursor)
+        elif conf_type == C_LIST:
+            return None # Leaf-list values must be converted per element
+        elif conf_type == C_IDENTITYREF:
+            return ConfTaggedTag.value_to_netconf(v, cursor)
+        elif conf_type == C_INSTANCE_IDENTIFIER:
+            return InstanceIdentifier.value_to_netconf(v, cursor)
+        elif conf_type == C_OID:
+            return Oid_.value_to_netconf(v, cursor)
+        elif conf_type == C_BINARY:
+            return Binary.value_to_netconf(v, cursor)
+        elif conf_type == C_IPV4PREFIX:
+            return IPv4Prefix.value_to_netconf(v, cursor)
+        elif conf_type == C_IPV6PREFIX:
+            return IPv6Prefix.value_to_netconf(v, cursor)
+        elif conf_type == C_DEFAULT:
+            return None
+        elif conf_type == C_DECIMAL64:
+            return Decimal64_.value_to_netconf(v, cursor)
+        elif conf_type == C_DQUAD:
+            return DottedQuad.value_to_netconf(v, cursor)
+        elif conf_type == C_HEXSTR:
+            return HexString.value_to_netconf(v, cursor)
+        elif conf_type == C_IPV4_AND_PLEN:
+            return IPv4AndPrefixLen.value_to_netconf(v, cursor)
+        elif conf_type == C_IPV6_AND_PLEN:
+            return IPv6AndPrefixLen.value_to_netconf(v, cursor)
         return None
 
     @staticmethod

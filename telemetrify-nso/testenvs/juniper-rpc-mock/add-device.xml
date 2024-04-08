@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <authgroups>
+    <group>
+      <name>vrnetlab</name>
+      <default-map>
+        <remote-name>vrnetlab</remote-name>
+        <remote-password>VR-netlab9</remote-password>
+      </default-map>
+    </group>
+  </authgroups>
+    <device>
+      <name>junos</name>
+      <address>127.0.0.1</address>
+      <authgroup>vrnetlab</authgroup>
+      <device-type>
+        <netconf>
+          <ned-id xmlns:ned-junos-23.1-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-junos-23.1-yang-nc-1.0">ned-junos-23.1-yang-nc-1.0:ned-junos-23.1-yang-nc-1.0</ned-id>
+        </netconf>
+      </device-type>
+      <state>
+        <admin-state>southbound-locked</admin-state>
+      </state>
+    </device>
+</devices>

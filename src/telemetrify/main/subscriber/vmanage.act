@@ -70,7 +70,7 @@ actor VManagePollSubscription(
         lambda: None,
         lambda w: None,
         lambda i: None,
-        on_closed,
+        lambda: None,
         log)
 
     log.info("SUBSCRIBER vmanage-poll CREATED", None)
@@ -203,6 +203,10 @@ actor VManagePollSubscription(
     def on_write_reset_done_trampoline(sink_uid: int) -> None:
         subscriber_base.on_write_reset_done(sink_uid)
 
+    def _on_closed():
+        log.debug("SUBSCRIBER vmanage-poll CLOSED", None)
+        on_closed()
+
     # # Workaround compiler ordering issue
     subscriber_base._start_fn = _start
     subscriber_base._stop_fn = _stop
@@ -211,3 +215,4 @@ actor VManagePollSubscription(
     #subscriber_base.sinks_mixin.resync_source = lambda: None
     subscriber_base.sinks_mixin.write_reset_fn = write_reset
     subscriber_base.sinks_mixin.on_reset_done_trampoline_fn = on_write_reset_done_trampoline
+    subscriber_base.on_closed_fn = _on_closed

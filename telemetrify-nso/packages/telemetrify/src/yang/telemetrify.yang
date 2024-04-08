@@ -59,8 +59,22 @@ module telemetrify {
 
             leaf path {
               mandatory true;
-              description "RPC/Action tag-path";
-              type string;
+              description "RPC/Action path";
+              type kpath;
+            }
+
+            list input {
+              key "path";
+
+              leaf path {
+                description "Parameter path relative to rpc 'input' node";
+                type kpath;
+              }
+
+              leaf value {
+                description "Optional parameter value";
+                type string;
+              }
             }
 
             leaf period {
@@ -85,6 +99,12 @@ module telemetrify {
               description "Get tag-path";
               type string;
             }
+
+            // leaf-list path {
+            //   min-elements 1;
+            //   description "Get tag-path";
+            //   type kpath;
+            // }
 
             leaf period {
               mandatory true;
@@ -259,6 +279,15 @@ module telemetrify {
         container mock-netconf {
           tailf:hidden debug;
           presence true;
+
+          container juniper-rpc {
+            container get-interface-information {
+              leaf number-of-interfaces {
+                type uint32;
+                default 96;
+              }
+            }
+          }
         }
 
         container mock-vmanage-http {
@@ -322,26 +351,23 @@ module telemetrify {
           //   }
           // }
         }
+
+        container mock {
+          tailf:hidden debug;
+          presence true;
+
+          leaf log-level {
+            description "Print to log.";
+            type log-level;
+          }
+        }
       }
     }
 
     container logging {
       leaf level {
         description "Log-level to output.";
-        type enumeration {
-          enum off;
-          enum emergency;
-          enum alert;
-          enum critical;
-          enum error;
-          enum warning;
-          enum info;
-          enum notice;
-          enum debug;
-          enum verbose;
-          enum trace;
-          enum all;
-        }
+        type log-level;
         default "warning";
       }
 
@@ -377,6 +403,39 @@ module telemetrify {
     tailf:action stop {
       tailf:actionpoint restart-telemetrify;
     }
+  }
+
+  typedef log-level {
+    type enumeration {
+      enum off;
+      enum emergency;
+      enum alert;
+      enum critical;
+      enum error;
+      enum warning;
+      enum info;
+      enum notice;
+      enum debug;
+      enum verbose;
+      enum trace;
+      enum all;
+    }
+  }
+
+  typedef kpath {
+    type string {
+      pattern
+        "([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)"
+      + "(\\[([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+)"
+      + "( +and +([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+))*\\])?"
+      + "(/([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)"
+      + "(\\[([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+)"
+      + "( +and +([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+))*\\])?)*";
+    }
+    description
+      "Simplified YANG/XPath1.0 path of '/' separated yang identifiers
+       with optional key predicates that do standalone or conjunctive '=' comparisions only.
+       e.g: /foo/bar[x=2 and y='baz']";
   }
 
   grouping transform-g {

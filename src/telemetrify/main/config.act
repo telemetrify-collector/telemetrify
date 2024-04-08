@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import logging
+
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.nso.subscriber import Refiner, PassthroughRefiner, MirrorRefiner, SubscriptionSpec, SubscriptionIdentity, SUB_TYPE_RUNNING
@@ -34,6 +36,7 @@ SUBSCRIPTION_TYPES = set([
 SINK_TYPE_TAG_M3DB = PTag('tlm', 'm3db')
 SINK_TYPE_TAG_NSO_DP = PTag('tlm', 'nso-data-provider')
 SINK_TYPE_TAG_NSO_CDB = PTag('tlm', 'nso-cdb')
+SINK_TYPE_TAG_MOCK = PTag('tlm', 'mock')
 
 def get_subscription_type(sub_source_node: TNode) -> ?Id:
     for child_id in sub_source_node.iter_ids():
@@ -51,6 +54,37 @@ def get_subscription_base_source_params(sub_source_node: TNode) -> TNode:
     if source_label_node:
         source_params.leaf(None, SOURCE_PARAM_SOURCE_LABEL, source_label_node.try_value())
     return source_params
+
+def get_log_level(log_level_leaf: TNode) -> ?int:
+    _val = log_level_leaf.try_str()
+    if _val is not None:
+        if _val == 'off':
+            return logging.OFF
+        elif _val == 'emergency':
+            return logging.EMERGENCY
+        elif _val == 'alert':
+            return logging.ALERT
+        elif _val == 'critical':
+            return logging.CRITICAL
+        elif _val == 'error':
+            return logging.ERROR
+        elif _val == 'warning':
+            return logging.WARNING
+        elif _val == 'info':
+            return logging.INFO
+        elif _val == 'notice':
+            return logging.NOTICE
+        elif _val == 'debug':
+            return logging.DEBUG
+        elif _val == 'verbose':
+            return logging.VERBOSE
+        elif _val == 'trace':
+            return logging.TRACE
+        elif _val == 'all':
+            return logging.ALL
+        else:
+            raise Exception("Unimplemented logging level value: " + str(_val))
+    return None
 
 class SourceRefiner(PassthroughRefiner):
     @property

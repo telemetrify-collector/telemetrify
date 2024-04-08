@@ -36,8 +36,7 @@ def op_str(op: int) -> str:
         raise Exception("Not Implemented for op: " + str(op))
 
 class Id:
-    def __repr__(self):
-        return self.__str__()
+    pass
 
 class Tag(Id):
     def is_root(self) -> bool:
@@ -59,6 +58,9 @@ class ITag(Tag):
     def __str__(self) -> str:
         _ns = self.ns
         return _ns + ":" + self.name if _ns is not None else self.name
+
+    def __repr__(self) -> str:
+        return "ITag(%s, %s)" % (optional_repr(self.ns), repr(self.name))
 
     @staticmethod
     def root() -> ITag:
@@ -105,6 +107,9 @@ class PTag(Tag):
         _prefix = self.prefix
         return _prefix + ":" + self.name if _prefix is not None else self.name
 
+    def __repr__(self) -> str:
+        return "PTag(%s, %s)" % (optional_repr(self.prefix), repr(self.name))
+
     @staticmethod
     def root() -> PTag:
         return PTag(None, "")
@@ -138,6 +143,9 @@ class MTag(Tag):
         _module = self.module
         return _module + ":" + self.name if _module is not None else self.name
 
+    def __repr__(self) -> str:
+        return "MTag(%s, %s)" % (optional_repr(self.module), repr(self.name))
+
     @staticmethod
     def root() -> MTag:
         return MTag(None, "")
@@ -168,7 +176,10 @@ class HTag(Tag):
         self.name_hash = name_hash
 
     def __str__(self) -> str:
-        return "HTag(" + str(self.ns_hash) + ", " + str(self.name_hash) + ")"
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        return "HTag(%s, %s)" % (repr(self.ns_hash), repr(self.name_hash))
 
     @staticmethod
     def root() -> HTag:
@@ -453,16 +464,16 @@ class Node(object):
 
     def _str_compact(self, name: str) -> str:
         _tag = self.tag()
-        s_tag = ", " + str(_tag) if _tag is not None else ""
+        s_tag = (", " + str(_tag)) if _tag is not None else ""
 
         _keys = self.keys()
-        s_keys = ", " + list_str(_keys) if _keys else ""
+        s_keys = (", " + list_str(_keys)) if _keys else ""
 
         _value = self.value()
-        s_value = ", " + str(_value) if _value is not None else ""
+        s_value = (", " + str(_value)) if _value is not None else ""
 
         _children = self.children()
-        s_children = ", " + list_str(_children) if _children else ""
+        s_children = (", " + list_str(_children)) if _children else ""
 
         return name + "(" + op_str(self.op()) + s_tag + s_keys + s_value + s_children + ")"
 
@@ -496,13 +507,13 @@ class Node(object):
 
     def _pretty_format_node_tree(self, parts: list[str], indent: str):
         _tag = self.tag()
-        s_tag = ", " + str(_tag) if _tag is not None else ""
+        s_tag = (", " + repr(_tag)) if _tag is not None else ""
 
         _keys = self.keys()
-        s_keys = ", keys=" + list_str(_keys) if _keys else ""
+        s_keys = (", keys=" + list_repr(_keys)) if _keys else ""
 
         _value = self.value()
-        s_value = ", val=" + str(_value) if _value is not None else ""
+        s_value = (", val=" + repr(_value)) if _value is not None else ""
 
         parts.append(indent + "Node(" + op_str(self.op()) + s_tag + s_keys + s_value + ")\n")
 
@@ -696,6 +707,12 @@ class TNode(Node):
         n: TNode = self
         for _id in keypath:
             n = n.go(_id)
+        return n
+
+    def tree_path(self, op: ?int, keypath: Keypath) -> TNode:
+        n: TNode = self
+        for _id in keypath:
+            n = n.tree(op, _id)
         return n
 
     def exists(self) -> bool:
