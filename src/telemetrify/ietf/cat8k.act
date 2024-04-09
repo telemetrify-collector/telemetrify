@@ -69,7 +69,7 @@ actor IpSlaTransform(
 
         src_ns = "http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper"
 
-        hostname = source_params[PTag('tlm', 'source-label')].try_str()
+        hostname = source_params[PTag('tlm', 'tag')][Key(['hostname'])][PTag('tlm', 'value')].try_str()
         if hostname is not None:
             if eq_optional(node.tag(), ITag(src_ns, 'ip-sla-stats')):
                 oper_id_target_addresses: dict[str, IPv4Address] = {}
@@ -197,7 +197,7 @@ actor IpSlaTransform(
                     fetch_l3vpn_svc_tracker(_on_fetched_l3vpn_svc_tracker)
 
         else:
-            log.warning("Missing metadata / source_param 'source-label'", None)
+            log.warning("Missing source tag 'hostname'", None)
 
     def _transform_reset(node: Node, source_params: TNode, done_cb: ?action() -> None):
         log.debug("Transform reset", None)

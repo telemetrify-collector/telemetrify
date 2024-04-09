@@ -12,9 +12,10 @@
         <schema>
           <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
         </schema>
-        <metadata>
-          <source-label>de-bsp-berlin-cpe-1</source-label>
-        </metadata>
+        <tag>
+          <name>hostname</name>
+          <value>de-bsp-berlin-cpe-1</value>
+        </tag>
       </source>
       <sink>
         <sink-ref>cdb</sink-ref>

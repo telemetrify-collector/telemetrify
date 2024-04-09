@@ -148,9 +148,15 @@ module telemetrify {
         // TODO: Transform at source
         // uses transform-g;
 
-        container metadata {
-          leaf source-label {
-            description "Label of source/subscription. E.g. device/hostname/nickname/etc...";
+        list tag {
+          key "name";
+          description "Tag name/value pairs are are passed to transforms.";
+
+          leaf name {
+            type string;
+          }
+
+          leaf value {
             type string;
           }
         }
