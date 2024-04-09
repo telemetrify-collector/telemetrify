@@ -26,9 +26,10 @@ def tnode_root() -> TNode:
 
 SOURCE_PARAM_TIMESTAMP = PTag(None, 'timestamp')
 SOURCE_PARAM_SCHEMA_PATH = PTag(None, 'schema_path')
-SOURCE_PARAM_BASE_TAGS = PTag(None, 'base_tags')
 SOURCE_PARAM_RESET = PTag(None, 'reset')
-SOURCE_PARAM_SOURCE_LABEL = PTag('tlm', 'source-label')
+SOURCE_PARAM_TAG = PTag('tlm', 'tag')
+
+SINK_PARAM_BASE_TAGS = PTag(None, 'base-tags')
 
 # STATE_NONE = 0
 STATE_STOPPED = 1 # valid target-/externally-visible- state

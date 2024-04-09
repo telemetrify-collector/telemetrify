@@ -49,10 +49,7 @@ def get_subscription_source_ned_id(sub_source_node: TNode) -> ?HTag:
 
 def get_subscription_base_source_params(sub_source_node: TNode) -> TNode:
     source_params = tnode_root()
-    metadata_node = sub_source_node[PTag('tlm', 'metadata')]
-    source_label_node = metadata_node[SOURCE_PARAM_SOURCE_LABEL]
-    if source_label_node:
-        source_params.leaf(None, SOURCE_PARAM_SOURCE_LABEL, source_label_node.try_value())
+    source_params.tree(None, SOURCE_PARAM_TAG).merge(sub_source_node[SOURCE_PARAM_TAG])
     return source_params
 
 def get_log_level(log_level_leaf: TNode) -> ?int:
@@ -240,7 +237,7 @@ class SubscriptionRefiner(MirrorRefiner):
                     PTag('tlm', 'subscription'),
                     Key.wildcard(),
                     PTag('tlm', 'source'),
-                    PTag('tlm', 'metadata')]),
+                    PTag('tlm', 'tag')]),
                     SUB_TYPE_RUNNING), True),
             ],
             Keypath([
