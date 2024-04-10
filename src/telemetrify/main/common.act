@@ -12,24 +12,31 @@
 #
 
 import logging
+import time
 
 import telemetrify.common.utils as utils
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
+from telemetrify.nsoapi.schema import SchemaPath
 
-def tnode_empty() -> TNode:
+def tnode_void() -> TNode:
     return TNode(OP_NONE, PTag.root())
 
 def tnode_root() -> TNode:
     return TTree(OP_NONE, PTag.root(), None, {})
 
-SOURCE_PARAM_TIMESTAMP = PTag(None, 'timestamp')
-SOURCE_PARAM_SCHEMA_PATH = PTag(None, 'schema_path')
-SOURCE_PARAM_RESET = PTag(None, 'reset')
-SOURCE_PARAM_TAG = PTag('tlm', 'tag')
-
-SINK_PARAM_BASE_TAGS = PTag(None, 'base-tags')
+FLOW_PARAM_TIMESTAMP = PTag(None, 'timestamp')
+FLOW_PARAM_SCHEMA_PATH = PTag(None, 'schema_path')
+FLOW_PARAM_DELTA = PTag(None, 'delta')
+FLOW_PARAM_RESET = PTag(None, 'reset')
+FLOW_PARAM_RESET_BROADCAST = PTag(None, 'broadcast')
+FLOW_PARAM_INTERNAL_TAGS = PTag('tlm', 'internal-tag')
+FLOW_PARAM_INTERNAL_TAGS_NAME = PTag('tlm', 'name')
+FLOW_PARAM_INTERNAL_TAGS_VALUE = PTag('tlm', 'value')
+FLOW_PARAM_EXTERNAL_TAGS = PTag('tlm', 'external-tag')
+FLOW_PARAM_EXTERNAL_TAGS_NAME = PTag('tlm', 'name')
+FLOW_PARAM_EXTERNAL_TAGS_VALUE = PTag('tlm', 'value')
 
 # STATE_NONE = 0
 STATE_STOPPED = 1 # valid target-/externally-visible- state
@@ -59,18 +66,90 @@ def state_str(state: int) -> str:
         return "CLOSED"
     raise ValueError("Unknown state value: " + str(state))
 
+OUTPUT_STATE_RESET = 0
+OUTPUT_STATE_SYNCED = 2
+OUTPUT_STATE_PENDING_RESET_REMOVAL = 4
+OUTPUT_STATE_PENDING_RESET_RECONFIG = 6
+
+def output_state_str(state: int) -> str:
+    if state == OUTPUT_STATE_RESET:
+        return "RESET"
+    elif state == OUTPUT_STATE_SYNCED:
+        return "SYNCED"
+    elif state == OUTPUT_STATE_PENDING_RESET_REMOVAL:
+        return "RESET_REMOVAL"
+    elif state == OUTPUT_STATE_PENDING_RESET_RECONFIG:
+        return "RESET_RECONFIG"
+    raise ValueError("Unknown state value: " + str(state))
+
 INVALID_UID = -1
+
+def create_data_flow_params(base_flow_params: TNode, schema_path: ?SchemaPath) -> TNode:
+    flow_params = base_flow_params.clone()
+    flow_params.leaf(None, FLOW_PARAM_TIMESTAMP, time.time())
+    if schema_path is not None:
+        flow_params.leaf(None, FLOW_PARAM_SCHEMA_PATH, schema_path)
+    return flow_params
+
+def create_reset_flow_params(base_flow_params: TNode, schema_path: ?SchemaPath, broadcast: bool) -> TNode:
+    flow_params = create_data_flow_params(base_flow_params, schema_path)
+    reset_node = flow_params.tree(None, FLOW_PARAM_RESET)
+    if broadcast:
+        reset_node.leaf(None, FLOW_PARAM_RESET_BROADCAST, None)
+    return flow_params
 
 # protocol ServerProxy:
 #     uid: pure() -> int
 #     attach: action(int, action(int) -> None) -> None
 #     detach: action(int) -> None
 
-class ServerProxyBase(object):
+class Message(object):
+    sender_uid: int
+
+    def __init__(self, sender_uid: int):
+        self.sender_uid = sender_uid
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+class State(Message):
+    """"State change indication"""
+    state: int
+
+    def __init__(self, sender_uid: int, state: int):
+        Message.__init__(self, sender_uid)
+        self.state = state
+
+    def __repr__(self) -> str:
+        return "State(%d, %s)" % (self.sender_uid, state_str(self.state))
+
+class Resync(Message):
+    """"Request a full data (i.e. replace or delete, not delta) update."""
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self, sender_uid: int):
+        Message.__init__(self, sender_uid)
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+
+    def __repr__(self) -> str:
+        return "Resync(%d)" % self.sender_uid
+
+class Reset(Message):
+    """"Request a delete update prior to releasing one or more downstream nodes."""
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self, sender_uid: int):
+        Message.__init__(self, sender_uid)
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+
+    def __repr__(self) -> str:
+        return "Reset(%d)" % self.sender_uid
+
+class FlowNodeBase(object):
     @property
     _uid: int
     @property
-    attach_fn: action(int, action(int, int) -> None) -> None
+    attach_fn: action(int, action(Message) -> None) -> None
     @property
     detach_fn: action(int) -> None
     @property
@@ -79,7 +158,7 @@ class ServerProxyBase(object):
     def __init__(
             self,
             uid: int,
-            attach_fn: action(int, action(int, int) -> None) -> None,
+            attach_fn: action(int, action(Message) -> None) -> None,
             detach_fn: action(int) -> None,
             close_fn: action() -> None):
 
@@ -88,100 +167,132 @@ class ServerProxyBase(object):
         self.detach_fn = detach_fn
         self.close_fn = close_fn
 
-    # extension ServerProxyBase(ServerProxy):
-    def uid(self):
+    def uid(self) -> int:
         return self._uid
 
-    proc def attach(self, uid: int, state_cb: action(int, int) -> None):
-        self.attach_fn(uid, state_cb)
+    proc def attach(self, client_uid: int, msg_cb: action(Message) -> None):
+        self.attach_fn(client_uid, msg_cb)
 
-    proc def detach(self, uid: int):
-        self.detach_fn(uid)
+    proc def detach(self, client_uid: int):
+        self.detach_fn(client_uid)
 
     proc def close(self):
         self.close_fn()
 
 class ServerMixin(object):
-    @property
     uid: int
+    clients: dict[int, action(Message) -> None]
+
+    def __init__(self, uid: int):
+        self.uid = uid
+        self.clients = {}
+
+    def attach(self, client_uid: int, msg_cb: action(Message) -> None):
+        self.clients[client_uid] = msg_cb
+        self.on_attached(client_uid, msg_cb)
+
+    def detach(self, client_uid: int):
+        try_pop(self.clients, client_uid)
+
+    proc def on_attached(self, client_uid: int, msg_cb: action(Message) -> None):
+        pass
+
+    def _notify_clients(self, msg: Message):
+        for msg_cb in self.clients.values():
+            msg_cb(msg)
+
+    def _iter_client_uids(self) -> Iterator[int]:
+        return self.clients.keys()
+
+    def _iter_client_cbs(self) -> Iterator[(int, action(Message) -> None)]:
+        return self.clients.items()
+
+class SinkMixin(ServerMixin):
+    @property # Workaround __init__ actonc: Non @property attribute on_closed cannot be mutated
+    on_closed: proc() -> None
+
+    def __init__(self, uid: int, on_closed: proc() -> None):
+        ServerMixin.__init__(self, uid)
+        self.on_closed = on_closed
+
+    def on_closing(self):
+        # Close immediately
+        # TODO: Wait for upstream clients? Then however we might need to handle a potential consistency race if
+        #       the user creates a new sink towards the same target DB.
+        self.on_closed()
+
+class SourceMixin(ServerMixin):
     @property
     state: int
-    @property
-    clients: dict[int, action(int, int) -> None]
     @property
     on_closed: proc() -> None
 
     def __init__(self, uid: int, on_closed: proc() -> None):
-        self.uid = uid
+        ServerMixin.__init__(self, uid)
         self.state = STATE_STOPPED
-        self.clients = {}
         self.on_closed = on_closed
 
-    def attach(self, uid: int, state_cb: action(int, int) -> None):
-        self.clients[uid] = state_cb
-        state_cb(self.uid, self.state)
-
-    def detach(self, uid: int):
-        try_pop(self.clients, uid)
-        if self.state == STATE_CLOSING:
-            self._check_close()
+    def on_attached(self, client_uid: int, msg_cb: action(Message) -> None):
+        msg_cb(State(self.uid, self.state))
 
     def on_started(self):
-        if self.state not in [STATE_RUNNING, STATE_CLOSING, STATE_CLOSED]:
+        if self.state not in [STATE_RUNNING, STATE_CLOSING]:
             self.state = STATE_RUNNING
-            self._notify_clients()
+            self._notify_clients(State(self.uid, self.state))
 
     def on_stopped(self):
         if self.state == STATE_RUNNING:
             self.state = STATE_STOPPED
-            self._notify_clients()
-        elif self.state == STATE_CLOSING:
-            self._check_close()
+            self._notify_clients(State(self.uid, self.state))
 
     def on_closing(self):
-        self.state = STATE_CLOSING
-        self._notify_clients()
-        self._check_close()
+        # Close immediately
+        self.on_closed()
 
-    def _check_close(self):
-        if len(self.clients) == 0:
-            self.state = STATE_CLOSED
-            self.on_closed()
+class Output(FlowNodeBase):
+    @property # Workaround __init__ actonc: Non @property attribute write_fn cannot be mutated
+    write_fn: action(int, Node, TNode) -> None
+    # @property
+    # key: Keypath
 
-    def _notify_clients(self):
-        for state_cb in self.clients.values():
-            state_cb(self.uid, self.state)
+    def __init__(
+            self,
+            uid: int,
+            attach_fn: action(int, action(Message) -> None) -> None,
+            detach_fn: action(int) -> None,
+            close_fn: action() -> None,
+            write_fn: action(int, Node, TNode) -> None):
+
+        FlowNodeBase.__init__(self, uid, attach_fn, detach_fn, close_fn)
+        self.write_fn = write_fn
+
+    proc def write(self, sender_uid: int, node: Node, flow_params: TNode) -> None:
+        self.write_fn(sender_uid, node, flow_params)
 
 #
 # Sink
 #
 
-class Sink(ServerProxyBase):
+class Sink(Output):
     @property
-    write_fn: action(Node, TNode, TNode, ?action() -> None) -> None
+    _workaround_actonc_issue_1598: bool
 
     def __init__(
             self,
             uid: int,
-            attach_fn: action(int, action(int, int) -> None) -> None,
+            attach_fn: action(int, action(Message) -> None) -> None,
             detach_fn: action(int) -> None,
             close_fn: action() -> None,
-            write_fn: action(Node, TNode, TNode, ?action() -> None) -> None):
+            write_fn: action(int, Node, TNode) -> None):
 
-        ServerProxyBase.__init__(self, uid, attach_fn, detach_fn, close_fn)
-        self.write_fn = write_fn
-
-    def write(self, node: Node, source_params: TNode, sink_config: TNode, done_cb: ?action() -> None) -> None:
-        self.write_fn(node, source_params, sink_config, done_cb)
-
-    def close(self):
-        self.close_fn()
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        Output.__init__(self, uid, attach_fn, detach_fn, close_fn, write_fn)
 
 #
 # Source
 #
 
-class Source(ServerProxyBase):
+class Source(FlowNodeBase):
     # @property
     # update_config_fn: action(TNode) -> None
     @property
@@ -190,13 +301,13 @@ class Source(ServerProxyBase):
     def __init__(
             self,
             uid: int,
-            attach_fn: action(int, action(int, int) -> None) -> None,
+            attach_fn: action(int, action(Message) -> None) -> None,
             detach_fn: action(int) -> None,
             close_fn: action() -> None):
             #update_config_fn: action(TNode) -> None):
 
         self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
-        ServerProxyBase.__init__(self, uid, attach_fn, detach_fn, close_fn)
+        FlowNodeBase.__init__(self, uid, attach_fn, detach_fn, close_fn)
         #self.update_config_fn = update_config_fn
 
     # def update_config(self, source_update: TNode):
@@ -230,7 +341,7 @@ class SubscriberMixin(object):
     @property
     source_mixin: SubscriberSourceMixin
     @property
-    sinks_mixin: SubscriberSinksMixin
+    output_mixin: OutputCollectionMixin
     @property
     state: int
     @property
@@ -239,6 +350,8 @@ class SubscriberMixin(object):
     _stop_fn: proc() -> None
     @property
     _update_sub_config_fn: proc(TNode) -> None
+    @property
+    write_reset: proc(bool) -> None
     @property
     on_closed_fn: proc() -> None
     @property
@@ -249,10 +362,10 @@ class SubscriberMixin(object):
             start: proc() -> None,
             stop: proc() -> None,
             update_sub_config: proc(TNode) -> None,
-            on_source_state_trampoline: action(int, int) -> None,
+            source_msg_trampoline: action(Message) -> None,
             resync_source: proc() -> None,
-            write_reset: proc(action(Node, TNode) -> None) -> None,
-            on_write_reset_done_trampoline: action(int) -> None,
+            write_reset: proc(bool) -> None,
+            output_upstream_msg_trampoline: action(Message) -> None,
             on_closed: proc() -> None,
             log: logging.Logger):
 
@@ -260,22 +373,22 @@ class SubscriberMixin(object):
             uid,
             self._on_source_start,
             self._on_source_stopping,
-            on_source_state_trampoline)
+            source_msg_trampoline)
 
-        self.sinks_mixin = SubscriberSinksMixin(
+        self.output_mixin = OutputCollectionMixin(
             uid,
             resync_source,
-            write_reset,
-            on_write_reset_done_trampoline,
-            self._on_sinks_reset,
-            self._on_sinks_quiescent)
+            self._on_request_reset,
+            output_upstream_msg_trampoline,
+            self._on_outputs_quiescent,
+            log)
 
         self.state = STATE_STOPPED
 
         self._start_fn = start
         self._stop_fn = stop
         self._update_sub_config = update_sub_config
-
+        self.write_reset = write_reset
         self.on_closed_fn = on_closed
 
         self.log = log
@@ -283,8 +396,8 @@ class SubscriberMixin(object):
     def get_source(self) -> ?Source:
         return self.source_mixin.get_source()
 
-    def write(self, node: Node, source_params: TNode) -> None:
-        self.sinks_mixin.write(node, source_params)
+    def write(self, sender_uid: int, node: Node, flow_params: TNode) -> None:
+        self.output_mixin.write(sender_uid, node, flow_params)
 
     def update_config(self, update: SubscriberUpdate):
         if self._update_config_requires_restart(update):
@@ -315,26 +428,25 @@ class SubscriberMixin(object):
         if _source is not None:
             self.source_mixin.update_source(_source)
 
-        _sinks = update.sinks
-        if _sinks:
-            self.sinks_mixin.update(_sinks)
+        _outputs = update.outputs
+        if _outputs:
+            self.output_mixin.update(_outputs)
 
     def _check_state(self):
         if self.log.output_level >= logging.TRACE:
             self.log.trace("_check_state", {
                 "state": state_str(self.state),
                 "source_state": state_str(self.source_mixin.source_state),
-                "sinks_reset": self.sinks_mixin.is_reset(),
-                "sinks_quiescent": self.sinks_mixin.is_quiescent()})
+                "outputs_quiescent": self.output_mixin.is_quiescent()})
 
         if self.state == STATE_STOPPED:
-            if self.source_mixin.source_state == STATE_RUNNING and self.sinks_mixin.is_reset():
+            if self.source_mixin.source_state == STATE_RUNNING:
                 self._start()
         elif self.state == STATE_RUNNING:
             if self.source_mixin.source_state != STATE_RUNNING:
                 self._stop()
         elif self.state == STATE_CLOSING:
-            if self.sinks_mixin.is_quiescent():
+            if self.output_mixin.is_quiescent():
                 self.state = STATE_CLOSED
                 self.source_mixin.close()
                 self.on_closed_fn()
@@ -357,15 +469,15 @@ class SubscriberMixin(object):
             self.source_mixin.on_stopped()
         self._check_state()
 
-    def on_source_state(self, source_uid: int, source_state: int):
+    def on_source_msg(self, msg: Message):
         if self.log.output_level >= logging.TRACE:
-            self.log.trace("on_source_state", {"source_uid": source_uid, "source_state": state_str(source_state)})
-        self.source_mixin.on_source_state(source_uid, source_state)
+            self.log.trace("on_source_msg", {"msg": msg})
+        self.source_mixin.on_source_msg(msg)
 
-    def on_write_reset_done(self, sub_sink_uid: int):
+    def on_output_upstream_msg(self, msg: Message):
         if self.log.output_level >= logging.TRACE:
-            self.log.trace("on_write_reset_done", {"sub_sink_uid": sub_sink_uid})
-        self.sinks_mixin.on_write_reset_done(sub_sink_uid)
+            self.log.trace("on_output_upstream_msg", {"msg": msg})
+        self.output_mixin.on_output_upstream_msg(msg)
 
     def _on_source_start(self):
         if self.log.output_level >= logging.TRACE:
@@ -378,14 +490,9 @@ class SubscriberMixin(object):
             self.log.trace("_on_source_stopping", None)
         self._check_state()
 
-    def _on_sinks_reset(self):
+    def _on_outputs_quiescent(self):
         if self.log.output_level >= logging.TRACE:
-            self.log.trace("_on_sinks_reset", None)
-        self._check_state()
-
-    def _on_sinks_quiescent(self):
-        if self.log.output_level >= logging.TRACE:
-            self.log.trace("_on_sinks_quiescent", None)
+            self.log.trace("_on_outputs_quiescent", None)
         self._check_state()
 
     def _start(self):
@@ -396,11 +503,15 @@ class SubscriberMixin(object):
     def _stop(self):
         if self.log.output_level >= logging.TRACE:
             self.log.trace("_stop", None)
-        self.sinks_mixin.reset()
+        self.write_reset(True)
         self._stop_fn()
 
+    def _on_request_reset(self) -> list[int]:
+        self.write_reset(False)
+        return [self.output_mixin.uid]
+
     # def restart(self):
-    #     # Stop to be restarted if/when source & sinks are OK
+    #     # Stop to be restarted if/when source & outputs are OK
     #     self._stop()
 
     def close(self):
@@ -408,7 +519,7 @@ class SubscriberMixin(object):
             self.log.trace("close", None)
         self.state = STATE_CLOSING
         self._stop_fn()
-        self.sinks_mixin.close()
+        self.output_mixin.close()
 
 class SubscriberSourceMixin(object):
     @property
@@ -424,7 +535,7 @@ class SubscriberSourceMixin(object):
     @property
     _pending_source: ?Source
     @property
-    _on_source_state_trampoline_fn: action(int, int) -> None
+    _source_msg_trampoline_fn: action(Message) -> None
 
     @property
     _start_fn: proc() -> None
@@ -435,7 +546,7 @@ class SubscriberSourceMixin(object):
             uid: int,
             start: proc() -> None,
             stopping: proc() -> None,
-            on_source_state_trampoline: action(int, int) -> None):
+            source_msg_trampoline: action(Message) -> None):
 
         self.uid = uid
 
@@ -448,7 +559,7 @@ class SubscriberSourceMixin(object):
 
         self._start_fn = start
         self._stopping_fn = stopping
-        self._on_source_state_trampoline_fn = on_source_state_trampoline
+        self._source_msg_trampoline_fn = source_msg_trampoline
 
     def get_source(self) -> ?Source:
         return self._source
@@ -485,19 +596,20 @@ class SubscriberSourceMixin(object):
         self._pending_source = None
         self._set_source(None)
 
-    def on_source_state(self, source_uid: int, source_state: int):
-        source = self._source
-        if not (source is not None and source_uid == source.uid()):
-            return
+    def on_source_msg(self, msg: Message):
+        if isinstance(msg, State):
+            source = self._source
+            if not (source is not None and msg.sender_uid == source.uid()):
+                return
 
-        self.source_state = source_state
+            self.source_state = msg.state
 
-        if source_state == STATE_RUNNING:
-            if self.state == STATE_STOPPED:
-                self._start()
-        else:
-            if self.state == STATE_RUNNING:
-                self._stop()
+            if self.source_state == STATE_RUNNING:
+                if self.state == STATE_STOPPED:
+                    self._start()
+            else:
+                if self.state == STATE_RUNNING:
+                    self._stop()
 
     def _set_source(self, source: ?Source):
         old_source = self._source
@@ -505,7 +617,7 @@ class SubscriberSourceMixin(object):
             old_source.detach(self.uid)
         self._source = source
         if source is not None:
-            source.attach(self.uid, self._on_source_state_trampoline_fn)
+            source.attach(self.uid, self._source_msg_trampoline_fn)
 
     def _stop(self):
         self.state = STATE_STOPPING
@@ -515,222 +627,246 @@ class SubscriberSourceMixin(object):
         self.state = STATE_RUNNING
         self._start_fn()
 
-class SubscriberSinksMixin(object):
+class OutputData(object):
+    @property
+    key: Keypath
+    @property
+    output: Output
+    @property
+    state: int
+    @property
+    awaited_reset_client_uids: set[int]
+    @property
+    pending_config: TNode
+    @property
+    _flow_params_merge: TNode
+
+    def __init__(self, key: Keypath, output_update: OutputUpdate):
+        self.key = key
+        self.output = output_update.output
+        self.state = OUTPUT_STATE_RESET
+        self.awaited_reset_client_uids = set(None)
+        self.pending_config = output_update.config
+        self._flow_params_merge = tnode_void()
+        # self.process_config() # actonc: Name self is not in scope
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        return "OutputData(%s, %s, %s, %s, %s, %s)" % (
+            repr(self.key), repr(self.output), output_state_str(self.state), repr(self.awaited_reset_client_uids), repr(self.pending_config), repr(self._flow_params_merge))
+
+    @staticmethod
+    def create(key: Keypath, output_update: OutputUpdate):
+        output_data = OutputData(key, output_update)
+        output_data.process_config()
+        return output_data
+
+    def process_config(self):
+        new_merge = tnode_root()
+        config = self.pending_config
+
+        internal_tags = config[FLOW_PARAM_INTERNAL_TAGS]
+        if internal_tags:
+            new_merge[FLOW_PARAM_INTERNAL_TAGS] = internal_tags.clone_as(OP_MERGE)
+
+        external_tags = config[FLOW_PARAM_EXTERNAL_TAGS]
+        if external_tags:
+            new_merge[FLOW_PARAM_EXTERNAL_TAGS] = external_tags.clone_as(OP_MERGE)
+
+        self._flow_params_merge = new_merge
+
+    def write(self, sender_uid: int, node: Node, flow_params: TNode) -> None:
+        _flow_params: TNode = flow_params
+        flow_params_merge = self._flow_params_merge
+        if flow_params_merge:
+            _flow_params = flow_params.clone().merge(flow_params_merge)
+        self.output.write(sender_uid, node, _flow_params)
+
+class OutputCollectionMixin(object):
     @property
     uid: int
     @property
-    sub_sinks: dict[Keypath, SubscriberSink]
+    request_resync_fn: proc() -> None
     @property
-    pending_add_sub_sinks: dict[Keypath, SubscriberSink]
+    request_reset_fn: proc() -> list[int]
     @property
-    pending_reset: dict[int, SubscriberSink]
-    @property
-    resync_source_fn: proc() -> None
-    @property
-    write_reset_fn: proc(action(Node, TNode) -> None) -> None
-    @property
-    on_reset_fn: proc() -> None
-    @property
-    on_reset_done_trampoline_fn: action(int) -> None
+    output_upstream_msg_trampoline: action(Message) -> None
     @property
     on_quiescent_fn: proc() -> None
+    @property
+    active_outputs: dict[Keypath, OutputData]
+    @property
+    attached_outputs: dict[int, OutputData]
+    @property
+    pending_reset_uids: dict[int, set[int]] # dict[client_uid, output_uids]
+    @property
+    log: logging.Logger
 
     def __init__(self,
             uid: int,
-            resync_source: proc() -> None,
-            write_reset: proc(action(Node, TNode) -> None) -> None,
-            on_reset_done_trampoline: action(int) -> None,
-            on_reset: proc() -> None,
-            on_quiescent: proc() -> None):
+            request_resync_fn: proc() -> None,
+            request_reset_fn: proc() -> list[int],
+            output_upstream_msg_trampoline: action(Message) -> None,
+            on_quiescent_fn: proc() -> None,
+            log: logging.Logger):
 
         self.uid = uid
-        self.sub_sinks = {}
-        self.pending_add_sub_sinks = {}
-        self.pending_reset = {}
-        self.resync_source_fn = resync_source
-        self.write_reset_fn = write_reset
-        self.on_reset_done_trampoline_fn = on_reset_done_trampoline
-        self.on_reset_fn = on_reset
-        self.on_quiescent_fn = on_quiescent
+        self.request_resync_fn = request_resync_fn
+        self.request_reset_fn = request_reset_fn
+        self.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+        self.on_quiescent_fn = on_quiescent_fn
+        self.log = log
 
-    def update(self, sink_updates: list[(Keypath, ?SubscriberSink)]):
+        self.active_outputs = {}
+        self.attached_outputs = {}
+        self.pending_reset_uids = {}
+
+    def update(self, output_updates: list[(Keypath, ?OutputUpdate)]):
         do_resync = False
-        for sub_sink_key, sub_sink in sink_updates:
-            if sub_sink is not None:
-                if self._try_remove_sub_sink_key(sub_sink.key):
-                    self._replace_pending_add_sub_sink(sub_sink)
+        reset_output_uids: set[int] = set(None)
+
+        for output_key, output_update in output_updates:
+            # Try remove old active output
+            old_output_data = try_pop(self.active_outputs, output_key)
+            if old_output_data is not None:
+                if old_output_data.state == OUTPUT_STATE_RESET:
+                    self._detach_output(old_output_data)
                 else:
-                    self._add_sub_sink(sub_sink)
-                    do_resync = True
-            else:
-                self._remove_sub_sink_key(sub_sink_key)
+                    if old_output_data.state == OUTPUT_STATE_SYNCED:
+                        reset_output_uids.add(old_output_data.output.uid())
+                    old_output_data.state = OUTPUT_STATE_PENDING_RESET_REMOVAL
+
+            # Add new output (or possibly re-add (with new config) a previously known output with pending reset)
+            if output_update is not None:
+                known_output_data = try_get(self.attached_outputs, output_update.output.uid())
+                if known_output_data is not None:
+                    # Attached but not active means it must be in OUTPUT_STATE_PENDING_RESET_REMOVAL
+                    known_output_data.state = OUTPUT_STATE_PENDING_RESET_RECONFIG
+                    known_output_data.pending_config = output_update.config
+                    self.active_outputs[output_key] = known_output_data
+                else:
+                    new_output_data = OutputData.create(output_key, output_update)
+                    self._attach_output(new_output_data)
+                    self.active_outputs[output_key] = new_output_data
+
+                do_resync = True
+
+        if reset_output_uids:
+            client_uids: list[int] = self.request_reset_fn()
+
+            for output_uid in reset_output_uids:
+                output_data = try_get(self.attached_outputs, output_uid)
+                if output_data is not None:
+                    set_update(output_data.awaited_reset_client_uids, client_uids)
+
+            for client_uid in client_uids:
+                dict_set_update(self.pending_reset_uids, client_uid, reset_output_uids)
+
         if do_resync:
-            self.resync_source_fn()
-
-    def write(self, node: Node, source_params: TNode) -> None:
-        is_delta = source_params.has_child(PTag(None, 'delta'))
-        # Skip writes to new sinks until we get a non-delta payload.
-        for sub_sink in self.sub_sinks.values():
-            if not (is_delta and sub_sink.is_reset):
-                sub_sink.is_reset = False
-                sub_sink.write(node, source_params)
-
-    def _replace_pending_add_sub_sink(self, sub_sink: SubscriberSink):
-        prev_pending_sub_sink = try_pop(self.pending_add_sub_sinks, sub_sink.key)
-        if prev_pending_sub_sink is not None:
-            prev_pending_sub_sink.close()
-        self.pending_add_sub_sinks[sub_sink.key] = sub_sink
-
-    def _add_sub_sink(self, sub_sink: SubscriberSink):
-        self.sub_sinks[sub_sink.key] = sub_sink
-        #sub_sink.attach(self.uid, self._on_sink_state)
-        sub_sink.attach(self.uid, lambda u, s: None)
-        # TODO: Have sink report when running and hold off output until then + resync?
-
-    def _try_remove_sub_sink_key(self, sub_sink_key: Keypath) -> bool:
-        sub_sink = try_pop(self.sub_sinks, sub_sink_key)
-        if sub_sink is not None:
-            self._schedule_sub_sink_removal(sub_sink)
-            return True
-        return False
-
-    def _remove_sub_sink_key(self, sub_sink_key: Keypath):
-        updated = False
-
-        sub_sink = try_pop(self.sub_sinks, sub_sink_key)
-        if sub_sink is not None:
-            self._schedule_sub_sink_removal(sub_sink)
-            updated = True
-
-        pending_sub_sink = try_pop(self.pending_add_sub_sinks, sub_sink_key)
-        if pending_sub_sink is not None:
-            pending_sub_sink.close()
-            updated = True
-
-        if updated:
-            self._check_quiescence()
-
-    def _schedule_sub_sink_removal(self, sub_sink: SubscriberSink):
-        if sub_sink.is_reset:
-            self._finalize_sub_sink_removal(sub_sink)
-        else:
-            self._schedule_sub_sink_reset(sub_sink)
-
-    def _finalize_sub_sink_removal(self, sub_sink: SubscriberSink):
-        sub_sink.detach(self.uid)
-        sub_sink.close() # We have ownership of the SubscriptionSink but NOT the encapsulated Sink
-        pending_add_sub_sink = try_pop(self.pending_add_sub_sinks, sub_sink.key)
-        if pending_add_sub_sink is not None:
-            self._add_sub_sink(pending_add_sub_sink)
-            self.resync_source_fn()
+            self.request_resync_fn()
         else:
             self._check_quiescence()
 
-    def _schedule_sub_sink_reset(self, sub_sink: SubscriberSink):
-        self.pending_reset[sub_sink.uid()] = sub_sink
-        sink_uid = sub_sink.uid()
-        def _write_fn(node: Node, source_params: TNode):
-            def _done_cb():
-                self.on_reset_done_trampoline_fn(sink_uid)
-            sub_sink.write(node, source_params, _done_cb)
-        self.write_reset_fn(_write_fn)
+    def write(self, sender_uid: int, node: Node, flow_params: TNode) -> None:
+        do_resync = False
 
-    def on_write_reset_done(self, sub_sink_uid: int):
-        sub_sink = try_pop(self.pending_reset, sub_sink_uid)
-        if sub_sink is not None:
-            sub_sink.is_reset = True
-            _active_sub_sink = try_get(self.sub_sinks, sub_sink.key)
-            _pending_sub_sink = try_get(self.sub_sinks, sub_sink.key)
-            if not (_active_sub_sink is not None and _active_sub_sink.uid() == sub_sink_uid
-                    or _pending_sub_sink is not None and _pending_sub_sink.uid() == sub_sink_uid):
-                # The reset sink is not active or pending add, i.e. it was reset to be removed
-                self._finalize_sub_sink_removal(sub_sink)
-            self._check_reset()
+        def _resolve_reset(output_data: OutputData):
+            output_data.awaited_reset_client_uids.discard(sender_uid)
+            if not output_data.awaited_reset_client_uids:
+                if output_data.state == OUTPUT_STATE_PENDING_RESET_REMOVAL:
+                    self._detach_output(output_data)
+                elif output_data.state == OUTPUT_STATE_PENDING_RESET_RECONFIG:
+                    output_data.state = OUTPUT_STATE_RESET
+                    output_data.process_config()
+                    do_resync = True
 
-    def _check_reset(self):
-        if self.is_reset():
-            self.on_reset_fn()
-
-    def reset(self):
-        for sub_sink in self.sub_sinks.values():
-            self._schedule_sub_sink_reset(sub_sink)
+        reset = flow_params[FLOW_PARAM_RESET]
+        is_reset = reset.exists()
+        is_reset_broadcast = is_reset and reset.has_child(FLOW_PARAM_RESET_BROADCAST)
+        if is_reset and not is_reset_broadcast:
+            output_uids = try_pop(self.pending_reset_uids, sender_uid)
+            if output_uids is not None:
+                for output_uid in output_uids:
+                    output_data = try_get(self.attached_outputs, output_uid)
+                    if output_data is not None:
+                        _resolve_reset(output_data)
+                        output_data.write(self.uid, node, flow_params)
         else:
-            self._check_reset()
+            if is_reset_broadcast:
+                try_pop(self.pending_reset_uids, sender_uid)
+                for output_data in self.attached_outputs.values():
+                    _resolve_reset(output_data)
+                    output_data.write(self.uid, node, flow_params)
+            else:
+                for output_data in self.active_outputs.values():
+                    if output_data.state == OUTPUT_STATE_SYNCED:
+                        output_data.write(self.uid, node, flow_params)
+                    elif output_data.state == OUTPUT_STATE_RESET:
+                        # Skip writes to new outputs until we get a non-delta payload.
+                        is_delta = flow_params.has_child(FLOW_PARAM_DELTA)
+                        if not is_delta:
+                            output_data.state = OUTPUT_STATE_SYNCED
+                            output_data.write(self.uid, node, flow_params)
 
-    def is_reset(self) -> bool:
-        return len(self.pending_reset) == 0
+        if do_resync:
+            self.request_resync_fn()
+        else:
+            self._check_quiescence()
+
+    def on_output_upstream_msg(self, msg: Message):
+        if isinstance(msg, Resync):
+            self.request_resync_fn()
+        elif isinstance(msg, Reset):
+            output_uid = msg.sender_uid
+            output_data = try_get(self.attached_outputs, output_uid)
+            if output_data is not None:
+                client_uids = self.request_reset_fn()
+                if client_uids:
+                    set_update(output_data.awaited_reset_client_uids, client_uids)
+                    for client_uid in client_uids:
+                        dict_set_add(self.pending_reset_uids, client_uid, output_uid)
+
+    def _attach_output(self, output_data: OutputData):
+        self.attached_outputs[output_data.output.uid()] = output_data
+        output_data.output.attach(self.uid, self.output_upstream_msg_trampoline)
+
+    def _detach_output(self, output_data: OutputData):
+        output_uid = output_data.output.uid()
+        try_pop(self.attached_outputs, output_uid)
+        # for client_uid in output_data.awaited_reset_client_uids:
+        #     dict_set_discard(self.pending_reset_uids, client_uid, output_uid)
+        output_data.output.detach(self.uid)
 
     def _check_quiescence(self):
         if self.is_quiescent():
             self.on_quiescent_fn()
 
     def is_quiescent(self) -> bool:
-        return len(self.sub_sinks) == 0 and len(self.pending_add_sub_sinks) == 0 and self.is_reset()
+        return len(self.attached_outputs) == 0
 
     def close(self):
-        for pending_sub_sink in self.pending_add_sub_sinks.values():
-            pending_sub_sink.close()
-        #self.pending_add_sub_sinks.clear()
-        self.pending_add_sub_sinks = {}
+        output_updates: list[(Keypath, ?OutputUpdate)] = []
+        for output_key in self.active_outputs.keys():
+            output_updates.append((output_key, None))
+        self.update(output_updates)
 
-        for sub_sink_key in list(self.sub_sinks.keys()):
-            self._remove_sub_sink_key(sub_sink_key)
+class OutputUpdate(object):
+    @property
+    config: TNode
+    @property
+    output: Output
 
-        self._check_reset()
-        self._check_quiescence()
-
-class SubscriberSink(object):
-    @property
-    key: Keypath
-    @property
-    config: TNode # TODO: Not really needed here
-    @property
-    sink: Sink
-    @property
-    transforms: list[Transform]
-    @property
-    head_cb: action(Node, TNode, ?action() -> None) -> None
-    @property
-    is_reset: bool
-
-    def __init__(self,
-            key: Keypath,
-            config: TNode,
-            sink: Sink,
-            transforms: list[Transform],
-            head_cb: action(Node, TNode, ?action() -> None) -> None):
-
-        self.key = key
+    def __init__(self, config: TNode, output: Output):
         self.config = config
-        self.sink = sink
-        self.transforms = transforms
-        self.head_cb = head_cb
-        self.is_reset = True
+        self.output = output
 
     def __str__(self) -> str:
-        return "SubscriberSink(" + str(self.key) + ", " + str(self.config) + ", " + str(self.sink) + ")"
+        return "OutputUpdate(" + str(self.config) + ", " + str(self.output) + ")"
 
     def __repr__(self):
         return self.__str__()
-
-    def write(self, node: Node, source_params: TNode, done_cb: ?action() -> None) -> None:
-        self.head_cb(node, source_params, done_cb)
-
-    def close(self):
-        # Close transforms but NOT sink as it's owned by SubscriberManager
-        for transform in self.transforms:
-            transform.close()
-        self.transforms.clear()
-
-    #extension SubscriberSink(ServerProxy):
-    def uid(self):
-        return self.sink.uid()
-
-    proc def attach(self, uid: int, state_cb: action(int, int) -> None):
-        self.sink.attach(uid, state_cb)
-
-    proc def detach(self, uid: int):
-        self.sink.detach(uid)
 
 class SubscriberUpdate(object):
     @property
@@ -738,17 +874,17 @@ class SubscriberUpdate(object):
     @property
     source: ?Source
     @property
-    sinks: list[(Keypath, ?SubscriberSink)]
+    outputs: list[(Keypath, ?OutputUpdate)]
 
-    def __init__(self, config: ?TNode, source: ?Source, sinks: list[(Keypath, ?SubscriberSink)]):
+    def __init__(self, config: ?TNode, source: ?Source, outputs: list[(Keypath, ?OutputUpdate)]):
         self.config = config
         self.source = source
-        self.sinks = sinks
+        self.outputs = outputs
 
     def __str__(self) -> str:
         s = []
-        for sink_uid, sink in self.sinks:
-            unsafe_list_append(s, "(" + str(sink_uid) + ", " + optional_str(sink, "None") + ")")
+        for output_key, output_update in self.outputs:
+            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_update, "None") + ")")
         return "SubscriberUpdate(" + optional_str(self.config, "None") + ", " + optional_str(self.source, "None") + ", " + str(s) + ")"
 
     def __repr__(self):
@@ -758,22 +894,75 @@ class SubscriberUpdate(object):
 # Transform
 #
 
-class Transform(object):
+class Transform(Output):
     @property
-    post_fn: action(Node, TNode, ?action() -> None) -> None
-    @property
-    close_fn: action() -> None
+    update_output_fn: action(list[(Keypath, ?OutputUpdate)]) -> None
 
     def __init__(
             self,
-            post_fn: action(Node, TNode, ?action() -> None) -> None,
+            uid: int,
+            attach_fn: action(int, action(Message) -> None) -> None,
+            detach_fn: action(int) -> None,
             close_fn: action() -> None,
-            ):
-        self.post_fn = post_fn
-        self.close_fn = close_fn
+            write_fn: action(int, Node, TNode) -> None,
+            update_output_fn: action(list[(Keypath, ?OutputUpdate)]) -> None):
 
-    def post(self, node: Node, source_params: TNode, done_cb: ?action() -> None) -> None:
-        self.post_fn(node, source_params, done_cb)
+        Output.__init__(self, uid, attach_fn, detach_fn, close_fn, write_fn)
+        self.update_output_fn = update_output_fn
+
+    def update_output(self, update: list[(Keypath, ?OutputUpdate)]) -> None:
+        self.update_output_fn(update)
+
+class TransformMixin(ServerMixin):
+    @property
+    output_mixin: OutputCollectionMixin
+    @property
+    state: int
+    @property
+    on_closed: proc() -> None
+    @property
+    log: logging.Logger
+
+    def __init__(self,
+            uid: int,
+            output_upstream_msg_trampoline: action(Message) -> None,
+            on_closed: proc() -> None,
+            log: logging.Logger):
+
+        ServerMixin.__init__(self, uid)
+        self.output_mixin = OutputCollectionMixin(
+            uid,
+            self._on_request_resync,
+            self._on_request_reset,
+            output_upstream_msg_trampoline,
+            self._on_outputs_quiescent,
+            log)
+        self.state = STATE_RUNNING
+        self.on_closed = on_closed
+        self.log = log
+
+    def write(self, sender_uid: int, node: Node, flow_params: TNode) -> None:
+        self.output_mixin.write(sender_uid, node, flow_params)
+
+    def update_output(self, update: list[(Keypath, ?OutputUpdate)]) -> None:
+        self.output_mixin.update(update)
+
+    def on_output_upstream_msg(self, msg: Message):
+        if self.log.output_level >= logging.TRACE:
+            self.log.trace("on_output_upstream_msg", {"msg": msg})
+        self.output_mixin.on_output_upstream_msg(msg)
+
+    def _on_request_resync(self):
+        self._notify_clients(Resync(self.uid))
+
+    def _on_request_reset(self):
+        self._notify_clients(Reset(self.uid))
+        return list(self._iter_client_uids())
+
+    def _on_outputs_quiescent(self):
+        if self.state == STATE_CLOSING:
+            self.state = STATE_CLOSED
+            self.on_closed()
 
     def close(self):
-        self.close_fn()
+        self.output_mixin.close()

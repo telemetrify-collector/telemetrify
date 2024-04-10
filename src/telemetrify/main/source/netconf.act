@@ -34,7 +34,7 @@ class NetconfSource(Source):
     def __init__(
             self,
             uid: int,
-            attach_fn: action(int, action(int, int) -> None) -> None,
+            attach_fn: action(int, action(Message) -> None) -> None,
             detach_fn: action(int) -> None,
             close_fn: action() -> None,
             rpc_fn: action(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None,
@@ -68,21 +68,20 @@ actor NetconfSourceAct(
     var log = logging.Logger(logh)
 
     # Workaround compiler ordering issue
-    #var server = ServerMixin(uid, _on_server_closed)
-    var server = ServerMixin(uid, lambda: None)
+    #var source_mixin = SourceMixin(uid, _on_source_mixin_closed)
+    var source_mixin = SourceMixin(uid, lambda: None)
 
-    # var config: TNode = tnode_empty()
     var client: ?netconf.Client = None
     var client_seqno: int = 0
 
-    def attach(client_uid: int, state_cb: action(int, int) -> None):
-        server.attach(client_uid, state_cb)
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        source_mixin.attach(client_uid, msg_cb)
 
     def detach(client_uid: int):
-        server.detach(client_uid)
+        source_mixin.detach(client_uid)
 
     def close():
-        server.on_closing()
+        source_mixin.on_closing()
 
     def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
         _client = client
@@ -111,7 +110,7 @@ actor NetconfSourceAct(
             c.close()
             return
         log.debug("SOURCE netconf CONNECTED", None)
-        server.on_started()
+        source_mixin.on_started()
 
     def _on_client_defunct(error_msg: str, seqno: int):
         if seqno != client_seqno:
@@ -126,7 +125,7 @@ actor NetconfSourceAct(
             return
         pass
 
-    def _on_server_closed():
+    def _on_source_mixin_closed():
         _close_client()
 
     def _connect_client():
@@ -171,10 +170,10 @@ actor NetconfSourceAct(
             client_seqno += 1
             _client.close()
             client = None
-        server.on_stopped()
+        source_mixin.on_stopped()
 
     # Workaround compiler ordering issue
-    server.on_closed = _on_server_closed
+    source_mixin.on_closed = _on_source_mixin_closed
 
     log.info("SOURCE netconf CREATED", None)
 

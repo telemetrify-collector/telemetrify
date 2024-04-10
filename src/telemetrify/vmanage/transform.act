@@ -18,9 +18,12 @@ import telemetrify.ietf.l3vpn_svc
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.ietf.l3vpn_svc import L3vpnSvcParams
+from telemetrify.main.common import *
 
 actor Transform(
-        output_cb: action(Node, TNode, ?action() -> None) -> None,
+        uid: int,
+        config: TNode,
+        on_closed: action() -> None,
         fetch_l3vpn_svc_tracker: action(action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None) -> None,
         release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None,
         log_handler: ?logging.Handler):
@@ -30,18 +33,33 @@ actor Transform(
         logh.set_handler(log_handler)
     var log = logging.Logger(logh)
 
-    tasks: Wardrobe[(list[dict[str, str]], TNode, ?action() -> None)] = Wardrobe()
+    tasks: Wardrobe[(int, list[dict[str, str]], TNode)] = Wardrobe()
     l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
     pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
 
-    def transform(node: Node, source_params: TNode, done_cb: ?action() -> None):
-        is_reset = source_params.has_child(PTag(None, 'reset'))
-        if is_reset:
-            _transform_reset(node, source_params, done_cb)
-        else:
-            _transform_update(node, source_params, done_cb)
+    # Workaround compiler ordering issue
+    #var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
+    var transform_base = TransformMixin(uid, lambda m: None, lambda: None, log)
 
-    def _transform_update(node: Node, source_params: TNode, done_cb: ?action() -> None):
+    log.info("TRANSFORM vmanage CREATED", None)
+
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        transform_base.attach(client_uid, msg_cb)
+
+    def detach(client_uid: int):
+        transform_base.detach(client_uid)
+
+    def update_output(update: list[(Keypath, ?OutputUpdate)]) -> None:
+        transform_base.update_output(update)
+
+    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
+        is_reset = flow_params.has_child(FLOW_PARAM_RESET)
+        if is_reset:
+            _transform_reset(sender_uid, node, flow_params)
+        else:
+            _transform_update(sender_uid, node, flow_params)
+
+    def _transform_update(sender_uid: int, node: Node, flow_params: TNode):
         log.debug("Transform update", None)
 
         src_ns = 'http://terastrm.net/ns/yang/vmanage'
@@ -76,7 +94,7 @@ actor Transform(
                         approutes.append(params)
 
         if approutes:
-            task_id = tasks.put((approutes, source_params, done_cb))
+            task_id = tasks.put((sender_uid, approutes, flow_params))
 
             _l3vpn_svc_tracker = l3vpn_svc_tracker
             if _l3vpn_svc_tracker is not None:
@@ -85,18 +103,16 @@ actor Transform(
                 pending_fetch_l3vpn_svc_tracker_task_ids.append(task_id)
                 fetch_l3vpn_svc_tracker(_on_fetched_l3vpn_svc_tracker)
 
-    def _transform_reset(node: Node, source_params: TNode, done_cb: ?action() -> None):
+    def _transform_reset(sender_uid: int, node: Node, flow_params: TNode):
         log.debug("Transform reset", None)
         # TODO: ...
-        if done_cb is not None:
-            done_cb()
 
     def _on_lookup_result(params_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
 
         log.debug("lookup", {"result": mapping_str(params_lookup)})
 
         try:
-            approutes, source_params, done_cb = tasks.pop(task_id)
+            sender_uid, approutes, flow_params = tasks.pop(task_id)
         except KeyError:
             pass # TODO: debug/trace log?
         else:
@@ -113,7 +129,7 @@ actor Transform(
                     if dst_ip is not None:
                         _create_network_node(root, dst_ip, src_ip, params_lookup, None)
 
-            output_cb(root, source_params, done_cb)
+            transform_base.write(sender_uid, root, flow_params)
 
     def _create_network_node(root, src_ip: IPv4Address, dst_ip: ?IPv4Address, params_lookup: dict[IPv4Address, L3vpnSvcParams], approute: ?dict[str, str]):
         ns = "urn:ietf:params:xml:ns:yang:ietf-network-state"
@@ -201,7 +217,7 @@ actor Transform(
         l3vpn_svc_tracker = _l3vpn_svc_tracker
         for task_id in pending_fetch_l3vpn_svc_tracker_task_ids:
             try:
-                approutes, _source_params, _done_cb = tasks.borrow(task_id)
+                sender_uid, approutes, _flow_params = tasks.borrow(task_id)
             except KeyError:
                 pass # TODO: debug/trace log?
             else:
@@ -219,9 +235,22 @@ actor Transform(
         pending_fetch_l3vpn_svc_tracker_task_ids.clear()
 
     def close():
+        transform_base.close()
+
+    def output_upstream_msg_trampoline(msg: Message) -> None:
+        transform_base.on_output_upstream_msg(msg)
+
+    def _on_closed():
+        log.debug("TRANSFORM vmanage CLOSED", None)
         _l3vpn_svc_tracker = l3vpn_svc_tracker
         if _l3vpn_svc_tracker is not None:
             release_l3vpn_svc_tracker(_l3vpn_svc_tracker)
+            # l3vpn_svc_tracker = None # actonc: Name l3vpn_svc_tracker is reserved but not yet defined
+        on_closed()
+
+    # # Workaround compiler ordering issue
+    transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+    transform_base.on_closed = _on_closed
 
 def try_parse_ipv4_address(s: ?str) -> ?IPv4Address:
     if s is not None:

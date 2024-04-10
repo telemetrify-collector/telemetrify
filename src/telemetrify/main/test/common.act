@@ -82,62 +82,58 @@ class EventTester(object):
 
 actor MockSource(uid: int, on_closed: action() -> None):
     # Workaround compiler ordering issue
-    #var server = ServerMixin(uid, _on_server_closed)
-    var server = ServerMixin(uid, lambda: None)
+    #var source_mixin = SourceMixin(uid, _on_source_mixin_closed)
+    var source_mixin = SourceMixin(uid, lambda: None)
 
-    def attach(client_uid: int, state_cb: action(int, int) -> None):
-        server.attach(client_uid, state_cb)
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        source_mixin.attach(client_uid, msg_cb)
 
     def detach(client_uid: int):
-        server.detach(client_uid)
+        source_mixin.detach(client_uid)
 
     def close():
-        server.on_closing()
+        source_mixin.on_closing()
 
     def on_started():
-        server.on_started()
+        source_mixin.on_started()
 
     def on_stopped():
-        server.on_stopped()
+        source_mixin.on_stopped()
 
-    def _on_server_closed():
+    def _on_source_mixin_closed():
         on_closed()
 
     # Workaround compiler ordering issue
-    server.on_closed = _on_server_closed
+    source_mixin.on_closed = _on_source_mixin_closed
 
 actor MockSink(uid: int, on_closed: action() -> None):
     # Workaround compiler ordering issue
-    #var server = ServerMixin(uid, _on_server_closed)
-    var server = ServerMixin(uid, lambda: None)
+    #var sink_mixin = SinkMixin(uid, _on_sink_mixin_closed)
+    var sink_mixin = SinkMixin(uid, lambda: None)
 
-    def attach(client_uid: int, state_cb: action(int, int) -> None):
-        server.attach(client_uid, state_cb)
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        sink_mixin.attach(client_uid, msg_cb)
 
     def detach(client_uid: int):
-        server.detach(client_uid)
+        sink_mixin.detach(client_uid)
 
     def close():
-        server.on_closing()
+        sink_mixin.on_closing()
 
-    def write(node: Node, source_params: TNode, sink_config: TNode, done_cb: ?action() -> None) -> None:
-        if done_cb is not None:
-            done_cb()
+    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
+        pass
 
-    def on_stopped():
-        server.on_stopped()
-
-    def _on_server_closed():
+    def _on_sink_mixin_closed():
         on_closed()
 
     # Workaround compiler ordering issue
-    server.on_closed = _on_server_closed
+    sink_mixin.on_closed = _on_sink_mixin_closed
 
 #
-# (Source)ServerMixin
+# SourceMixin
 #
 
-actor SourceServerMixinTester_1(report_result, log_handler):
+actor SourceMixinTester_1(report_result, log_handler):
     log = logging.Logger(log_handler)
 
     var e = EventTester(report_result)
@@ -156,10 +152,10 @@ actor SourceServerMixinTester_1(report_result, log_handler):
         except Exception as ex:
             report_result(False, ex)
 
-def _test_source_server_mixin_1(report_result, log_handler: logging.Handler) -> None:
-    SourceServerMixinTester_1(report_result, log_handler).test()
+def _test_source_mixin_1(report_result, log_handler: logging.Handler) -> None:
+    SourceMixinTester_1(report_result, log_handler).test()
 
-actor SourceServerMixinTester_2(report_result, log_handler):
+actor SourceMixinTester_2(report_result, log_handler):
     log = logging.Logger(log_handler)
 
     var e = EventTester(report_result)
@@ -167,14 +163,15 @@ actor SourceServerMixinTester_2(report_result, log_handler):
     var source_act = MockSource(1, lambda: None)
     var source = Source(1, source_act.attach, source_act.detach, source_act.close)
 
-    def on_source_state_trampoline(source_uid: int, source_state: int):
-        e.on_event("SOURCE " + str(source_uid) + " " + state_str(source_state))
+    def source_msg_trampoline(msg: Message):
+        if isinstance(msg, State):
+            e.on_event("SOURCE " + str(msg.sender_uid) + " " + state_str(msg.state))
 
     def test():
         try:
             e.expect(["SOURCE 1 STOPPED"], test_1)
 
-            source.attach(0, on_source_state_trampoline)
+            source.attach(0, source_msg_trampoline)
         except Exception as ex:
             report_result(False, ex)
 
@@ -194,8 +191,8 @@ actor SourceServerMixinTester_2(report_result, log_handler):
         except Exception as ex:
             report_result(False, ex)
 
-def _test_source_server_mixin_2(report_result, log_handler: logging.Handler) -> None:
-    SourceServerMixinTester_2(report_result, log_handler).test()
+def _test_source_mixin_2(report_result, log_handler: logging.Handler) -> None:
+    SourceMixinTester_2(report_result, log_handler).test()
 
 #
 # SubscriberSourceMixin
@@ -212,7 +209,7 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
     var source_act_2 = MockSource(2, lambda: None)
     var source_2 = Source(2, source_act_2.attach, source_act_2.detach, source_act_2.close)
 
-    var m = SubscriberSourceMixin(0, lambda: None, lambda: None, lambda i, s: None)
+    var m = SubscriberSourceMixin(0, lambda: None, lambda: None, lambda m: None)
 
     def on_start():
         e.on_event("START")
@@ -222,14 +219,14 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
         e.on_event("STOP")
         m.on_stopped()
 
-    def on_source_state_trampoline(source_uid: int, source_state: int):
-        m.on_source_state(source_uid, source_state)
+    def source_msg_trampoline(msg: Message):
+        m.on_source_msg(msg)
 
     def test():
         try:
             # Add source and start it
             e.expect(["START"], test_1)
-            m = SubscriberSourceMixin(0, on_start, on_stopping, on_source_state_trampoline)
+            m = SubscriberSourceMixin(0, on_start, on_stopping, source_msg_trampoline)
             source_act_1.on_started()
             m.update_source(source_1)
         except Exception as ex:
@@ -271,53 +268,64 @@ def _test_subscriber_source_mixin_1(report_result, log_handler: logging.Handler)
     SubscriberSourceMixinTester_1(report_result, log_handler).test()
 
 #
-# SubscriberSourceMixin
+# OutputCollectionMixin
 #
 
-def _create_subscriber_sink(sink_key: Keypath, sink_uid: int) -> SubscriberSink:
+def _create_sink_output_update(sink_uid: int) -> OutputUpdate:
     sink_act = MockSink(sink_uid, lambda: None)
     sink = Sink(sink_uid, sink_act.attach, sink_act.detach, sink_act.close, sink_act.write)
-    config = tnode_empty()
-    head_cb: action(Node, TNode, ?action() -> None) -> None = action lambda n, p, d: sink.write(n, p, config, d)
-    return SubscriberSink(sink_key, config, sink, [], head_cb)
+    config = tnode_void()
+    return OutputUpdate(config, sink)
 
-actor SubscriberSinksMixinTester_1(report_result, log_handler):
+actor OutputCollectionMixinTester_1(report_result, log_handler):
     log = logging.Logger(log_handler)
 
     var e = EventTester(report_result)
 
+    owner_uid = 0
+
     var sink_key_1 = Keypath([Key(["sink-A"])])
-    var sub_sink_1 = _create_subscriber_sink(sink_key_1, 1)
+    var sub_sink_1 = _create_sink_output_update(1)
 
     var sink_key_2 = Keypath([Key(["sink-B"])])
-    var sub_sink_2 = _create_subscriber_sink(sink_key_2, 2)
+    var sub_sink_2 = _create_sink_output_update(2)
 
-    var sink_key_3 = Keypath([Key(["sink-A"])]) # Yes same key as sink_key_1
-    var sub_sink_3 = _create_subscriber_sink(sink_key_3, 3)
+    var sink_key_3 = Keypath([Key(["sink-A"])]) # Yes, same key as sink_key_1
+    var sub_sink_3 = _create_sink_output_update(3)
 
-    var m = SubscriberSinksMixin(0, lambda: None, lambda w: None, lambda i: None, lambda: None, lambda: None)
+    var m = OutputCollectionMixin(0, lambda: None, lambda: [], lambda m: None, lambda: None, log)
 
-    def on_resync():
+    def request_resync():
         e.on_event("RESYNC")
+        after 0: _resync()
 
-    def write_reset(write_cb: action(Node, TNode) -> None):
-        write_cb(tnode_empty(), tnode_empty())
+    def request_reset() -> list[int]:
+        e.on_event("RESET")
+        after 0: _reset()
+        return [owner_uid]
 
-    def on_write_reset_done_trampoline(sink_uid: int):
-        m.on_write_reset_done(sink_uid)
-
-    def on_reset():
-        e.on_event("ON_RESET")
+    def output_upstream_msg_trampoline(msg: Message):
+        m.on_output_upstream_msg(msg)
 
     def on_quiescent():
         e.on_event("ON_QUIESCENT")
 
+    def _resync():
+        e.on_event("ON_RESYNC")
+        m.write(owner_uid, tnode_void(), tnode_void())
+
+    def _reset():
+        e.on_event("ON_RESET")
+        flow_params = tnode_root()
+        flow_params.tree(None, FLOW_PARAM_RESET)
+        m.write(owner_uid, tnode_void(), flow_params)
+
     def test():
         try:
             # Add two sinks
-            e.expect(["RESYNC"], test_1)
+            e.expect(["RESYNC", "ON_RESYNC"], test_1)
 
-            m = SubscriberSinksMixin(0, on_resync, write_reset, on_write_reset_done_trampoline, on_reset, on_quiescent)
+            m = OutputCollectionMixin(owner_uid, request_resync, request_reset, output_upstream_msg_trampoline, on_quiescent, log)
             m.update([(sink_key_1, sub_sink_1), (sink_key_2, sub_sink_2)])
         except Exception as ex:
             report_result(False, ex)
@@ -325,8 +333,7 @@ actor SubscriberSinksMixinTester_1(report_result, log_handler):
     def test_1():
         try:
             # Remove 2nd sink
-            e.expect(["ON_RESET"], test_2)
-            m.write(tnode_empty(), tnode_empty()) # Clear reset
+            e.expect(["RESET", "ON_RESET"], test_2)
             m.update([(sink_key_2, None)])
         except Exception as ex:
             report_result(False, ex)
@@ -334,8 +341,7 @@ actor SubscriberSinksMixinTester_1(report_result, log_handler):
     def test_2():
         try:
             # Add sink with same key as previous, i.e. replace sink_1 with sink_3
-            e.expect(["RESYNC", "ON_RESET"], test_3)
-            m.write(tnode_empty(), tnode_empty()) # Clear reset
+            e.expect(["RESET", "RESYNC", "ON_RESET", "ON_RESYNC"], test_3)
             m.update([(sink_key_3, sub_sink_3)])
         except Exception as ex:
             report_result(False, ex)
@@ -343,10 +349,10 @@ actor SubscriberSinksMixinTester_1(report_result, log_handler):
     def test_3():
         try:
             # Remove the only sink
-            e.expect(["ON_QUIESCENT"], None)
+            e.expect(["RESET", "ON_RESET", "ON_QUIESCENT"], None)
             m.update([(sink_key_3, None)])
         except Exception as ex:
             report_result(False, ex)
 
-def _test_subscriber_sinks_mixin_1(report_result, log_handler: logging.Handler) -> None:
-    SubscriberSinksMixinTester_1(report_result, log_handler).test()
+def _test_output_collection_mixin_1(report_result, log_handler: logging.Handler) -> None:
+    OutputCollectionMixinTester_1(report_result, log_handler).test()

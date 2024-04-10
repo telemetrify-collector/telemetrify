@@ -42,7 +42,7 @@ actor VManagePollSubscription(
 
     _schema = schema.unsafe_get_shared_schema(shared_schema)
 
-    var base_source_params = tnode_empty()
+    var base_flow_params = tnode_root()
 
     var poller_seqno: int = 0
     var poll_path: ?str = None
@@ -55,10 +55,10 @@ actor VManagePollSubscription(
     #     _start,
     #     _stop,
     #     update_sub_config,
-    #     on_source_state_trampoline,
+    #     source_msg_trampoline,
     #     lambda: None,
     #     write_reset,
-    #     on_write_reset_done_trampoline,
+    #     output_upstream_msg_trampoline,
     #     on_closed,
     #     log)
     var subscriber_base = SubscriberMixin(
@@ -66,10 +66,10 @@ actor VManagePollSubscription(
         lambda: None,
         lambda: None,
         lambda c: None,
-        lambda i, s: None,
+        lambda m: None,
         lambda: None,
-        lambda w: None,
-        lambda i: None,
+        lambda b: None,
+        lambda m: None,
         lambda: None,
         log)
 
@@ -104,11 +104,8 @@ actor VManagePollSubscription(
                 ar_data = ar["data"]
                 if isinstance(ar_data, list):
                     xnode = vmanage.approute_to_xnode(ar_data)
-                    source_params = base_source_params.clone()
-                    source_params.leaf(None, SOURCE_PARAM_TIMESTAMP, request_ts)
-                    if schema_path is not None:
-                        source_params.leaf(None, SOURCE_PARAM_SCHEMA_PATH, schema_path)
-                    subscriber_base.write(xnode, source_params)
+                    flow_params = create_data_flow_params(base_flow_params, schema_path)
+                    subscriber_base.write(uid, xnode, flow_params)
             except Exception as exc:
                 log.error("Exception", {"exception": exc})
                 log.debug("Reply body", {"body": reply.body})
@@ -137,7 +134,7 @@ actor VManagePollSubscription(
     def update_sub_config(config: TNode):
         log.debug("SUBSCRIBER vmanage-poll CONFIG", {"config": config})
 
-        base_source_params = get_subscription_base_source_params(config)
+        base_flow_params = get_subscription_base_flow_params(config)
 
         poll = config[SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER]
         path = poll[PTag('tlm', 'path')].try_str()
@@ -167,16 +164,12 @@ actor VManagePollSubscription(
                         cursor.set_mount_id(ned_id)
                 schema_path = cursor.get_schema_path()
 
-    def write_reset(write: action(Node, TNode) -> None) -> None:
+    def write_reset(broadcast: bool) -> None:
         log.trace("SUBSCRIBER vmanage-poll WRITE RESET", None)
 
         cleanup_payload = XTree(OP_NOCREATE, ITag.root(), None, []) # TODO
-        source_params = base_source_params.clone()
-        source_params.leaf(None, SOURCE_PARAM_TIMESTAMP, time.time())
-        if schema_path is not None:
-            source_params.leaf(None, SOURCE_PARAM_SCHEMA_PATH, schema_path)
-        source_params.leaf(None, SOURCE_PARAM_RESET, None)
-        write(cleanup_payload, source_params)
+        flow_params = create_reset_flow_params(base_flow_params, schema_path, broadcast)
+        subscriber_base.write(uid, cleanup_payload, flow_params)
 
     def _start():
         log.debug("SUBSCRIBER vmanage-poll START", None)
@@ -197,11 +190,11 @@ actor VManagePollSubscription(
     def close():
         subscriber_base.close()
 
-    def on_source_state_trampoline(source_uid: int, source_state: int) -> None:
-        subscriber_base.on_source_state(source_uid, source_state)
+    def source_msg_trampoline(msg: Message) -> None:
+        subscriber_base.on_source_msg(msg)
 
-    def on_write_reset_done_trampoline(sink_uid: int) -> None:
-        subscriber_base.on_write_reset_done(sink_uid)
+    def output_upstream_msg_trampoline(msg: Message) -> None:
+        subscriber_base.on_output_upstream_msg(msg)
 
     def _on_closed():
         log.debug("SUBSCRIBER vmanage-poll CLOSED", None)
@@ -211,8 +204,8 @@ actor VManagePollSubscription(
     subscriber_base._start_fn = _start
     subscriber_base._stop_fn = _stop
     subscriber_base._update_sub_config_fn = update_sub_config
-    subscriber_base.source_mixin._on_source_state_trampoline_fn = on_source_state_trampoline
-    #subscriber_base.sinks_mixin.resync_source = lambda: None
-    subscriber_base.sinks_mixin.write_reset_fn = write_reset
-    subscriber_base.sinks_mixin.on_reset_done_trampoline_fn = on_write_reset_done_trampoline
+    subscriber_base.source_mixin._source_msg_trampoline_fn = source_msg_trampoline
+    #subscriber_base.output_mixin.resync_source = lambda: None
+    subscriber_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+    subscriber_base.write_reset = write_reset
     subscriber_base.on_closed_fn = _on_closed

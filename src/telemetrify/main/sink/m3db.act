@@ -36,8 +36,8 @@ actor M3dbSink(uid: int, config: TNode, auth: WorldCap, shared_schema: schema.Sh
     var log = logging.Logger(logh)
 
     # Workaround compiler ordering issue
-    #var server = ServerMixin(uid, _on_server_closed)
-    var server = ServerMixin(uid, lambda: None)
+    #var sink_mixin = SinkMixin(uid, _on_sink_mixin_closed)
+    var sink_mixin = SinkMixin(uid, lambda: None)
 
     config_m3db = config[PTag('tlm', 'm3db')]
     address = config_m3db[PTag('tlm', 'address')].req_str()
@@ -46,40 +46,38 @@ actor M3dbSink(uid: int, config: TNode, auth: WorldCap, shared_schema: schema.Sh
     var client: ?tsdb.m3.Client = None
     var writer: ?telemetrify.tsdb.writer.TSDBWriter = None
 
-    var tasks: Wardrobe[(Node, TNode, TNode, ?action() -> None)] = Wardrobe() # (node, source_params, sink_config, done_cb)
+    var tasks: Wardrobe[(Node, TNode)] = Wardrobe() # (node, flow_params)
     var state = STATE_STOPPED
 
     log.info("SINK m3db CREATED", None)
 
-    def attach(client_uid: int, state_cb: action(int, int) -> None):
-        server.attach(client_uid, state_cb)
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        sink_mixin.attach(client_uid, msg_cb)
 
     def detach(client_uid: int):
-        server.detach(client_uid)
+        sink_mixin.detach(client_uid)
 
     def close():
-        server.on_closing()
+        sink_mixin.on_closing()
 
-    def write(node: Node, source_params: TNode, sink_config: TNode, done_cb: ?action() -> None) -> None:
+    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
         # We don't need to messages when outputing to a log-style sink that is not ready.
         if state == STATE_RUNNING:
             w = writer
             if w is not None:
-                task_id = tasks.put((node, source_params, sink_config))
-                _write(w, task_id, node, source_params, sink_config)
+                task_id = tasks.put((node, flow_params))
+                _write(w, task_id, node, flow_params)
                 return
-        if done_cb is not None:
-            done_cb()
 
-    def _write(_writer: telemetrify.tsdb.writer.TSDBWriter, task_id: int, node: Node, source_params: TNode, sink_config: TNode) -> None:
-        _schema_path: ?value = source_params[SOURCE_PARAM_SCHEMA_PATH].value()
+    def _write(_writer: telemetrify.tsdb.writer.TSDBWriter, task_id: int, node: Node, flow_params: TNode) -> None:
+        _schema_path: ?value = flow_params[FLOW_PARAM_SCHEMA_PATH].value()
         schema_path: ?SchemaPath = _schema_path if _schema_path is not None and isinstance(_schema_path, SchemaPath) else None
-        _timestamp: ?value = source_params[SOURCE_PARAM_TIMESTAMP].value()
+        _timestamp: ?value = flow_params[FLOW_PARAM_TIMESTAMP].value()
         timestamp: time.Instant = _timestamp if _timestamp is not None and isinstance(_timestamp, time.Instant) else time.time()
         base_tags: list[(str, str)] = []
-        for tag_entry in sink_config[SINK_PARAM_BASE_TAGS].iter():
-            _tag = tag_entry[PTag(None, 'name')].try_str()
-            _value = tag_entry[PTag(None, 'value')].try_str()
+        for tag_entry in flow_params[FLOW_PARAM_EXTERNAL_TAGS].iter():
+            _tag = tag_entry[FLOW_PARAM_EXTERNAL_TAGS_NAME].try_str()
+            _value = tag_entry[FLOW_PARAM_EXTERNAL_TAGS_VALUE].try_str()
             if _tag is not None and _value is not None:
                 base_tags.append((_tag, _value))
 
@@ -114,23 +112,15 @@ actor M3dbSink(uid: int, config: TNode, auth: WorldCap, shared_schema: schema.Sh
 
     def _complete_task(task_id: int):
         try:
-            _node, _source_params, _sink_config, done_cb = tasks.pop(task_id)
+            _node, _flow_params = tasks.pop(task_id)
         except KeyError:
             pass
-        else:
-            if done_cb is not None:
-                done_cb()
 
-    def _complete_tasks():
-        for _task_id, (_node, _source_params, _sink_config, done_cb) in tasks.pop_all():
-            if done_cb is not None:
-                done_cb()
-
-    def _on_server_closed():
+    def _on_sink_mixin_closed():
         _close()
 
     def _close():
-        _complete_tasks()
+        tasks.pop_all()
         if state != STATE_CLOSED:
             state = STATE_CLOSED
             _writer = writer
@@ -143,6 +133,6 @@ actor M3dbSink(uid: int, config: TNode, auth: WorldCap, shared_schema: schema.Sh
         _close()
 
     # Workaround compiler ordering issue
-    server.on_closed = _on_server_closed
+    sink_mixin.on_closed = _on_sink_mixin_closed
 
     tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(auth))), address, port, _on_tsdb_connect, _on_tsdb_error, logh)

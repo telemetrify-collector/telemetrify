@@ -33,6 +33,9 @@ SUBSCRIPTION_TYPES = set([
         SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER,
     ])
 
+OUTPUT_TYPE_TAG_TRANSFORM_REF = PTag('tlm', 'transform-ref')
+OUTPUT_TYPE_TAG_SINK_REF = PTag('tlm', 'sink-ref')
+
 SINK_TYPE_TAG_M3DB = PTag('tlm', 'm3db')
 SINK_TYPE_TAG_NSO_DP = PTag('tlm', 'nso-data-provider')
 SINK_TYPE_TAG_NSO_CDB = PTag('tlm', 'nso-cdb')
@@ -47,10 +50,10 @@ def get_subscription_type(sub_source_node: TNode) -> ?Id:
 def get_subscription_source_ned_id(sub_source_node: TNode) -> ?HTag:
     return sub_source_node[PTag('tlm', 'schema')][PTag('tlm', 'ned-id')].try_htag()
 
-def get_subscription_base_source_params(sub_source_node: TNode) -> TNode:
-    source_params = tnode_root()
-    source_params.tree(None, SOURCE_PARAM_TAG).merge(sub_source_node[SOURCE_PARAM_TAG])
-    return source_params
+def get_subscription_base_flow_params(sub_source_node: TNode) -> TNode:
+    flow_params = tnode_root()
+    flow_params.tree(None, FLOW_PARAM_INTERNAL_TAGS).merge(sub_source_node[FLOW_PARAM_INTERNAL_TAGS])
+    return flow_params
 
 def get_log_level(log_level_leaf: TNode) -> ?int:
     _val = log_level_leaf.try_str()
@@ -82,6 +85,85 @@ def get_log_level(log_level_leaf: TNode) -> ?int:
         else:
             raise Exception("Unimplemented logging level value: " + str(_val))
     return None
+
+class OutputCollectionRefinerBase(Refiner):
+    @property
+    collection_output_configs: dict[Keypath, TNode]
+    @property
+    output_to_collection_output_ref_keys: dict[Keypath, set[Keypath]]
+    @property
+    output_ref_refiner_id: int
+    @property
+    output_refiner_id: int
+    @property
+    collection_refiner_id: int
+    @property
+    get_output_list: (TNode, Keypath) -> TNode
+
+    def __init__(self,
+                output_ref_refiner_id: int,
+                output_refiner_id: int,
+                collection_refiner_id: int,
+                get_output_list: (TNode, Keypath) -> TNode):
+
+        Refiner.__init__(
+            self,
+            [],
+            [
+                output_ref_refiner_id,
+                output_refiner_id,
+                collection_refiner_id,
+            ])
+
+        self.collection_output_configs = {}
+        self.output_to_collection_output_ref_keys = {}
+
+        self.output_ref_refiner_id = output_ref_refiner_id
+        self.output_refiner_id = output_refiner_id
+        self.collection_refiner_id = collection_refiner_id
+        self.get_output_list = get_output_list
+
+    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
+        collection_output_ref_refiner, collection_output_ref_keys = input_refiners[self.output_ref_refiner_id]
+        _output_refiner, output_keys = input_refiners[self.output_refiner_id]
+        collection_refiner, collection_keys = input_refiners[self.collection_refiner_id]
+
+        updated: set[Keypath] = set(None)
+
+        # Updated output ref keys
+        for collection_output_ref_key in collection_output_ref_keys:
+            updated.add(collection_output_ref_key)
+
+        # If full reload triggered
+        for collection_key in collection_keys:
+            state = collection_refiner.state(collection_key)
+            if state is not None:
+                output_list = self.get_output_list(root, collection_key)
+                for output_key in output_list.iter_ids():
+                    updated.add(collection_key + Keypath([output_key]))
+
+        # If output updated, update all dependent output collections
+        for output_key in output_keys:
+            _collection_keys = try_get(self.output_to_collection_output_ref_keys, output_key)
+            if _collection_keys is not None:
+                set_update(updated, _collection_keys)
+
+        for collection_output_ref_key in updated:
+            collection_key = collection_output_ref_key.try_slice(0, 1)
+            output_key = collection_output_ref_key.try_slice(1, 2)
+            if collection_key is not None and output_key is not None:
+                collection_output_ref_node = collection_output_ref_refiner.state(collection_output_ref_key)
+                if collection_output_ref_node is not None and isinstance(collection_output_ref_node, TNode):
+                    self.collection_output_configs[collection_output_ref_key] = collection_output_ref_node
+                    dict_set_add(self.output_to_collection_output_ref_keys, output_key, collection_output_ref_key)
+                else:
+                    try_pop(self.collection_output_configs, collection_output_ref_key)
+                    dict_set_discard(self.output_to_collection_output_ref_keys, output_key, collection_output_ref_key)
+
+        return list(iter(updated))
+
+    def state(self, keys: Keypath) -> ?value:
+        return try_get(self.collection_output_configs, keys)
 
 class SourceRefiner(PassthroughRefiner):
     @property
@@ -232,13 +314,6 @@ class SubscriptionRefiner(MirrorRefiner):
                     PTag('tlm', 'source'),
                     PTag('tlm', 'schema')]),
                     SUB_TYPE_RUNNING), True),
-                SubscriptionSpec(SubscriptionIdentity(Keypath([
-                    PTag('tlm', 'telemetrify'),
-                    PTag('tlm', 'subscription'),
-                    Key.wildcard(),
-                    PTag('tlm', 'source'),
-                    PTag('tlm', 'tag')]),
-                    SUB_TYPE_RUNNING), True),
             ],
             Keypath([
                 PTag('tlm', 'telemetrify'),
@@ -293,19 +368,21 @@ class SubscriptionTypeRefiner(Refiner):
     def state(self, keys: Keypath) -> ?value:
         return try_get(self.sub_to_sub_type, keys)
 
-class SubscriptionSinkBaseRefiner(PassthroughRefiner):
+class SubscriptionOutputTransformBaseRefiner(PassthroughRefiner):
     @property
     _workaround_actonc_issue_1598: bool
 
     def __init__(self):
         self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+
         PassthroughRefiner.__init__(
             self,
             SubscriptionSpec(SubscriptionIdentity(Keypath([
                 PTag('tlm', 'telemetrify'),
                 PTag('tlm', 'subscription'),
                 Key.wildcard(),
-                PTag('tlm', 'sink'),
+                PTag('tlm', 'output'),
+                PTag('tlm', 'transform'),
                 Key.wildcard()
                 ]),
                 SUB_TYPE_RUNNING), True)
@@ -315,65 +392,160 @@ class SubscriptionSinkBaseRefiner(PassthroughRefiner):
     def id() -> int:
         return 1008
 
-class SubscriptionSinkRefiner(Refiner):
+class SubscriptionOutputSinkBaseRefiner(PassthroughRefiner):
     @property
-    subscription_sink_configs: dict[Keypath, TNode]
-    @property
-    sink_to_sub_sink_keys: dict[Keypath, set[Keypath]]
+    _workaround_actonc_issue_1598: bool
 
     def __init__(self):
-        Refiner.__init__(
-            self,
-            [],
-            [
-                SubscriptionSinkBaseRefiner.id(),
-                SinkRefiner.id(),
-                SubscriptionTypeRefiner.id(),
-            ])
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
 
-        self.subscription_sink_configs = {}
-        self.sink_to_sub_sink_keys = {}
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'subscription'),
+                Key.wildcard(),
+                PTag('tlm', 'output'),
+                PTag('tlm', 'sink'),
+                Key.wildcard()
+                ]),
+                SUB_TYPE_RUNNING), True)
+            )
 
     @staticmethod
     def id() -> int:
-        return 1014
+        return 1009
 
-    def update(self, root: TNode, input_subs: dict[SubscriptionIdentity, list[Keypath]], input_refiners: dict[int, (Refiner, list[Keypath])]) -> list[Keypath]:
-        sub_sink_refiner, sub_sink_keys = input_refiners[SubscriptionSinkBaseRefiner.id()]
-        _sink_refiner, sink_keys = input_refiners[SinkRefiner.id()]
-        sub_type_refiner, sub_type_keys = input_refiners[SubscriptionTypeRefiner.id()]
+class SubscriptionOutputTransformRefiner(OutputCollectionRefinerBase):
+    @property
+    _workaround_actonc_issue_1598: bool
 
-        updated: set[Keypath] = set(sub_sink_keys)
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        OutputCollectionRefinerBase.__init__(self,
+            SubscriptionOutputTransformBaseRefiner.id(),
+            TransformTypeRefiner.id(),
+            SubscriptionTypeRefiner.id(),
+            lambda r, kp: r[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][kp[0]][PTag('tlm', 'output')][PTag('tlm', 'transform')])
 
-        # If subscription-type changed, update all sub sink elements
-        for sub_type_key in sub_type_keys:
-            sub_type = sub_type_refiner.state(sub_type_key)
-            if sub_type is not None and isinstance(sub_type, Id):
-                subscription_sink_list = root[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_type_key[0]][PTag('tlm', 'sink')]
-                for sink_key_0 in subscription_sink_list.iter_ids():
-                    updated.add(sub_type_key + Keypath([sink_key_0]))
+    @staticmethod
+    def id() -> int:
+        return 1015
 
-        for sink_key in sink_keys:
-            _sub_sink_keys = try_get(self.sink_to_sub_sink_keys, sink_key)
-            if _sub_sink_keys is not None:
-                set_update(updated, _sub_sink_keys)
+class SubscriptionOutputSinkRefiner(OutputCollectionRefinerBase):
+    @property
+    _workaround_actonc_issue_1598: bool
 
-        for sub_sink_key in updated:
-            sub_key = sub_sink_key.try_slice(0, 1)
-            sink_key = sub_sink_key.try_slice(1, 2)
-            if sub_key is not None and sink_key is not None:
-                subscription_sink_node = root[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_key[0]][PTag('tlm', 'sink')][sink_key[0]]
-                if subscription_sink_node:
-                    self.subscription_sink_configs[sub_sink_key] = subscription_sink_node
-                    dict_set_add(self.sink_to_sub_sink_keys, sink_key, sub_sink_key)
-                else:
-                    try_pop(self.subscription_sink_configs, sub_sink_key)
-                    dict_set_discard(self.sink_to_sub_sink_keys, sink_key, sub_sink_key)
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        OutputCollectionRefinerBase.__init__(self,
+            SubscriptionOutputSinkBaseRefiner.id(),
+            SinkRefiner.id(),
+            SubscriptionTypeRefiner.id(),
+            lambda r, kp: r[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][kp[0]][PTag('tlm', 'output')][PTag('tlm', 'sink')])
 
-        return list(iter(updated))
+    @staticmethod
+    def id() -> int:
+        return 1016
 
-    def state(self, keys: Keypath) -> ?value:
-        return try_get(self.subscription_sink_configs, keys)
+class TransformTypeRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'transform'),
+                Key.wildcard(),
+                PTag('tlm', 'type'),
+                ]),
+            SUB_TYPE_RUNNING), True)
+        )
+
+    @staticmethod
+    def id() -> int:
+        return 1020
+
+class TransformOutputTransformBaseRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'transform'),
+                Key.wildcard(),
+                PTag('tlm', 'output'),
+                PTag('tlm', 'transform'),
+                Key.wildcard(),
+                ]),
+            SUB_TYPE_RUNNING), True)
+        )
+
+    @staticmethod
+    def id() -> int:
+        return 1021
+
+class TransformOutputSinkBaseRefiner(PassthroughRefiner):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        PassthroughRefiner.__init__(
+            self,
+            SubscriptionSpec(SubscriptionIdentity(Keypath([
+                PTag('tlm', 'telemetrify'),
+                PTag('tlm', 'transform'),
+                Key.wildcard(),
+                PTag('tlm', 'output'),
+                PTag('tlm', 'sink'),
+                Key.wildcard(),
+                ]),
+            SUB_TYPE_RUNNING), True)
+        )
+
+    @staticmethod
+    def id() -> int:
+        return 1022
+
+class TransformOutputTransformRefiner(OutputCollectionRefinerBase):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        OutputCollectionRefinerBase.__init__(self,
+            TransformOutputTransformBaseRefiner.id(),
+            TransformTypeRefiner.id(),
+            TransformTypeRefiner.id(),
+            lambda r, kp: r[PTag('tlm', 'telemetrify')][PTag('tlm', 'transform')][kp[0]][PTag('tlm', 'output')][PTag('tlm', 'transform')])
+
+    @staticmethod
+    def id() -> int:
+        return 1025
+
+class TransformOutputSinkRefiner(OutputCollectionRefinerBase):
+    @property
+    _workaround_actonc_issue_1598: bool
+
+    def __init__(self):
+        self._workaround_actonc_issue_1598 = True # https://github.com/actonlang/acton/issues/1598
+        OutputCollectionRefinerBase.__init__(self,
+            TransformOutputSinkBaseRefiner.id(),
+            SinkRefiner.id(),
+            TransformTypeRefiner.id(),
+            lambda r, kp: r[PTag('tlm', 'telemetrify')][PTag('tlm', 'transform')][kp[0]][PTag('tlm', 'output')][PTag('tlm', 'sink')])
+
+    @staticmethod
+    def id() -> int:
+        return 1026
 
 class LoggingLevelRefiner(PassthroughRefiner):
     @property

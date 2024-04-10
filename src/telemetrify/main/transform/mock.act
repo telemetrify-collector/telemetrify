@@ -12,59 +12,50 @@
 #
 
 import logging
-import time
-import xml
-
-import telemetrify.nso.writer
-import telemetrify.nsoapi.maapi
-import telemetrify.nsoapi.schema as schema
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.main.common import *
-from telemetrify.main.config import *
 
-def create_mock_sink(uid: int, config: TNode, log_handler: logging.Handler):
-    sink_act = MockSink(uid, config, log_handler)
-    return Sink(uid, sink_act.attach, sink_act.detach, sink_act.close, sink_act.write)
+actor MockTransform(
+        uid: int,
+        config: TNode,
+        on_closed: action() -> None,
+        log_handler: ?logging.Handler):
 
-actor MockSink(uid: int, config: TNode, log_handler: logging.Handler):
-    var logh = logging.Handler("mock-sink")
+    var logh = logging.Handler("mock-transform")
     if log_handler is not None:
         logh.set_handler(log_handler)
-
     var log = logging.Logger(logh)
 
     # Workaround compiler ordering issue
-    #var sink_mixin = SinkMixin(uid, _on_sink_mixin_closed)
-    var sink_mixin = SinkMixin(uid, lambda: None)
+    #var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
+    var transform_base = TransformMixin(uid, lambda m: None, lambda: None, log)
 
-    write_log_level: ?int = get_log_level(config[SINK_TYPE_TAG_MOCK][PTag('tlm', 'log-level')])
-
-    log.info("SINK mock CREATED", None)
+    log.info("TRANSFORM mock CREATED", None)
 
     def attach(client_uid: int, msg_cb: action(Message) -> None):
-        sink_mixin.attach(client_uid, msg_cb)
+        transform_base.attach(client_uid, msg_cb)
 
     def detach(client_uid: int):
-        sink_mixin.detach(client_uid)
+        transform_base.detach(client_uid)
 
-    def close():
-        sink_mixin.on_closing()
+    def update_output(update: list[(Keypath, ?OutputUpdate)]) -> None:
+        transform_base.update_output(update)
 
     def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
-        if write_log_level is not None and log.output_level >= write_log_level:
-            log.log(write_log_level, "SINK mock WRITE\n" + node.pretty_format_node_tree(), {"flow_params": flow_params})
+        transform_base.write(sender_uid, node, flow_params)
 
-    def _on_sink_mixin_closed():
-        _close()
+    def close():
+        transform_base.close()
 
-    def _close():
-        log.info("SINK mock CLOSED", None)
+    def output_upstream_msg_trampoline(msg: Message) -> None:
+        transform_base.on_output_upstream_msg(msg)
 
-    # TODO: When we have destructors support in acton!
-    def __del__():
-        _close()
+    def _on_closed():
+        log.debug("TRANSFORM mock CLOSED", None)
+        on_closed()
 
-    # Workaround compiler ordering issue
-    sink_mixin.on_closed = _on_sink_mixin_closed
+    # # Workaround compiler ordering issue
+    transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+    transform_base.on_closed = _on_closed
