@@ -689,11 +689,17 @@ class TNode(Node):
     def clear(self) -> TNode:
         return self
 
+    def attach(self, _id: Id, other: TNode) -> TNode:
+        return self
+
     def merge(self, other: TNode) -> TNode:
         return self
 
     def clone(self):
         return self._copy_deep(None)
+
+    def clone_as(self, new_op: ?int) -> TNode:
+        return self._copy_deep(new_op)
 
     def _copy_deep(self, new_op: ?int) -> TNode:
         return self
@@ -1017,9 +1023,8 @@ extension TNode(Indexed[Id, TNode]):
         return self.go(_id)
 
     #def __setitem__(self, _id: Id, _id: TNode) -> None:
-    def __setitem__(self, _id: Id, _val: value) -> None:
-        # TODO: ?
-        raise Exception("Not implemented")
+    def __setitem__(self, _id: Id, node: TNode) -> None:
+        self.attach(_id, node)
 
     def __delitem__(self, _id: Id) -> None:
         self.remove(_id)
@@ -1096,6 +1101,10 @@ class TTree(TNode):
         #self._children.clear()
         self._children = {}
         return self
+
+    def attach(self, _id: Id, other: TNode) -> TNode:
+        self._children[_id] = other
+        return other
 
     def merge(self, other: TNode) -> TNode:
         if isinstance(other, TTree):
@@ -1395,10 +1404,10 @@ class TLeaf(TNode):
 
 extension Id(Hashable):
     def __eq__(self, other: Id):
-        if isinstance(self, Tag) and isinstance(other, Tag):
-            return self == other
-        elif isinstance(self, Key) and isinstance(other, Key):
-            return self == other
+        if isinstance(self, Tag):
+            return isinstance(other, Tag) and self == other
+        elif isinstance(self, Key):
+            return isinstance(other, Key) and self == other
         else:
             raise Exception("Id.__eq__: Not Implemented for types " + str(type(self)) + " == " + str(type(other)))
 

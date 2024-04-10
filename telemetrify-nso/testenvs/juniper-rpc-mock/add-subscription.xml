@@ -17,18 +17,14 @@
           <ned-id xmlns:ned-junos-23.1-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-junos-23.1-yang-nc-1.0">ned-junos-23.1-yang-nc-1.0:ned-junos-23.1-yang-nc-1.0</ned-id>
         </schema>
       </source>
-      <!-- <sink>
-        <sink-ref>cdb</sink-ref>
-        <transform>
-          <name>cat8k-ip-sla</name>
-        </transform>
-      </sink> -->
-      <!-- <sink>
-        <sink-ref>m3db</sink-ref>
-      </sink> -->
-      <sink>
-        <sink-ref>mock</sink-ref>
-      </sink>
+      <output>
+        <sink>
+          <sink-ref>cdb</sink-ref>
+        </sink>
+        <!-- <sink>
+          <sink-ref>m3db</sink-ref>
+        </sink> -->
+      </output>
     </subscription>
     <source>
       <name>netconf</name>
@@ -51,13 +47,13 @@
       <nso-cdb>
       </nso-cdb>
     </sink>
-    <sink>
+    <!-- <sink>
       <name>m3db</name>
       <m3db>
         <address>m3db</address>
         <port>7201</port>
       </m3db>
-    </sink>
+    </sink> -->
     <sink>
       <name>mock</name>
       <mock>

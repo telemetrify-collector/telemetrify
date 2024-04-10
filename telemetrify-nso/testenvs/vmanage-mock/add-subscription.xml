@@ -13,15 +13,14 @@
           <ned-id xmlns:ned-vmanage-yang-nc-1.0="http://tail-f.com/ns/ned-id/ned-vmanage-yang-nc-1.0">ned-vmanage-yang-nc-1.0:ned-vmanage-yang-nc-1.0</ned-id>
         </schema>
       </source>
-      <sink>
-        <sink-ref>cdb</sink-ref>
+      <output>
         <transform>
-          <name>vmanage</name>
+          <transform-ref>vmanage</transform-ref>
         </transform>
-      </sink>
-      <!-- <sink>
-        <sink-ref>m3db</sink-ref>
-      </sink> -->
+        <!-- <sink>
+          <sink-ref>m3db</sink-ref>
+        </sink> -->
+      </output>
     </subscription>
     <source>
       <name>vmanage</name>
@@ -38,13 +37,24 @@
       <nso-cdb>
       </nso-cdb>
     </sink>
-    <sink>
+    <!-- <sink>
       <name>m3db</name>
       <m3db>
         <address>m3db</address>
         <port>7201</port>
       </m3db>
-    </sink>
+    </sink> -->
+    <transform>
+      <name>vmanage</name>
+      <type>
+        <vmanage xmlns="urn:telekom:abs:telemetrify-transform"/>
+      </type>
+      <output>
+        <sink>
+          <sink-ref>cdb</sink-ref>
+        </sink>
+      </output>
+    </transform>
     <logging>
       <!-- <level>debug</level> -->
       <level>trace</level>

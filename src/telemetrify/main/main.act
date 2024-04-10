@@ -28,6 +28,7 @@ import telemetrify.main.source.mock.netconf
 import telemetrify.main.source.mock.vmanage
 import telemetrify.main.subscriber.netconf
 import telemetrify.main.subscriber.vmanage
+import telemetrify.main.transform.mock
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
@@ -44,12 +45,16 @@ class PendingSubscriberUpdate(object):
     @property
     source_key: ?Keypath
     @property
-    sink_configs: dict[Keypath, TNode]
+    output_configs: dict[Keypath, ?TNode]
 
-    def __init__(self, config: ?TNode, source_key: ?Keypath, sink_configs: dict[Keypath, TNode]):
+    def __init__(self, config: ?TNode, source_key: ?Keypath, output_configs: dict[Keypath, ?TNode]):
         self.config = config
         self.source_key = source_key
-        self.sink_configs = sink_configs
+        self.output_configs = output_configs
+
+    @staticmethod
+    def make_empty():
+        return PendingSubscriberUpdate(None, None, {})
 
     @staticmethod
     def make_delete():
@@ -60,20 +65,20 @@ class PendingSubscriberUpdate(object):
 
     def __repr__(self) -> str:
         s = []
-        for sink_key, sink_config in self.sink_configs.items():
-            unsafe_list_append(s, "(" + str(sink_key) + ", " + optional_str(sink_config, "None") + ")")
+        for output_key, output_config in self.output_configs.items():
+            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_config, "None") + ")")
         return "PendingSubscriberUpdate(" + optional_str(self.config, "None") + ", " + optional_str(self.source_key, "None") + ", " + str(s) + ")"
 
     def is_delete(self):
-        #return self.config is None and self.source_key is None and len(self.sink_configs) == 0 # actonc codegen error
+        #return self.config is None and self.source_key is None and len(self.output) == 0 # actonc codegen error
         _config = self.config
         _source_key = self.source_key
-        return _config is None and _source_key is None and len(self.sink_configs) == 0
+        return _config is None and _source_key is None and not self.output_configs
 
     def delete(self):
         self.config = None
         self.source_key = None
-        self.sink_configs = {}
+        self.output_configs = {}
 
     def merge(self, other: PendingSubscriberUpdate):
         if other.is_delete():
@@ -88,18 +93,43 @@ class PendingSubscriberUpdate(object):
         if _other_source_key is not None:
             self.source_key = _other_source_key
 
-        for sink_key, other_sink_config in other.sink_configs.items():
-            if other_sink_config:
-                self.sink_configs[sink_key] = other_sink_config
-            else:
-                prev_sink_config = try_get(self.sink_configs, sink_key)
-                if prev_sink_config is not None:
-                    if bool(prev_sink_config) and not bool(other_sink_config):
-                        del self.sink_configs[sink_key]
-                    else:
-                        self.sink_configs[sink_key] = other_sink_config
-                else:
-                    self.sink_configs[sink_key] = other_sink_config
+        for output_key, other_output_config in other.output_configs.items():
+            self.output_configs[output_key] = other_output_config
+
+class PendingTransformUpdate(object):
+    @property
+    config: ?TNode
+    @property
+    output_configs: dict[Keypath, ?TNode]
+
+    def __init__(self, config: ?TNode, output_configs: dict[Keypath, ?TNode]):
+        self.config = config
+        self.output_configs = output_configs
+
+    @staticmethod
+    def make_empty():
+        return PendingTransformUpdate(None, {})
+
+    @staticmethod
+    def make_delete():
+        return PendingTransformUpdate(None, {})
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        s = []
+        for output_key, output_config in self.output_configs.items():
+            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_config, "None") + ")")
+        return "PendingTransformUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
+
+    def is_delete(self):
+        _config = self.config
+        return _config is None and not self.output_configs
+
+    def delete(self):
+        self.config = None
+        self.output_configs = {}
 
 class SubscriberData(object):
     @property
@@ -110,6 +140,16 @@ class SubscriberData(object):
     def __init__(self, subscriber: Subscriber):
         self.subscriber = subscriber
         self.pending_replacement = None
+
+# class TransformData(object):
+#     @property
+#     transform: Transform
+#     @property
+#     pending_replacement: ?PendingTransformUpdate
+
+#     def __init__(self, transform: Transform):
+#         self.transform = transform
+#         self.pending_replacement = None
 
 actor SubscriberManager(
         env: Env,
@@ -127,17 +167,21 @@ actor SubscriberManager(
 
     var sources: dict[Keypath, Source] = {}
     var sinks: dict[Keypath, Sink] = {}
+    var transforms: dict[Keypath, Transform] = {}
 
     var subscribers: dict[Keypath, SubscriberData] = {}
-    #var pending_update_subscribers: dict[Keypath, PendingSubscriberUpdate] = {}
 
     def on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
         source_configs: list[(Keypath, ?value)] = refiner_updates[SourceRefiner.id()]
         sub_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionRefiner.id()]
         sub_type_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionTypeRefiner.id()]
         sub_source_ref_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionSourceRefRefiner.id()]
-        sub_sink_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionSinkRefiner.id()]
+        sub_sink_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionOutputSinkRefiner.id()]
+        sub_trans_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionOutputTransformRefiner.id()]
         sink_configs: list[(Keypath, ?value)] = refiner_updates[SinkRefiner.id()]
+        trans_sink_configs: list[(Keypath, ?value)] = refiner_updates[TransformOutputSinkRefiner.id()]
+        trans_output_configs: list[(Keypath, ?value)] = refiner_updates[TransformOutputTransformRefiner.id()]
+        transform_configs: list[(Keypath, ?value)] = refiner_updates[TransformTypeRefiner.id()]
 
         # Sources
         for source_key, source_config in source_configs:
@@ -161,17 +205,81 @@ actor SubscriberManager(
                 sinks[sink_key] = new_sink
 
         #
+        # Transforms
+        #
+
+        pending_trans_updates: dict[Keypath, PendingTransformUpdate] = {}
+
+        def _get_or_create_pending_transform_update(sub_key: Keypath) -> PendingTransformUpdate:
+            trans_update = try_get(pending_trans_updates, sub_key)
+            if trans_update is not None:
+                return trans_update
+            new_trans_update = PendingTransformUpdate.make_empty()
+            pending_trans_updates[sub_key] = new_trans_update
+            return new_trans_update
+
+        # Transform output sinks
+        for trans_sink_key, trans_sink_config in trans_sink_configs:
+            trans_key = trans_sink_key.try_slice(0, 1)
+            sink_key = trans_sink_key.try_slice(1, 2)
+            if trans_key is not None and sink_key is not None:
+                trans_update = _get_or_create_pending_transform_update(trans_key)
+                _trans_sink_config = trans_sink_config if trans_sink_config is not None and isinstance(trans_sink_config, TNode) else tnode_void()
+                trans_update.output_configs[Keypath([OUTPUT_TYPE_TAG_SINK_REF]) + sink_key] = _trans_sink_config
+
+        # Transform output transforms
+        for trans_output_key, trans_output_config in trans_output_configs:
+            trans_key = trans_output_key.try_slice(0, 1)
+            output_trans_key = trans_output_key.try_slice(1, 2)
+            if trans_key is not None and output_trans_key is not None:
+                trans_update = _get_or_create_pending_transform_update(trans_key)
+                _trans_output_config = trans_output_config if trans_output_config is not None and isinstance(trans_output_config, TNode) else tnode_void()
+                trans_update.output_configs[Keypath([OUTPUT_TYPE_TAG_TRANSFORM_REF]) + trans_key] = _trans_output_config
+
+        # Transform config
+        new_transform_type_keys: set[Keypath] = set(None)
+        for transform_key, transform_config in transform_configs:
+            trans_update = _get_or_create_pending_transform_update(transform_key)
+            if transform_config is not None and isinstance(transform_config, TNode):
+                trans_update.config = transform_config
+                new_transform_type_keys.add(transform_key)
+            else:
+                trans_update.delete()
+
+        # Create/delete transform
+        for transform_key, pending_update in pending_trans_updates.items():
+            log.debug("MAIN transform UPDATE", {"transform_key": transform_key, "pending_update": pending_update})
+            create_new_transform = transform_key in new_transform_type_keys
+            if create_new_transform or pending_update.is_delete():
+                transform = try_pop(transforms, transform_key)
+                if transform is not None:
+                    transform.close()
+            if transform_key in new_transform_type_keys:
+                # New/changed transform
+                new_trans = _create_transform(transform_key,
+                    optional_expect(pending_update.config, "None-check should already have been done."))
+                transforms[transform_key] = new_trans
+
+        # Update transform outputs
+        for transform_key, pending_update in pending_trans_updates.items():
+            output_update = _create_transform_output_update(pending_update)
+            if output_update is not None:
+                transform = try_get(transforms, transform_key)
+                if transform is not None:
+                    transform.update_output(output_update)
+
+        #
         # Subscriber
         #
 
-        pending_updates: dict[Keypath, PendingSubscriberUpdate] = {}
+        pending_sub_updates: dict[Keypath, PendingSubscriberUpdate] = {}
 
         def _get_or_create_pending_subscriber_update(sub_key: Keypath) -> PendingSubscriberUpdate:
-            sub_update = try_get(pending_updates, sub_key)
+            sub_update = try_get(pending_sub_updates, sub_key)
             if sub_update is not None:
                 return sub_update
-            new_sub_update = PendingSubscriberUpdate(None, None, {})
-            pending_updates[sub_key] = new_sub_update
+            new_sub_update = PendingSubscriberUpdate.make_empty()
+            pending_sub_updates[sub_key] = new_sub_update
             return new_sub_update
 
         # Subscriber sources
@@ -184,16 +292,25 @@ actor SubscriberManager(
                 if source_ref is not None:
                     sub_update.source_key = Keypath([Key([source_ref])])
 
-        # Subscriber sinks
+        # Subscriber output sinks
         for sub_sink_key, sub_sink_config in sub_sink_configs:
             sub_key = sub_sink_key.try_slice(0, 1)
             sink_key = sub_sink_key.try_slice(1, 2)
             if sub_key is not None and sink_key is not None:
                 sub_update = _get_or_create_pending_subscriber_update(sub_key)
-                _sub_sink_config = sub_sink_config if sub_sink_config is not None and isinstance(sub_sink_config, TNode) else tnode_empty()
-                sub_update.sink_configs[sink_key] = _sub_sink_config
+                _sub_sink_config = sub_sink_config if sub_sink_config is not None and isinstance(sub_sink_config, TNode) else tnode_void()
+                sub_update.output_configs[Keypath([OUTPUT_TYPE_TAG_SINK_REF]) + sink_key] = _sub_sink_config
 
-        #sub_config_updates: dict[]
+        # Subscriber output transforms
+        for sub_trans_key, sub_trans_config in sub_trans_configs:
+            sub_key = sub_trans_key.try_slice(0, 1)
+            trans_key = sub_trans_key.try_slice(1, 2)
+            if sub_key is not None and trans_key is not None:
+                sub_update = _get_or_create_pending_subscriber_update(sub_key)
+                _sub_trans_config = sub_trans_config if sub_trans_config is not None and isinstance(sub_trans_config, TNode) else tnode_void()
+                sub_update.output_configs[Keypath([OUTPUT_TYPE_TAG_TRANSFORM_REF]) + trans_key] = _sub_trans_config
+
+        # Subscriber config
         for sub_key, sub_config in sub_configs:
             sub_update = _get_or_create_pending_subscriber_update(sub_key)
             if sub_config is not None and isinstance(sub_config, TNode):
@@ -206,7 +323,8 @@ actor SubscriberManager(
             if sub_type_config is not None:
                 new_sub_type_keys.add(sub_type_key)
 
-        for sub_key, pending_update in pending_updates.items():
+        # Update subscriber
+        for sub_key, pending_update in pending_sub_updates.items():
             log.debug("MAIN sub UPDATE", {"sub_key": sub_key, "pending_update": pending_update})
             if pending_update.is_delete():
                 sub_data = try_get(subscribers, sub_key)
@@ -287,51 +405,73 @@ actor SubscriberManager(
         source_key = pending_update.source_key
         source: ?Source = try_get(sources, source_key) if source_key is not None else None
 
-        sub_sinks: list[(Keypath, ?SubscriberSink)] = []
-        for sink_key, config in pending_update.sink_configs.items():
-            sub_sinks.append((sink_key, _create_subscriber_sink(sink_key, config) if config is not None else None))
+        output = _create_output_update(pending_update.output_configs)
 
-        return SubscriberUpdate(pending_update.config, source, sub_sinks)
+        return SubscriberUpdate(pending_update.config, source, output)
 
-    def _create_subscriber_sink(sink_key: Keypath, config: TNode) -> ?SubscriberSink:
-        sink: ?Sink = try_get(sinks, sink_key)
+    def _create_output_update(output_configs: dict[Keypath, ?TNode]) -> list[(Keypath, ?OutputUpdate)]:
+        outputs: list[(Keypath, ?OutputUpdate)] = []
+        for output_key, config in output_configs.items():
+            output_type_key = output_key.try_slice(0, 1)
+            output_name_key = output_key.try_slice(1, 2)
+            if output_type_key is not None and output_name_key is not None:
+                if config is not None:
+                    output: ?Output = None
 
-        if sink is not None:
-            head_cb: action(Node, TNode, ?action() -> None) -> None = action lambda n, p, d: sink.write(n, p, config, d)
-
-            transforms: list[Transform] = []
-            # TODO: Make sure we get elements as 'ordered-by user' from CdbCache/TNode.
-            for _transform_elem in reversed(list(config[PTag('tlm', 'transform')])):
-                transform = _create_transform(_transform_elem, head_cb)
-                if transform is not None:
-                    transforms.append(transform)
-                    head_cb = transform.post # head_cb = transform.post_fn
+                    output_type_key_0 = output_type_key[0]
+                    if output_type_key_0 == OUTPUT_TYPE_TAG_TRANSFORM_REF:
+                        output = try_get(transforms, output_name_key)
+                    elif output_type_key_0 == OUTPUT_TYPE_TAG_SINK_REF:
+                        output = try_get(sinks, output_name_key)
+                    if output is not None:
+                        outputs.append((output_key, OutputUpdate(config, output)))
                 else:
-                    pass
-                    # TODO
-                    # raise Exception("Unknown transform type: " + str(_transform_elem))
+                    outputs.append((output_key, None))
 
-            return SubscriberSink(sink_key, config, sink, transforms, head_cb)
+        return outputs
 
-        return None
+    def _create_transform_output_update(pending_update: PendingTransformUpdate) -> list[(Keypath, ?OutputUpdate)]:
+        return _create_output_update(pending_update.output_configs)
 
-    def _create_transform(config: TNode, next_cb: action(Node, TNode, ?action() -> None) -> None) -> ?Transform:
-        # Magic name string for hardcoded transform for now... i.e. demo.
-        if eq_optional(config[PTag('tlm', 'name')].try_str(), "vmanage"):
+    def _create_transform(transform_key: Keypath, config: TNode) -> Transform:
+        def close_cb():
+            _on_subscriber_closed(transform_key)
+
+        if config.has_child(PTag('tlmt', 'vmanage')):
+            uid = gen_uid()
             transform_act = telemetrify.vmanage.transform.Transform(
-                next_cb,
+                uid,
+                config,
+                close_cb,
                 shared_resources.request_l3vpn_svc_tracker,
                 shared_resources.release_l3vpn_svc_tracker,
                 logh)
-            return Transform(transform_act.transform, transform_act.close)
-        elif eq_optional(config[PTag('tlm', 'name')].try_str(), "cat8k-ip-sla"):
+            return Transform(uid,
+                transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+        elif config.has_child(PTag('tlmt', 'cat8k-ip-sla')):
+            uid = gen_uid()
             transform_act = telemetrify.ietf.cat8k.IpSlaTransform(
-                next_cb,
+                uid,
+                config,
+                close_cb,
                 shared_resources.request_l3vpn_svc_tracker,
                 shared_resources.release_l3vpn_svc_tracker,
                 logh)
-            return Transform(transform_act.transform, transform_act.close)
-        return None
+            return Transform(uid,
+                transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+        else:
+            log.error("MAIN transform CREATE unknown transform type", {"transform_key": transform_key, "config": config})
+            uid = gen_uid()
+            transform_act = telemetrify.main.transform.mock.MockTransform(
+                uid,
+                config,
+                close_cb,
+                logh)
+            return Transform(uid,
+                transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+
+    def _on_transform_closed(transform_key: Keypath):
+        pass # TODO: No need?
 
     def _on_subscriber_closed(sub_key: Keypath):
         sub_data = try_get(subscribers, sub_key)
@@ -420,8 +560,15 @@ actor main(env):
                 SubscriptionSourceRefRefiner,
                 SubscriptionRefiner,
                 SubscriptionTypeRefiner,
-                SubscriptionSinkBaseRefiner,
-                SubscriptionSinkRefiner,
+                SubscriptionOutputTransformBaseRefiner,
+                SubscriptionOutputSinkBaseRefiner,
+                SubscriptionOutputTransformRefiner,
+                SubscriptionOutputSinkRefiner,
+                TransformTypeRefiner,
+                TransformOutputTransformBaseRefiner,
+                TransformOutputSinkBaseRefiner,
+                TransformOutputTransformRefiner,
+                TransformOutputSinkRefiner,
                 LoggingLevelRefiner,
             ],
             [([
@@ -431,8 +578,15 @@ actor main(env):
                 SubscriptionSourceRefRefiner.id(),
                 SubscriptionRefiner.id(),
                 SubscriptionTypeRefiner.id(),
-                SubscriptionSinkBaseRefiner.id(),
-                SubscriptionSinkRefiner.id(),
+                SubscriptionOutputTransformBaseRefiner.id(),
+                SubscriptionOutputSinkBaseRefiner.id(),
+                SubscriptionOutputTransformRefiner.id(),
+                SubscriptionOutputSinkRefiner.id(),
+                TransformTypeRefiner.id(),
+                TransformOutputTransformBaseRefiner.id(),
+                TransformOutputSinkBaseRefiner.id(),
+                TransformOutputTransformRefiner.id(),
+                TransformOutputSinkRefiner.id(),
                 LoggingLevelRefiner.id(),
             ],
             lambda r: _on_config_update(r, s))], _on_config_cache_error,

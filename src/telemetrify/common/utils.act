@@ -155,7 +155,7 @@ class BiDict[K(Hashable), V(Hashable)](object):
         self.key_to_val = {}
         self.val_to_key = {}
 
-class BiMultiDict[K(Hashable), V(Hashable)](object):
+class OneToManyBiDict[K(Hashable), V(Hashable)](object):
     @property
     key_to_val: dict[K, set[V]]
     @property
@@ -166,7 +166,7 @@ class BiMultiDict[K(Hashable), V(Hashable)](object):
         self.val_to_key = {}
 
     def add(self, k: K, v: V):
-        vk = BiMultiDict.try_pop_key(self, v)
+        vk = OneToManyBiDict.try_pop_key(self, v)
         dict_set_add(self.key_to_val, k, v)
         self.val_to_key[v] = k
 
@@ -194,6 +194,46 @@ class BiMultiDict[K(Hashable), V(Hashable)](object):
         # self.val_to_key.clear()
         self.key_to_val = {}
         self.val_to_key = {}
+
+class BiMultiDict[K(Hashable), V(Hashable)](object):
+    @property
+    key_to_vals: dict[K, set[V]]
+    @property
+    val_to_keys: dict[V, set[K]]
+
+    def __init__(self):
+        self.key_to_vals = {}
+        self.val_to_keys = {}
+
+    def add(self, k: K, v: V):
+        dict_set_add(self.key_to_vals, k, v)
+        dict_set_add(self.val_to_keys, v, k)
+
+    def try_get_vals(self, k: K) -> ?set[V]:
+        return try_get(self.key_to_vals, k)
+
+    def try_get_keys(self, v: V) -> ?set[K]:
+        return try_get(self.val_to_keys, v)
+
+    def try_pop_vals(self, k: K) -> ?set[V]:
+        vals = try_pop(self.key_to_vals, k)
+        if vals is not None:
+            for v in vals:
+                dict_set_discard(self.val_to_keys, v, k)
+        return vals
+
+    def try_pop_keys(self, v: V) -> ?set[K]:
+        keys = try_pop(self.val_to_keys, v)
+        if keys is not None:
+            for k in keys:
+                dict_set_discard(self.key_to_vals, k, v)
+        return keys
+
+    def clear(self):
+        # self.key_to_val.clear()
+        # self.val_to_key.clear()
+        self.key_to_vals = {}
+        self.val_to_keys = {}
 
 class UniqueAndSharedKeyDict[U(Hashable), S(Hashable), V](object):
     @property
@@ -456,6 +496,11 @@ def optional_str[T](v: ?T, default: str) -> str:
 
 def optional_repr[T](v: ?T, default: str = "None") -> str:
     return repr(v) if v is not None else default
+
+def optional_expect[T](v: ?T, error_msg: str) -> T:
+    if v is not None:
+        return v
+    raise ValueError(error_msg)
 
 def min2[T(Ord)](a: T, b: T) -> T:
     return a if a <= b else b

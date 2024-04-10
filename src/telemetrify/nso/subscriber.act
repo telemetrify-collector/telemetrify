@@ -411,6 +411,8 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
         for c in refiner_ctors:
             r = c()
 
+            log.debug("Created refiner", {"refiner_id": r.id()})
+
             for sub_spec in r.subscription_dependencies:
                 _stree.add_subscription(sub_spec)
                 dict_list_append(__subscription_dependents, sub_spec.identity, r)
@@ -421,6 +423,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
 
         for r in _refiners.values():
             _assign_priority(r)
+            log.trace("Assigned priority", {"refiner_id": r.id(), "priority": r.priority})
             for refiner_id in r.refiner_dependencies:
                 dependency = _refiners[refiner_id]
                 dict_list_append(__refiner_dependents, dependency, r)
@@ -430,7 +433,11 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             for dependency_id in dependency_ids:
                 dict_list_append(_callback_indexes, dependency_id, i)
 
+        log.trace("Prepare subscription tree")
+
         _pending_setup_sub_params, inner_sub_specs = _stree.prepare_subscriptions(_schema)
+
+        log.debug("Setup cdb subscriptions")
 
         _SubscriptionSetup(cdb_sub_conn, inner_sub_specs, shared_schema, _on_sub_event, _on_subscription_success, on_error, logh)
 

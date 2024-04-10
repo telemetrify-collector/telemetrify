@@ -144,76 +144,10 @@ module telemetrify {
               or ../netconf-get-poll";
           uses schema-settings-g;
         }
-
-        // TODO: Transform at source
-        // uses transform-g;
-
-        list tag {
-          key "name";
-          description "Tag name/value pairs are are passed to transforms.";
-
-          leaf name {
-            type string;
-          }
-
-          leaf value {
-            type string;
-          }
-        }
       }
 
-      list sink {
-        key "sink-ref";
-
-        leaf sink-ref {
-          type leafref {
-            path "/tlm:telemetrify/tlm:sink/tlm:name";
-          }
-        }
-
-        // leaf path-prefix {
-        //   when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
-        //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
-        //   }
-        //   type string;
-        // }
-
-        list base-tags {
-          when "deref(../tlm:name)/../tlm:target/tlm:m3db" {
-            tailf:dependency "/tlm:telemetrify/tlm:sinks";
-          }
-
-          key "name";
-
-          leaf name {
-            type string;
-          }
-
-          leaf value {
-            mandatory true;
-            type string;
-          }
-        }
-
-        // leaf replace-path {
-        //   when "deref(../tlm:name)/../tlm:target/tlm:nso-cdb" {
-        //     tailf:dependency "/tlm:telemetrify/tlm:sinks";
-        //   }
-        //   description "Output to a mutable datatree sink target will replace content under
-        //                the specified path. I.e. old content we be deleted before each new write.";
-        //   type string;
-        // }
-
-        // Per sink transform
-        uses transform-g;
-
-        // TODO
-        // container schema {
-        //   description "Schema settings for sink (post-transform).";
-        //   uses schema-settings-g;
-        // }
-
-        // Moar params? default namespaces etc...
+      container output {
+        uses output-g;
       }
     }
 
@@ -370,6 +304,33 @@ module telemetrify {
       }
     }
 
+    list transform {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      container type {
+        choice transform-type {
+          mandatory true;
+
+          // container prefix-path {
+          //   type kpath;
+          // }
+
+          container mock {
+            tailf:hidden debug;
+            presence true;
+          }
+        }
+      }
+
+      container output {
+        uses output-g;
+      }
+    }
+
     container logging {
       leaf level {
         description "Log-level to output.";
@@ -444,15 +405,68 @@ module telemetrify {
        e.g: /foo/bar[x=2 and y='baz']";
   }
 
-  grouping transform-g {
-    list transform {
+  grouping transform-refs-g {
+    leaf-list transform {
       ordered-by user;
+      type leafref {
+        path "/tlm:telemetrify/tlm:transform/tlm:name";
+      }
+    }
+  }
+
+  grouping output-g {
+    list transform {
+      key "transform-ref";
+      description "Send output to transform.";
+
+      leaf transform-ref {
+        type leafref {
+          path "/tlm:telemetrify/tlm:transform/tlm:name";
+        }
+      }
+
+      uses output-params-g;
+    }
+
+    list sink {
+      key "sink-ref";
+      description "Send output to sink.";
+
+      leaf sink-ref {
+        type leafref {
+          path "/tlm:telemetrify/tlm:sink/tlm:name";
+        }
+      }
+
+      uses output-params-g;
+    }
+  }
+
+  grouping output-params-g {
+    list internal-tag {
       key "name";
+      description "Tag name/value pairs related to internal flow / transforms.";
 
       leaf name {
         type string;
       }
-      // TODO: Transformation language?
+
+      leaf value {
+        type string;
+      }
+    }
+
+    list external-tag {
+      key "name";
+      description "Tag name/value pairs related to external output / sinks.";
+
+      leaf name {
+        type string;
+      }
+
+      leaf value {
+        type string;
+      }
     }
   }
 

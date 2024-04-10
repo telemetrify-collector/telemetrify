@@ -12,20 +12,19 @@
         <schema>
           <ned-id xmlns:ned-ios-xe-yang-nc-17.11="http://tail-f.com/ns/ned-id/ned-ios-xe-yang-nc-17.11">ned-ios-xe-yang-nc-17.11:ned-ios-xe-yang-nc-17.11</ned-id>
         </schema>
-        <tag>
-          <name>hostname</name>
-          <value>de-bsp-berlin-cpe-1</value>
-        </tag>
       </source>
-      <sink>
-        <sink-ref>cdb</sink-ref>
+      <output>
         <transform>
-          <name>cat8k-ip-sla</name>
+          <transform-ref>cat8k-ip-sla</transform-ref>
+          <internal-tag>
+            <name>hostname</name>
+            <value>de-bsp-berlin-cpe-1</value>
+          </internal-tag>
         </transform>
-      </sink>
-      <!-- <sink>
-        <sink-ref>m3db</sink-ref>
-      </sink> -->
+        <!-- <sink>
+          <sink-ref>m3db</sink-ref>
+        </sink> -->
+      </output>
     </subscription>
     <source>
       <name>netconf</name>
@@ -42,13 +41,24 @@
       <nso-cdb>
       </nso-cdb>
     </sink>
-    <sink>
+    <!-- <sink>
       <name>m3db</name>
       <m3db>
         <address>m3db</address>
         <port>7201</port>
       </m3db>
-    </sink>
+    </sink> -->
+    <transform>
+      <name>cat8k-ip-sla</name>
+      <type>
+        <cat8k-ip-sla xmlns="urn:telekom:abs:telemetrify-transform"/>
+      </type>
+      <output>
+        <sink>
+          <sink-ref>cdb</sink-ref>
+        </sink>
+      </output>
+    </transform>
     <logging>
       <!-- <level>debug</level> -->
       <level>trace</level>
