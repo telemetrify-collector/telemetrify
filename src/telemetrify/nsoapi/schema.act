@@ -829,179 +829,9 @@ class Type(object):
         return str(self.type_id) + ", " + parent_type_id \
             + ", " + optional_str(self.conf_type, "None")
 
-    @staticmethod
-    def builtin_types() -> dict[TypeId, Type]:
-        type_int8 = Type(TypeId(0, "int8"), None, C_INT8)
-        type_int16 = Type(TypeId(0, "int16"), None, C_INT16)
-        type_int32 = Type(TypeId(0, "int32"), None, C_INT32)
-        type_int64 = Type(TypeId(0, "int64"), None, C_INT64)
-        type_uint8 = Type(TypeId(0, "uint8"), None, C_INT8)
-        type_uint16 = Type(TypeId(0, "uint16"), None, C_UINT16)
-        type_uint32 = Type(TypeId(0, "uint32"), None, C_UINT32)
-        type_uint64 = Type(TypeId(0, "uint64"), None, C_UINT64)
-        type_string = Type(TypeId(0, "string"), None, C_BUF)
-        type_boolean = Type(TypeId(0, "boolean"), None, C_BOOL)
-        type_hex_list = Type(TypeId(0, "hex-list"), None, C_BINARY) # Not enabled in ConfD/NCS
-        type_hexList = Type(TypeId(0, "hexList"), None, C_BINARY) # Not enabled in ConfD/NCS
-        type_octet_list = Type(TypeId(0, "octet-list"), None, C_BINARY) # TODO: E.g. \d+\(.\d+
-        type_octetList = Type(TypeId(0, "octetList"), None, C_BINARY) # TODO: E.g. \d+\(.\d+
-        type_md5_digest_string = Type(TypeId(0, "md5-digest-string"), None, C_BUF)
-        type_des3_cbc_encrypted_string = Type(TypeId(0, "des3-cbc-encrypted-string"), None, C_BUF)
-        type_aes_cfb_128_encrypted_string = Type(TypeId(0, "aes-cfb-128-encrypted-string"), None, C_BUF)
-        type_aes_256_cfb_128_encrypted_string = Type(TypeId(0, "aes-256-cfb-128-encrypted-string"), None, C_BUF)
-        type_inetAddressIPv4 = Type(TypeId(0, "inetAddressIPv4"), None, C_IPV4)
-        type_inetAddressIPv6 = Type(TypeId(0, "inetAddressIPv6"), None, C_IPV6)
-        type_Counter32 = Type(TypeId(0, "Counter32"), None, C_UINT32)
-        type_Counter64 = Type(TypeId(0, "Counter64"), None, C_UINT64)
-        type_Gauge32 = Type(TypeId(0, "Gauge32"), None, C_UINT32)
-        type_inetPortNumber = Type(TypeId(0, "inetPortNumber"), None, C_UINT16)
-        type_inetAddressDNS = Type(TypeId(0, "inetAddressDNS"), None, C_BUF)
-        type_oid = Type(TypeId(0, "oid"), None, C_OID) # TODO: First identified must be 0,1,2
-        type_inetAddressIP = UnionType(TypeId(0, "inetAddressIP"), None, [type_inetAddressIPv4, type_inetAddressIPv6])
-        type_inetAddress = UnionType(TypeId(0, "inetAddress"), None, [type_inetAddressIP, type_inetAddressDNS])
-        type_ipv4Prefix = Type(TypeId(0, "ipv4Prefix"), None, C_IPV4PREFIX)
-        type_ipv6Prefix = Type(TypeId(0, "ipv6Prefix"), None, C_IPV6PREFIX)
-        type_ipPrefix = UnionType(TypeId(0, "ipPrefix"), None, [type_ipv4Prefix, type_ipv6Prefix])
-        type_size = Type(TypeId(0, "size"), None, C_UINT64) # TODO: with 2^10^x prefixes G,M,K,B
-        type_MD5DigestString = Type(TypeId(0, "MD5DigestString"), None, C_BUF)
-        type_SHA256DigestString = Type(TypeId(0, "SHA256DigestString"), None, C_BUF)
-        type_SHA512DigestString = Type(TypeId(0, "SHA512DigestString"), None, C_BUF)
-        type_cryptHash = Type(TypeId(0, "cryptHash"), None, C_BUF)
-        type_DES3CBCIVEncryptedString = Type(TypeId(0, "DES3CBCIVEncryptedString"), None, C_BUF)
-        type_AESCFB128IVEncryptedString = Type(TypeId(0, "AESCFB128IVEncryptedString"), None, C_BUF)
-        type_AES256CFB128IVEncryptedString = Type(TypeId(0, "AES256CFB128IVEncryptedString"), None, C_BUF)
-        type_byte = Type(TypeId(0, "byte"), None, C_INT8)
-        type_short = Type(TypeId(0, "short"), None, C_INT16)
-        type_int = Type(TypeId(0, "int"), None, C_INT32)
-        type_long = Type(TypeId(0, "long"), None, C_INT64)
-        type_unsignedByte = Type(TypeId(0, "unsignedByte"), None, C_INT8)
-        type_unsignedShort = Type(TypeId(0, "unsignedShort"), None, C_INT16)
-        type_unsignedInt = Type(TypeId(0, "unsignedInt"), None, C_INT32)
-        type_unsignedLong = Type(TypeId(0, "unsignedLong"), None, C_INT64)
-        type_double = Type(TypeId(0, "double"), None, C_DOUBLE)
-        type_objectRef = Type(TypeId(0, "objectRef"), None, C_INSTANCE_IDENTIFIER)
-        type_identityref = Type(TypeId(0, "identityref"), None, C_IDENTITYREF)
-        type_dateTime = Type(TypeId(0, "dateTime"), None, C_DATETIME)
-        type_date = Type(TypeId(0, "date"), None, C_DATE)
-        type_time = Type(TypeId(0, "time"), None, C_TIME)
-        type_duration = Type(TypeId(0, "duration"), None, C_DURATION)
-        type_decimal = Type(TypeId(0, "decimal"), None, C_DOUBLE)
-        type_integer = Type(TypeId(0, "integer"), None, C_INT64)
-        type_float = Type(TypeId(0, "float"), None, C_DOUBLE)
-        type_hexBinary = Type(TypeId(0, "hexBinary"), None, C_BINARY)
-        type_binary = Type(TypeId(0, "binary"), None, C_BINARY) # TODO: base64
-        type_base64Binary = Type(TypeId(0, "base64Binary"), None, C_BINARY) # TODO: base64
-        type_nonNegativeInteger = RestrictedNumberType(TypeId(0, "nonNegativeInteger"), None, C_UINT64, [TypeRange(0, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
-        type_nonPositiveInteger = RestrictedNumberType(TypeId(0, "nonPositiveInteger"), None, C_INT64, [TypeRange(None, 0, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
-        type_negativeInteger = RestrictedNumberType(TypeId(0, "negativeInteger"), None, C_INT64, [TypeRange(None, -1, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
-        type_positiveInteger = RestrictedNumberType(TypeId(0, "positiveInteger"), None, C_UINT64, [TypeRange(1, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
-        type_normalizedString = Type(TypeId(0, "normalizedString"), None, C_BUF) # TODO: Replace whitespace with space e.g. ' '
-        type_token = Type(TypeId(0, "token"), None, C_BUF) # TODO: Replace any consecutive whitespace with single space e.g. ' '
-        type_NOTATION = Type(TypeId(0, "NOTATION"), None, C_BUF) # TODO: Replace any consecutive whitespace with single space e.g. ' '
-        type_language = Type(TypeId(0, "language"), None, C_BUF) # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
-        type_NMTOKEN = Type(TypeId(0, "NMTOKEN"), None, C_BUF) # TODO: [A-Za-z0-9._:-]+
-        type_Name = Type(TypeId(0, "Name"), None, C_BUF) # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
-        type_NCName = Type(TypeId(0, "NCName"), None, C_BUF) # TODO: [^:]*
-        type_ID = Type(TypeId(0, "ID"), None, C_BUF) # TODO: [^:]*
-        type_IDREF = Type(TypeId(0, "IDREF"), None, C_BUF) # TODO: [^:]*
-        type_ENTITY = Type(TypeId(0, "ENTITY"), None, C_BUF) # TODO: [^:]*
-        type_NMTOKEN_LIST = ListType(TypeId(0, "NMTOKEN-LIST"), None, type_NMTOKEN)
-        type_NMTOKENS = ListRestrictionType(TypeId(0, "NMTOKENS"), type_NMTOKEN, [TypeRange(1, None, 0)])
-        type_IDREF_LIST = ListType(TypeId(0, "IDREF-LIST"), None, type_NCName)
-        type_IDREFS = ListRestrictionType(TypeId(0, "IDREFS"), type_NCName, [TypeRange(1, None, 0)])
-        type_ENTITIES = ListRestrictionType(TypeId(0, "ENTITIES"), type_NCName, [TypeRange(1, None, 0)])
-        type_dottedQuad = Type(TypeId(0, "dottedQuad"), None, C_DQUAD)
-        type_hexString = Type(TypeId(0, "hexString"), None, C_HEXSTR)
-        type_ipv4AddressAndPrefixLength = Type(TypeId(0, "ipv4AddressAndPrefixLength"), None, C_IPV4_AND_PLEN)
-        type_ipv6AddressAndPrefixLength = Type(TypeId(0, "ipv6AddressAndPrefixLength"), None, C_IPV6_AND_PLEN)
-        type_ipAddressAndPrefixLength = UnionType(TypeId(0, "ipAddressAndPrefixLength"), None, [type_ipv4AddressAndPrefixLength, type_ipv6AddressAndPrefixLength])
-
-        return {
-            TypeId(0, "int8"): type_int8,
-            TypeId(0, "int16"): type_int16,
-            TypeId(0, "int32"): type_int32,
-            TypeId(0, "int64"): type_int64,
-            TypeId(0, "uint8"): type_uint8,
-            TypeId(0, "uint16"): type_uint16,
-            TypeId(0, "uint32"): type_uint32,
-            TypeId(0, "uint64"): type_uint64,
-            TypeId(0, "string"): type_string,
-            TypeId(0, "boolean"): type_boolean,
-            TypeId(0, "hex-list"): type_hex_list, # Not enabled in ConfD/NCS
-            TypeId(0, "hexList"): type_hexList, # Not enabled in ConfD/NCS
-            TypeId(0, "octet-list"): type_octet_list,
-            TypeId(0, "octetList"): type_octetList,
-            TypeId(0, "md5-digest-string"): type_md5_digest_string,
-            TypeId(0, "des3-cbc-encrypted-string"): type_des3_cbc_encrypted_string,
-            TypeId(0, "aes-cfb-128-encrypted-string"): type_aes_cfb_128_encrypted_string,
-            TypeId(0, "aes-256-cfb-128-encrypted-string"): type_aes_256_cfb_128_encrypted_string,
-            TypeId(0, "inetAddressIPv4"): type_inetAddressIPv4,
-            TypeId(0, "inetAddressIPv6"): type_inetAddressIPv6,
-            TypeId(0, "Counter32"): type_Counter32,
-            TypeId(0, "Counter64"): type_Counter64,
-            TypeId(0, "Gauge32"): type_Gauge32,
-            TypeId(0, "inetPortNumber"): type_inetPortNumber,
-            TypeId(0, "inetAddressDNS"): type_inetAddressDNS,
-            TypeId(0, "oid"): type_oid,
-            TypeId(0, "inetAddressIP"): type_inetAddressIPv6,
-            TypeId(0, "inetAddress"): type_inetAddressDNS,
-            TypeId(0, "ipv4Prefix"): type_ipv4Prefix,
-            TypeId(0, "ipv6Prefix"): type_ipv6Prefix,
-            TypeId(0, "ipPrefix"): type_ipv6Prefix,
-            TypeId(0, "size"): type_size, # TODO: with 2^10^x prefixes G,M,K,B
-            TypeId(0, "MD5DigestString"): type_MD5DigestString,
-            TypeId(0, "SHA256DigestString"): type_SHA256DigestString,
-            TypeId(0, "SHA512DigestString"): type_SHA512DigestString,
-            TypeId(0, "cryptHash"): type_cryptHash,
-            TypeId(0, "DES3CBCIVEncryptedString"): type_DES3CBCIVEncryptedString,
-            TypeId(0, "AESCFB128IVEncryptedString"): type_AESCFB128IVEncryptedString,
-            TypeId(0, "AES256CFB128IVEncryptedString"): type_AES256CFB128IVEncryptedString,
-            TypeId(0, "byte"): type_byte,
-            TypeId(0, "short"): type_short,
-            TypeId(0, "int"): type_int,
-            TypeId(0, "long"): type_long,
-            TypeId(0, "unsignedByte"): type_unsignedByte,
-            TypeId(0, "unsignedShort"): type_unsignedShort,
-            TypeId(0, "unsignedInt"): type_unsignedInt,
-            TypeId(0, "unsignedLong"): type_unsignedLong,
-            TypeId(0, "double"): type_double,
-            TypeId(0, "objectRef"): type_objectRef,
-            TypeId(0, "identityref"): type_identityref,
-            TypeId(0, "dateTime"): type_dateTime,
-            TypeId(0, "date"): type_date,
-            TypeId(0, "time"): type_time,
-            TypeId(0, "duration"): type_duration,
-            TypeId(0, "decimal"): type_decimal,
-            TypeId(0, "integer"): type_integer,
-            TypeId(0, "float"): type_float,
-            TypeId(0, "hexBinary"): type_hexBinary,
-            TypeId(0, "binary"): type_binary, # TODO: base64
-            TypeId(0, "base64Binary"): type_base64Binary, # TODO: base64
-            TypeId(0, "nonNegativeInteger"): type_nonNegativeInteger,
-            TypeId(0, "nonPositiveInteger"): type_nonPositiveInteger,
-            TypeId(0, "negativeInteger"): type_negativeInteger,
-            TypeId(0, "positiveInteger"): type_positiveInteger,
-            TypeId(0, "normalizedString"): type_normalizedString, # TODO: Replace whitespace with space e.g. ' '
-            TypeId(0, "token"): type_token, # TODO: Replace any consecutive whitespace with single space e.g. ' '
-            TypeId(0, "NOTATION"): type_NOTATION, # TODO: Replace any consecutive whitespace with single space e.g. ' '
-            TypeId(0, "language"): type_language, # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
-            TypeId(0, "NMTOKEN"): type_NMTOKEN, # TODO: [A-Za-z0-9._:-]+
-            TypeId(0, "Name"): type_Name, # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
-            TypeId(0, "NCName"): type_NCName, # TODO: [^:]*
-            TypeId(0, "ID"): type_ID, # TODO: [^:]*
-            TypeId(0, "IDREF"): type_IDREF, # TODO: [^:]*
-            TypeId(0, "ENTITY"): type_ENTITY, # TODO: [^:]*
-            TypeId(0, "NMTOKEN-LIST"): type_NMTOKEN,
-            TypeId(0, "NMTOKENS"): type_NMTOKEN,
-            TypeId(0, "IDREF-LIST"): type_NCName,
-            TypeId(0, "IDREFS"): type_NCName,
-            TypeId(0, "ENTITIES"): type_NCName,
-            TypeId(0, "dottedQuad"): type_dottedQuad,
-            TypeId(0, "hexString"): type_hexString,
-            TypeId(0, "ipv4AddressAndPrefixLength"): type_ipv4AddressAndPrefixLength,
-            TypeId(0, "ipv6AddressAndPrefixLength"): type_ipv6AddressAndPrefixLength,
-            TypeId(0, "ipAddressAndPrefixLength"): type_ipv6AddressAndPrefixLength,
-        }
+    #@staticmethod
+    #def builtin_types() -> dict[TypeId, Type]:
+    #    return dict(builtin_types)
 
     @staticmethod
     def unknown_type() -> Type:
@@ -1641,342 +1471,6 @@ class TypeRange:
         self.lo = lo
         self.hi = hi
         self.flags = flags
-
-actor SchemaBuilder(log_handler: ?logging.Handler):
-    var logh = logging.Handler("schema-builder")
-    if log_handler is not None:
-        logh.set_handler(log_handler)
-    var log = logging.Logger(logh)
-
-    var raw_roots: set[int] = set([])
-    var raw_nodes: dict[int, RawNode] = {}
-    var raw_keys: dict[int, RawKeys] = {}
-    var curr_ns: NamespaceDescription = NamespaceDescription("", "", "", 0, "", "")
-    var curr_mount_id: HTag = ROOT_MOUNT_ID
-
-    var pending_type_resolves: list[(TypeId, mut(Type) -> None)] = []
-
-    var hash_to_name: dict[int, str] = {}
-    var name_to_hash: dict[str, int] = {}
-    var namespaces: dict[int, NamespaceDescription] = {}
-    var mount_id_namespaces: dict[HTag, list[NamespaceDescription]] = {}
-    var roots: dict[HTag, Node] = {}
-    var types: dict[TypeId, Type] = Type.builtin_types()
-
-    def on_ns_term(term: EObject) -> value:
-        return _for_schema_lists(term, _on_ns_elem)
-
-    def on_hash_term(term: EObject) -> value:
-        return _for_schema_lists(term, _on_hash_elem)
-
-    def on_mns_term(term: EObject) -> value:
-        return _for_schema_lists(term, _on_mns_elem)
-
-    def _for_schema_lists(term: EObject, on_elem: proc(EObject) -> None) -> value:
-        if isinstance(term, EList):
-            for e in term.elems:
-                #log.trace(e)
-                if isinstance(e, EAtom) and str(e) == 'eof':
-                    return False
-                on_elem(e)
-            return True
-        else:
-            return MaapiProtoError("Unexpected schema term")
-        return True
-
-    def _on_ns_elem(elem: EObject) -> None:
-        if isinstance(elem, ETuple):
-            t = elem.elems
-            if len(t) >= 1:
-                _etype = t[0]
-                if isinstance(_etype, EAtom):
-                    etype = _etype.val
-                    if etype == 'ns':
-                        ns_descr = NamespaceDescription.from_ns_tuple(t)
-                        if ns_descr is not None:
-                            namespaces[ns_descr.ns_hash] = ns_descr
-                            curr_ns = ns_descr
-                            return
-                    elif etype == 'type':
-                        #log.trace(elem)
-                        type_descr = Type.from_ns_tuple(t, curr_ns, pending_type_resolves)
-                        if type_descr is not None:
-                            if type_descr.type_id not in types:
-                                types[type_descr.type_id] = type_descr
-                            else:
-                                log.warning("WARNING: Discarding duplicate type_id", {"type_id": type_descr.type_id})
-                            return
-                    elif etype == 'keys':
-                        keys = RawKeys.from_ns_tuple(t)
-                        if keys is not None:
-                            raw_keys[keys.node_id] = keys
-                            return
-                    elif etype == 'node':
-                        node = RawNode.from_ns_tuple(t)
-                        if node is not None:
-                            raw_nodes[node.node_id] = node
-                            return
-                    elif etype == 'case':
-                        return
-                    elif etype == 'choice':
-                        return
-                    elif etype == 'root' and len(t) == 2:
-                        _node_id = t[1]
-                        if isinstance(_node_id, EInt):
-                            node_id = _node_id.val
-                            raw_roots.add(node_id)
-                            return
-                    elif etype == 'parent':
-                        _assemble_node_trees()
-                        return
-        log.warning("Unexpected schema ns elem", {"elem": elem})
-
-    def _on_hash_elem(elem: EObject) -> None:
-        #log.trace(elem)
-        if isinstance(elem, ETuple):
-            t = elem.elems
-            if len(t) == 2:
-                name = t[0]
-                hash_nr = t[1]
-                if isinstance(hash_nr, EInt):
-                    if isinstance(name, EAtom):
-                        hash_to_name[hash_nr.val] = name.val
-                        name_to_hash[name.val] = hash_nr.val
-                        return
-        log.warning("Unexpected schema hash_db elem", {"elem": elem})
-
-    def _on_mns_elem(elem: EObject) -> None:
-        if isinstance(elem, ETuple):
-            t = elem.elems
-            if len(t) >= 1:
-                _etype = t[0]
-                if isinstance(_etype, EAtom):
-                    etype = _etype.val
-                    if etype == 'mount_id' and len(t) == 2:
-                        _mount_id = t[1]
-                        if isinstance(_mount_id, ETuple):
-                            _elems = _mount_id.elems
-                            if len(_elems) == 2:
-                                _ns_hash = _elems[0]
-                                _name_hash = _elems[1]
-                                if isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
-                                    # ns = hash_to_name.get(_ns_hash.val, "")
-                                    # name = hash_to_name.get(_name_hash.val, "")
-                                    # if ns and name:
-                                    #     log.trace("-- mount_id", ns + ":" + name)
-                                    curr_mount_id = HTag(_ns_hash.val, _name_hash.val)
-                                    return
-                        elif isinstance(_mount_id, EList) and len(_mount_id.elems) == 0:
-                            curr_mount_id = ROOT_MOUNT_ID
-                            return
-                elif isinstance(_etype, ETuple) and len(_etype.elems) == 2 and len(t) >= 2:
-                    a_elems = _etype.elems
-                    _netype = a_elems[0]
-                    _cns = a_elems[1]
-                    _b_elems = t[1]
-                    if isinstance(_netype, EAtom) and _netype.val == 'ns' and isinstance(_cns, EAtom) \
-                        and isinstance(_b_elems, ETuple) and len(_b_elems.elems) >= 4:
-                        b_elems = _b_elems.elems
-                        _prefix = b_elems[0]
-                        _ns = b_elems[1]
-                        _module = b_elems[2]
-                        _nshash = b_elems[3]
-                        if isinstance(_prefix, EAtom) \
-                            and isinstance(_ns, EAtom) \
-                            and isinstance(_module, EAtom) \
-                            and isinstance(_nshash, EInt):
-                            ns_hash = _nshash.val
-                            ns_descr = try_get(namespaces, ns_hash)
-                            if ns_descr is not None:
-                                nslist = try_get(mount_id_namespaces, curr_mount_id)
-                                if nslist is not None:
-                                    nslist.append(ns_descr)
-                                else:
-                                    mount_id_namespaces[curr_mount_id] = list([ns_descr])
-                            else:
-                                #log.warning("mount_id", curr_mount_id, "references unknown namespace:", ns_hash)
-                                log.warning("mount_id references unknown namespace", {"mount_id": curr_mount_id, "ns_hash": ns_hash})
-                            return
-        log.warning("Unexpected schema hash_db elem", {"elem": elem})
-
-    def _assemble_node_trees() -> None:
-        for root_node_id in raw_roots:
-            _roots = _build_node_tree(root_node_id)
-            for tag, root in _roots.items():
-                roots[tag] = root
-
-        raw_roots = set([]) # raw_roots.clear()
-        raw_nodes = {} # raw_nodes.clear()
-        raw_keys = {} # raw_keys.clear()
-
-    def _build_node_tree(node_id: int) -> dict[HTag, Node]:
-        result = {}
-
-        while node_id != 0:
-            raw_node = try_get(raw_nodes, node_id)
-            if raw_node is not None:
-                children = _build_node_tree(raw_node.child_node_id)
-                keys = []
-                if raw_node.key_node_id != 0:
-                    raw_key = try_get(raw_keys, raw_node.key_node_id)
-                    if raw_key is not None:
-                        for key_hash in raw_key.key_hashes:
-                            key_tag = _make_tag(raw_node.ns_hash, key_hash)
-                            key_node = try_get(children, key_tag)
-                            if key_node is not None:
-                                keys.append(key_node)
-                            else:
-                                log.warning("Invalid key hash for schema node:", {"key_hash": key_hash, "node_id": node_id})
-                    else:
-                        log.warning("Invalid key node id for schema node", {"node_id": node_id})
-                tag = _make_tag(raw_node.ns_hash, raw_node.tag_hash)
-                type_id: ?TypeId = None
-                type_descr: ?Type = None
-                if raw_node.type_name:
-                    _type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
-                    type_descr = try_get(types, _type_id)
-                    type_id = _type_id
-                node = Node(
-                    tag,
-                    raw_node.min_occurs,
-                    raw_node.max_occurs,
-                    i64(raw_node.info_flags),
-                    raw_node.conf_type,
-                    type_descr,
-                    keys,
-                    children)
-                result[tag] = node
-
-                if type_id is not None and type_descr is None:
-                    def _resolve_cb(t: Type):
-                        node.value_type = t
-                    pending_type_resolves.append((type_id, _resolve_cb))
-
-                node_id = raw_node.next_node_id
-            else:
-                log.warning("Invalid schema node_id ref", {"node_id": node_id})
-
-        return result
-
-    def _make_tag(ns_hash: int, name_hash: int) -> HTag:
-        tag = HTag(ns_hash, name_hash)
-        return tag
-        # TODO: Store tag for reuse
-
-    def _htag_to_itag(htag: ?HTag) -> ?ITag:
-        if htag is not None:
-            name = try_get(hash_to_name, htag.name_hash)
-            if name is not None:
-                return ITag(try_get(hash_to_name, htag.ns_hash), name)
-        return None
-
-    def _resolve_pending_types():
-        for type_id: TypeId, resolve_cb: mut(Type) -> None in pending_type_resolves:
-            _type = try_get(types, type_id)
-            if _type is not None:
-                resolve_cb(_type)
-            else:
-                if log.output_level >= logging.WARNING:
-                    log.warning("Failed to resolve reference to type", {"type_name": type_id.str_pretty(hash_to_name)})
-
-    def build() -> Schema:
-        log.trace("Build schema", None)
-
-        _resolve_pending_types()
-
-        if log.output_level >= logging.TRACE:
-            _pretty_print_nodes(roots, "")
-            _pretty_print_types(types, "")
-
-        _roots: dict[HTag, Node] = {}
-        _cns_to_namespace: dict[str, NamespaceDescription] = {}
-        _mount_id_maps: dict[HTag, NamespaceMaps] = {}
-
-        for htag, node in roots.items():
-            _roots[htag] = node
-
-        for ns_descr in namespaces.values():
-            _cns_to_namespace[ns_descr.cns] = ns_descr
-
-        for mount_id, ns_items in mount_id_namespaces.items():
-            _ns_to_namespace: dict[str, NamespaceDescription] = {}
-            _prefix_to_namespace: dict[str, NamespaceDescription] = {}
-            _module_to_namespace: dict[str, NamespaceDescription] = {}
-            for ns_descr in ns_items:
-                _ns_to_namespace[ns_descr.ns] = ns_descr
-                _prefix_to_namespace[ns_descr.prefix] = ns_descr
-                _module_to_namespace[ns_descr.module] = ns_descr
-            _mount_id_maps[mount_id] = NamespaceMaps(_ns_to_namespace, _prefix_to_namespace, _module_to_namespace)
-
-        return Schema(_roots, namespaces, _cns_to_namespace, hash_to_name, name_to_hash, _mount_id_maps)
-
-    def build_shared() -> SharedSchema:
-        return SharedSchema(build())
-
-    def _pretty_print_nodes(nodes: dict[HTag, Node], indent: str) -> None:
-        for node in nodes.values():
-            keys = ""
-            if node.keys:
-                key_names = []
-                for key in node.keys:
-                    key_names.append(hash_to_name[key.tag.name_hash])
-                keys = "[" + ", ".join(key_names) + "]"
-            flags = ""
-            if node.flags:
-                flag_names = []
-
-                if node.flags & CS_NODE_IS_CASE != 0:
-                    flag_names.append("case")
-                if node.flags & CS_NODE_IS_LIST != 0:
-                    flag_names.append("list")
-                    flag_names.append(str(node.min_occurs) + ".." + str(node.max_occurs))
-                if node.flags & CS_NODE_IS_CONTAINER != 0:
-                    if node.min_occurs == 0:
-                        flag_names.append("presence")
-                    flag_names.append("container")
-                if node.flags & CS_NODE_IS_WRITE == 0:
-                    flag_names.append("oper")
-                #if node.flags & CS_NODE_IS_CDB != 0:
-                if node.flags & CS_NODE_IS_ACTION != 0:
-                    flag_names.append("action")
-                if node.flags & CS_NODE_IS_PARAM != 0:
-                    flag_names.append("param")
-                if node.flags & CS_NODE_IS_RESULT != 0:
-                    flag_names.append("result")
-                #if node.flags & CS_NODE_IS_NOTIF != 0:
-                #if node.flags & CS_NODE_HAS_WHEN != 0:
-                #if node.flags & CS_NODE_HAS_DISPLAY_WHEN != 0:
-                #if node.flags & CS_NODE_META_DATA != 0:
-                #if node.flags & CS_NODE_IS_WRITE_ALL != 0:
-                if node.flags & CS_NODE_IS_LEAF_LIST != 0:
-                    flag_names.append("leaf-list")
-                if node.flags & CS_NODE_IS_LEAFREF != 0:
-                    flag_names.append("leafref")
-                if node.is_mount_point():
-                    flag_names.append("mount-point")
-                #if node.flags & CS_NODE_IS_STRING_AS_BINARY != 0:
-
-                if flag_names:
-                    flags = " (" + ", ".join(flag_names) + ")"
-            type_str = ""
-            type_descr = node.value_type
-            if type_descr is not None:
-                type_str = " : " + str(type_descr)
-            elif node.is_leaf():
-                type_str = " : CONF_" + str(node.conf_type)
-            qname = hash_to_name[node.tag.ns_hash] + " " + hash_to_name[node.tag.name_hash]
-            log.trace(indent + qname + keys + flags + type_str, None)
-            _pretty_print_nodes(node.children, indent + "  ")
-
-    def _pretty_print_types(types: dict[TypeId, Type], indent: str):
-        for t in types.values():
-            _pretty_print_type(t, indent)
-
-    def _pretty_print_type(t: Type, indent: str):
-        log.trace(indent + str(t), None)
-        parent_type = t.parent_type
-        if parent_type is not None:
-            _pretty_print_type(parent_type, indent + "  ")
 
 #
 # Type conversions
@@ -3101,6 +2595,516 @@ class Any:
             return (C_LIST, _l)
 
         return (C_UNKNOWN, None)
+
+
+type_int8 = Type(TypeId(0, "int8"), None, C_INT8)
+type_int16 = Type(TypeId(0, "int16"), None, C_INT16)
+type_int32 = Type(TypeId(0, "int32"), None, C_INT32)
+type_int64 = Type(TypeId(0, "int64"), None, C_INT64)
+type_uint8 = Type(TypeId(0, "uint8"), None, C_INT8)
+type_uint16 = Type(TypeId(0, "uint16"), None, C_UINT16)
+type_uint32 = Type(TypeId(0, "uint32"), None, C_UINT32)
+type_uint64 = Type(TypeId(0, "uint64"), None, C_UINT64)
+type_string = Type(TypeId(0, "string"), None, C_BUF)
+type_boolean = Type(TypeId(0, "boolean"), None, C_BOOL)
+type_hex_list = Type(TypeId(0, "hex-list"), None, C_BINARY) # Not enabled in ConfD/NCS
+type_hexList = Type(TypeId(0, "hexList"), None, C_BINARY) # Not enabled in ConfD/NCS
+type_octet_list = Type(TypeId(0, "octet-list"), None, C_BINARY) # TODO: E.g. \d+\(.\d+
+type_octetList = Type(TypeId(0, "octetList"), None, C_BINARY) # TODO: E.g. \d+\(.\d+
+type_md5_digest_string = Type(TypeId(0, "md5-digest-string"), None, C_BUF)
+type_des3_cbc_encrypted_string = Type(TypeId(0, "des3-cbc-encrypted-string"), None, C_BUF)
+type_aes_cfb_128_encrypted_string = Type(TypeId(0, "aes-cfb-128-encrypted-string"), None, C_BUF)
+type_aes_256_cfb_128_encrypted_string = Type(TypeId(0, "aes-256-cfb-128-encrypted-string"), None, C_BUF)
+type_inetAddressIPv4 = Type(TypeId(0, "inetAddressIPv4"), None, C_IPV4)
+type_inetAddressIPv6 = Type(TypeId(0, "inetAddressIPv6"), None, C_IPV6)
+type_Counter32 = Type(TypeId(0, "Counter32"), None, C_UINT32)
+type_Counter64 = Type(TypeId(0, "Counter64"), None, C_UINT64)
+type_Gauge32 = Type(TypeId(0, "Gauge32"), None, C_UINT32)
+type_inetPortNumber = Type(TypeId(0, "inetPortNumber"), None, C_UINT16)
+type_inetAddressDNS = Type(TypeId(0, "inetAddressDNS"), None, C_BUF)
+type_oid = Type(TypeId(0, "oid"), None, C_OID) # TODO: First identified must be 0,1,2
+type_inetAddressIP = UnionType(TypeId(0, "inetAddressIP"), None, [type_inetAddressIPv4, type_inetAddressIPv6])
+type_inetAddress = UnionType(TypeId(0, "inetAddress"), None, [type_inetAddressIP, type_inetAddressDNS])
+type_ipv4Prefix = Type(TypeId(0, "ipv4Prefix"), None, C_IPV4PREFIX)
+type_ipv6Prefix = Type(TypeId(0, "ipv6Prefix"), None, C_IPV6PREFIX)
+type_ipPrefix = UnionType(TypeId(0, "ipPrefix"), None, [type_ipv4Prefix, type_ipv6Prefix])
+type_size = Type(TypeId(0, "size"), None, C_UINT64) # TODO: with 2^10^x prefixes G,M,K,B
+type_MD5DigestString = Type(TypeId(0, "MD5DigestString"), None, C_BUF)
+type_SHA256DigestString = Type(TypeId(0, "SHA256DigestString"), None, C_BUF)
+type_SHA512DigestString = Type(TypeId(0, "SHA512DigestString"), None, C_BUF)
+type_cryptHash = Type(TypeId(0, "cryptHash"), None, C_BUF)
+type_DES3CBCIVEncryptedString = Type(TypeId(0, "DES3CBCIVEncryptedString"), None, C_BUF)
+type_AESCFB128IVEncryptedString = Type(TypeId(0, "AESCFB128IVEncryptedString"), None, C_BUF)
+type_AES256CFB128IVEncryptedString = Type(TypeId(0, "AES256CFB128IVEncryptedString"), None, C_BUF)
+type_byte = Type(TypeId(0, "byte"), None, C_INT8)
+type_short = Type(TypeId(0, "short"), None, C_INT16)
+type_int = Type(TypeId(0, "int"), None, C_INT32)
+type_long = Type(TypeId(0, "long"), None, C_INT64)
+type_unsignedByte = Type(TypeId(0, "unsignedByte"), None, C_INT8)
+type_unsignedShort = Type(TypeId(0, "unsignedShort"), None, C_INT16)
+type_unsignedInt = Type(TypeId(0, "unsignedInt"), None, C_INT32)
+type_unsignedLong = Type(TypeId(0, "unsignedLong"), None, C_INT64)
+type_double = Type(TypeId(0, "double"), None, C_DOUBLE)
+type_objectRef = Type(TypeId(0, "objectRef"), None, C_INSTANCE_IDENTIFIER)
+type_identityref = Type(TypeId(0, "identityref"), None, C_IDENTITYREF)
+type_dateTime = Type(TypeId(0, "dateTime"), None, C_DATETIME)
+type_date = Type(TypeId(0, "date"), None, C_DATE)
+type_time = Type(TypeId(0, "time"), None, C_TIME)
+type_duration = Type(TypeId(0, "duration"), None, C_DURATION)
+type_decimal = Type(TypeId(0, "decimal"), None, C_DOUBLE)
+type_integer = Type(TypeId(0, "integer"), None, C_INT64)
+type_float = Type(TypeId(0, "float"), None, C_DOUBLE)
+type_hexBinary = Type(TypeId(0, "hexBinary"), None, C_BINARY)
+type_binary = Type(TypeId(0, "binary"), None, C_BINARY) # TODO: base64
+type_base64Binary = Type(TypeId(0, "base64Binary"), None, C_BINARY) # TODO: base64
+type_nonNegativeInteger = RestrictedNumberType(TypeId(0, "nonNegativeInteger"), None, C_UINT64, [TypeRange(0, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
+type_nonPositiveInteger = RestrictedNumberType(TypeId(0, "nonPositiveInteger"), None, C_INT64, [TypeRange(None, 0, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
+type_negativeInteger = RestrictedNumberType(TypeId(0, "negativeInteger"), None, C_INT64, [TypeRange(None, -1, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
+type_positiveInteger = RestrictedNumberType(TypeId(0, "positiveInteger"), None, C_UINT64, [TypeRange(1, None, CONFD_RANGE_MIN_INCLUSIVE | CONFD_RANGE_MAX_INCLUSIVE)])
+type_normalizedString = Type(TypeId(0, "normalizedString"), None, C_BUF) # TODO: Replace whitespace with space e.g. ' '
+type_token = Type(TypeId(0, "token"), None, C_BUF) # TODO: Replace any consecutive whitespace with single space e.g. ' '
+type_NOTATION = Type(TypeId(0, "NOTATION"), None, C_BUF) # TODO: Replace any consecutive whitespace with single space e.g. ' '
+type_language = Type(TypeId(0, "language"), None, C_BUF) # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
+type_NMTOKEN = Type(TypeId(0, "NMTOKEN"), None, C_BUF) # TODO: [A-Za-z0-9._:-]+
+type_Name = Type(TypeId(0, "Name"), None, C_BUF) # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
+type_NCName = Type(TypeId(0, "NCName"), None, C_BUF) # TODO: [^:]*
+type_ID = Type(TypeId(0, "ID"), None, C_BUF) # TODO: [^:]*
+type_IDREF = Type(TypeId(0, "IDREF"), None, C_BUF) # TODO: [^:]*
+type_ENTITY = Type(TypeId(0, "ENTITY"), None, C_BUF) # TODO: [^:]*
+type_NMTOKEN_LIST = ListType(TypeId(0, "NMTOKEN-LIST"), None, type_NMTOKEN)
+type_NMTOKENS = ListRestrictionType(TypeId(0, "NMTOKENS"), type_NMTOKEN, [TypeRange(1, None, 0)])
+type_IDREF_LIST = ListType(TypeId(0, "IDREF-LIST"), None, type_NCName)
+type_IDREFS = ListRestrictionType(TypeId(0, "IDREFS"), type_NCName, [TypeRange(1, None, 0)])
+type_ENTITIES = ListRestrictionType(TypeId(0, "ENTITIES"), type_NCName, [TypeRange(1, None, 0)])
+type_dottedQuad = Type(TypeId(0, "dottedQuad"), None, C_DQUAD)
+type_hexString = Type(TypeId(0, "hexString"), None, C_HEXSTR)
+type_ipv4AddressAndPrefixLength = Type(TypeId(0, "ipv4AddressAndPrefixLength"), None, C_IPV4_AND_PLEN)
+type_ipv6AddressAndPrefixLength = Type(TypeId(0, "ipv6AddressAndPrefixLength"), None, C_IPV6_AND_PLEN)
+type_ipAddressAndPrefixLength = UnionType(TypeId(0, "ipAddressAndPrefixLength"), None, [type_ipv4AddressAndPrefixLength, type_ipv6AddressAndPrefixLength])
+
+builtin_types: dict[TypeId, Type] = {
+    TypeId(0, "int8"): type_int8,
+    TypeId(0, "int16"): type_int16,
+    TypeId(0, "int32"): type_int32,
+    TypeId(0, "int64"): type_int64,
+    TypeId(0, "uint8"): type_uint8,
+    TypeId(0, "uint16"): type_uint16,
+    TypeId(0, "uint32"): type_uint32,
+    TypeId(0, "uint64"): type_uint64,
+    TypeId(0, "string"): type_string,
+    TypeId(0, "boolean"): type_boolean,
+    TypeId(0, "hex-list"): type_hex_list, # Not enabled in ConfD/NCS
+    TypeId(0, "hexList"): type_hexList, # Not enabled in ConfD/NCS
+    TypeId(0, "octet-list"): type_octet_list,
+    TypeId(0, "octetList"): type_octetList,
+    TypeId(0, "md5-digest-string"): type_md5_digest_string,
+    TypeId(0, "des3-cbc-encrypted-string"): type_des3_cbc_encrypted_string,
+    TypeId(0, "aes-cfb-128-encrypted-string"): type_aes_cfb_128_encrypted_string,
+    TypeId(0, "aes-256-cfb-128-encrypted-string"): type_aes_256_cfb_128_encrypted_string,
+    TypeId(0, "inetAddressIPv4"): type_inetAddressIPv4,
+    TypeId(0, "inetAddressIPv6"): type_inetAddressIPv6,
+    TypeId(0, "Counter32"): type_Counter32,
+    TypeId(0, "Counter64"): type_Counter64,
+    TypeId(0, "Gauge32"): type_Gauge32,
+    TypeId(0, "inetPortNumber"): type_inetPortNumber,
+    TypeId(0, "inetAddressDNS"): type_inetAddressDNS,
+    TypeId(0, "oid"): type_oid,
+    TypeId(0, "inetAddressIP"): type_inetAddressIPv6,
+    TypeId(0, "inetAddress"): type_inetAddressDNS,
+    TypeId(0, "ipv4Prefix"): type_ipv4Prefix,
+    TypeId(0, "ipv6Prefix"): type_ipv6Prefix,
+    TypeId(0, "ipPrefix"): type_ipv6Prefix,
+    TypeId(0, "size"): type_size, # TODO: with 2^10^x prefixes G,M,K,B
+    TypeId(0, "MD5DigestString"): type_MD5DigestString,
+    TypeId(0, "SHA256DigestString"): type_SHA256DigestString,
+    TypeId(0, "SHA512DigestString"): type_SHA512DigestString,
+    TypeId(0, "cryptHash"): type_cryptHash,
+    TypeId(0, "DES3CBCIVEncryptedString"): type_DES3CBCIVEncryptedString,
+    TypeId(0, "AESCFB128IVEncryptedString"): type_AESCFB128IVEncryptedString,
+    TypeId(0, "AES256CFB128IVEncryptedString"): type_AES256CFB128IVEncryptedString,
+    TypeId(0, "byte"): type_byte,
+    TypeId(0, "short"): type_short,
+    TypeId(0, "int"): type_int,
+    TypeId(0, "long"): type_long,
+    TypeId(0, "unsignedByte"): type_unsignedByte,
+    TypeId(0, "unsignedShort"): type_unsignedShort,
+    TypeId(0, "unsignedInt"): type_unsignedInt,
+    TypeId(0, "unsignedLong"): type_unsignedLong,
+    TypeId(0, "double"): type_double,
+    TypeId(0, "objectRef"): type_objectRef,
+    TypeId(0, "identityref"): type_identityref,
+    TypeId(0, "dateTime"): type_dateTime,
+    TypeId(0, "date"): type_date,
+    TypeId(0, "time"): type_time,
+    TypeId(0, "duration"): type_duration,
+    TypeId(0, "decimal"): type_decimal,
+    TypeId(0, "integer"): type_integer,
+    TypeId(0, "float"): type_float,
+    TypeId(0, "hexBinary"): type_hexBinary,
+    TypeId(0, "binary"): type_binary, # TODO: base64
+    TypeId(0, "base64Binary"): type_base64Binary, # TODO: base64
+    TypeId(0, "nonNegativeInteger"): type_nonNegativeInteger,
+    TypeId(0, "nonPositiveInteger"): type_nonPositiveInteger,
+    TypeId(0, "negativeInteger"): type_negativeInteger,
+    TypeId(0, "positiveInteger"): type_positiveInteger,
+    TypeId(0, "normalizedString"): type_normalizedString, # TODO: Replace whitespace with space e.g. ' '
+    TypeId(0, "token"): type_token, # TODO: Replace any consecutive whitespace with single space e.g. ' '
+    TypeId(0, "NOTATION"): type_NOTATION, # TODO: Replace any consecutive whitespace with single space e.g. ' '
+    TypeId(0, "language"): type_language, # TODO: [a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*
+    TypeId(0, "NMTOKEN"): type_NMTOKEN, # TODO: [A-Za-z0-9._:-]+
+    TypeId(0, "Name"): type_Name, # TODO: [A-Za-z_:][A-Za-z0-9._:-]*
+    TypeId(0, "NCName"): type_NCName, # TODO: [^:]*
+    TypeId(0, "ID"): type_ID, # TODO: [^:]*
+    TypeId(0, "IDREF"): type_IDREF, # TODO: [^:]*
+    TypeId(0, "ENTITY"): type_ENTITY, # TODO: [^:]*
+    TypeId(0, "NMTOKEN-LIST"): type_NMTOKEN,
+    TypeId(0, "NMTOKENS"): type_NMTOKEN,
+    TypeId(0, "IDREF-LIST"): type_NCName,
+    TypeId(0, "IDREFS"): type_NCName,
+    TypeId(0, "ENTITIES"): type_NCName,
+    TypeId(0, "dottedQuad"): type_dottedQuad,
+    TypeId(0, "hexString"): type_hexString,
+    TypeId(0, "ipv4AddressAndPrefixLength"): type_ipv4AddressAndPrefixLength,
+    TypeId(0, "ipv6AddressAndPrefixLength"): type_ipv6AddressAndPrefixLength,
+    TypeId(0, "ipAddressAndPrefixLength"): type_ipv6AddressAndPrefixLength
+}
+
+
+actor SchemaBuilder(log_handler: ?logging.Handler):
+    var logh = logging.Handler("schema-builder")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
+    var raw_roots: set[int] = set([])
+    var raw_nodes: dict[int, RawNode] = {}
+    var raw_keys: dict[int, RawKeys] = {}
+    var curr_ns: NamespaceDescription = NamespaceDescription("", "", "", 0, "", "")
+    var curr_mount_id: HTag = ROOT_MOUNT_ID
+
+    var pending_type_resolves: list[(TypeId, mut(Type) -> None)] = []
+
+    var hash_to_name: dict[int, str] = {}
+    var name_to_hash: dict[str, int] = {}
+    var namespaces: dict[int, NamespaceDescription] = {}
+    var mount_id_namespaces: dict[HTag, list[NamespaceDescription]] = {}
+    var roots: dict[HTag, Node] = {}
+    var types: dict[TypeId, Type] = dict(builtin_types)
+
+    def on_ns_term(term: EObject) -> value:
+        return _for_schema_lists(term, _on_ns_elem)
+
+    def on_hash_term(term: EObject) -> value:
+        return _for_schema_lists(term, _on_hash_elem)
+
+    def on_mns_term(term: EObject) -> value:
+        return _for_schema_lists(term, _on_mns_elem)
+
+    def _for_schema_lists(term: EObject, on_elem: proc(EObject) -> None) -> value:
+        if isinstance(term, EList):
+            for e in term.elems:
+                #log.trace(e)
+                if isinstance(e, EAtom) and str(e) == 'eof':
+                    return False
+                on_elem(e)
+            return True
+        else:
+            return MaapiProtoError("Unexpected schema term")
+        return True
+
+    def _on_ns_elem(elem: EObject) -> None:
+        if isinstance(elem, ETuple):
+            t = elem.elems
+            if len(t) >= 1:
+                _etype = t[0]
+                if isinstance(_etype, EAtom):
+                    etype = _etype.val
+                    if etype == 'ns':
+                        ns_descr = NamespaceDescription.from_ns_tuple(t)
+                        if ns_descr is not None:
+                            namespaces[ns_descr.ns_hash] = ns_descr
+                            curr_ns = ns_descr
+                            return
+                    elif etype == 'type':
+                        #log.trace(elem)
+                        type_descr = Type.from_ns_tuple(t, curr_ns, pending_type_resolves)
+                        if type_descr is not None:
+                            if type_descr.type_id not in types:
+                                types[type_descr.type_id] = type_descr
+                            else:
+                                log.warning("WARNING: Discarding duplicate type_id", {"type_id": type_descr.type_id})
+                            return
+                    elif etype == 'keys':
+                        keys = RawKeys.from_ns_tuple(t)
+                        if keys is not None:
+                            raw_keys[keys.node_id] = keys
+                            return
+                    elif etype == 'node':
+                        node = RawNode.from_ns_tuple(t)
+                        if node is not None:
+                            raw_nodes[node.node_id] = node
+                            return
+                    elif etype == 'case':
+                        return
+                    elif etype == 'choice':
+                        return
+                    elif etype == 'root' and len(t) == 2:
+                        _node_id = t[1]
+                        if isinstance(_node_id, EInt):
+                            node_id = _node_id.val
+                            raw_roots.add(node_id)
+                            return
+                    elif etype == 'parent':
+                        _assemble_node_trees()
+                        return
+        log.warning("Unexpected schema ns elem", {"elem": elem})
+
+    def _on_hash_elem(elem: EObject) -> None:
+        #log.trace(elem)
+        if isinstance(elem, ETuple):
+            t = elem.elems
+            if len(t) == 2:
+                name = t[0]
+                hash_nr = t[1]
+                if isinstance(hash_nr, EInt):
+                    if isinstance(name, EAtom):
+                        hash_to_name[hash_nr.val] = name.val
+                        name_to_hash[name.val] = hash_nr.val
+                        return
+        log.warning("Unexpected schema hash_db elem", {"elem": elem})
+
+    def _on_mns_elem(elem: EObject) -> None:
+        if isinstance(elem, ETuple):
+            t = elem.elems
+            if len(t) >= 1:
+                _etype = t[0]
+                if isinstance(_etype, EAtom):
+                    etype = _etype.val
+                    if etype == 'mount_id' and len(t) == 2:
+                        _mount_id = t[1]
+                        if isinstance(_mount_id, ETuple):
+                            _elems = _mount_id.elems
+                            if len(_elems) == 2:
+                                _ns_hash = _elems[0]
+                                _name_hash = _elems[1]
+                                if isinstance(_ns_hash, EInt) and isinstance(_name_hash, EInt):
+                                    # ns = hash_to_name.get(_ns_hash.val, "")
+                                    # name = hash_to_name.get(_name_hash.val, "")
+                                    # if ns and name:
+                                    #     log.trace("-- mount_id", ns + ":" + name)
+                                    curr_mount_id = HTag(_ns_hash.val, _name_hash.val)
+                                    return
+                        elif isinstance(_mount_id, EList) and len(_mount_id.elems) == 0:
+                            curr_mount_id = ROOT_MOUNT_ID
+                            return
+                elif isinstance(_etype, ETuple) and len(_etype.elems) == 2 and len(t) >= 2:
+                    a_elems = _etype.elems
+                    _netype = a_elems[0]
+                    _cns = a_elems[1]
+                    _b_elems = t[1]
+                    if isinstance(_netype, EAtom) and _netype.val == 'ns' and isinstance(_cns, EAtom) \
+                        and isinstance(_b_elems, ETuple) and len(_b_elems.elems) >= 4:
+                        b_elems = _b_elems.elems
+                        _prefix = b_elems[0]
+                        _ns = b_elems[1]
+                        _module = b_elems[2]
+                        _nshash = b_elems[3]
+                        if isinstance(_prefix, EAtom) \
+                            and isinstance(_ns, EAtom) \
+                            and isinstance(_module, EAtom) \
+                            and isinstance(_nshash, EInt):
+                            ns_hash = _nshash.val
+                            ns_descr = try_get(namespaces, ns_hash)
+                            if ns_descr is not None:
+                                nslist = try_get(mount_id_namespaces, curr_mount_id)
+                                if nslist is not None:
+                                    nslist.append(ns_descr)
+                                else:
+                                    mount_id_namespaces[curr_mount_id] = list([ns_descr])
+                            else:
+                                #log.warning("mount_id", curr_mount_id, "references unknown namespace:", ns_hash)
+                                log.warning("mount_id references unknown namespace", {"mount_id": curr_mount_id, "ns_hash": ns_hash})
+                            return
+        log.warning("Unexpected schema hash_db elem", {"elem": elem})
+
+    def _assemble_node_trees() -> None:
+        for root_node_id in raw_roots:
+            _roots = _build_node_tree(root_node_id)
+            for tag, root in _roots.items():
+                roots[tag] = root
+
+        raw_roots = set([]) # raw_roots.clear()
+        raw_nodes = {} # raw_nodes.clear()
+        raw_keys = {} # raw_keys.clear()
+
+    def _build_node_tree(node_id: int) -> dict[HTag, Node]:
+        result = {}
+
+        while node_id != 0:
+            raw_node = try_get(raw_nodes, node_id)
+            if raw_node is not None:
+                children = _build_node_tree(raw_node.child_node_id)
+                keys = []
+                if raw_node.key_node_id != 0:
+                    raw_key = try_get(raw_keys, raw_node.key_node_id)
+                    if raw_key is not None:
+                        for key_hash in raw_key.key_hashes:
+                            key_tag = _make_tag(raw_node.ns_hash, key_hash)
+                            key_node = try_get(children, key_tag)
+                            if key_node is not None:
+                                keys.append(key_node)
+                            else:
+                                log.warning("Invalid key hash for schema node:", {"key_hash": key_hash, "node_id": node_id})
+                    else:
+                        log.warning("Invalid key node id for schema node", {"node_id": node_id})
+                tag = _make_tag(raw_node.ns_hash, raw_node.tag_hash)
+                type_id: ?TypeId = None
+                type_descr: ?Type = None
+                if raw_node.type_name:
+                    _type_id = TypeId(raw_node.type_ns_hash, raw_node.type_name)
+                    type_descr = try_get(types, _type_id)
+                    type_id = _type_id
+                node = Node(
+                    tag,
+                    raw_node.min_occurs,
+                    raw_node.max_occurs,
+                    i64(raw_node.info_flags),
+                    raw_node.conf_type,
+                    type_descr,
+                    keys,
+                    children)
+                result[tag] = node
+
+                if type_id is not None and type_descr is None:
+                    def _resolve_cb(t: Type):
+                        node.value_type = t
+                    pending_type_resolves.append((type_id, _resolve_cb))
+
+                node_id = raw_node.next_node_id
+            else:
+                log.warning("Invalid schema node_id ref", {"node_id": node_id})
+
+        return result
+
+    def _make_tag(ns_hash: int, name_hash: int) -> HTag:
+        tag = HTag(ns_hash, name_hash)
+        return tag
+        # TODO: Store tag for reuse
+
+    def _htag_to_itag(htag: ?HTag) -> ?ITag:
+        if htag is not None:
+            name = try_get(hash_to_name, htag.name_hash)
+            if name is not None:
+                return ITag(try_get(hash_to_name, htag.ns_hash), name)
+        return None
+
+    def _resolve_pending_types():
+        for type_id: TypeId, resolve_cb: mut(Type) -> None in pending_type_resolves:
+            _type = try_get(types, type_id)
+            if _type is not None:
+                resolve_cb(_type)
+            else:
+                if log.output_level >= logging.WARNING:
+                    log.warning("Failed to resolve reference to type", {"type_name": type_id.str_pretty(hash_to_name)})
+
+    def build() -> Schema:
+        log.trace("Build schema", None)
+
+        _resolve_pending_types()
+
+        if log.output_level >= logging.TRACE:
+            _pretty_print_nodes(roots, "")
+            _pretty_print_types(types, "")
+
+        _roots: dict[HTag, Node] = {}
+        _cns_to_namespace: dict[str, NamespaceDescription] = {}
+        _mount_id_maps: dict[HTag, NamespaceMaps] = {}
+
+        for htag, node in roots.items():
+            _roots[htag] = node
+
+        for ns_descr in namespaces.values():
+            _cns_to_namespace[ns_descr.cns] = ns_descr
+
+        for mount_id, ns_items in mount_id_namespaces.items():
+            _ns_to_namespace: dict[str, NamespaceDescription] = {}
+            _prefix_to_namespace: dict[str, NamespaceDescription] = {}
+            _module_to_namespace: dict[str, NamespaceDescription] = {}
+            for ns_descr in ns_items:
+                _ns_to_namespace[ns_descr.ns] = ns_descr
+                _prefix_to_namespace[ns_descr.prefix] = ns_descr
+                _module_to_namespace[ns_descr.module] = ns_descr
+            _mount_id_maps[mount_id] = NamespaceMaps(_ns_to_namespace, _prefix_to_namespace, _module_to_namespace)
+
+        return Schema(_roots, namespaces, _cns_to_namespace, hash_to_name, name_to_hash, _mount_id_maps)
+
+    def build_shared() -> SharedSchema:
+        return SharedSchema(build())
+
+    def _pretty_print_nodes(nodes: dict[HTag, Node], indent: str) -> None:
+        for node in nodes.values():
+            keys = ""
+            if node.keys:
+                key_names = []
+                for key in node.keys:
+                    key_names.append(hash_to_name[key.tag.name_hash])
+                keys = "[" + ", ".join(key_names) + "]"
+            flags = ""
+            if node.flags:
+                flag_names = []
+
+                if node.flags & CS_NODE_IS_CASE != 0:
+                    flag_names.append("case")
+                if node.flags & CS_NODE_IS_LIST != 0:
+                    flag_names.append("list")
+                    flag_names.append(str(node.min_occurs) + ".." + str(node.max_occurs))
+                if node.flags & CS_NODE_IS_CONTAINER != 0:
+                    if node.min_occurs == 0:
+                        flag_names.append("presence")
+                    flag_names.append("container")
+                if node.flags & CS_NODE_IS_WRITE == 0:
+                    flag_names.append("oper")
+                #if node.flags & CS_NODE_IS_CDB != 0:
+                if node.flags & CS_NODE_IS_ACTION != 0:
+                    flag_names.append("action")
+                if node.flags & CS_NODE_IS_PARAM != 0:
+                    flag_names.append("param")
+                if node.flags & CS_NODE_IS_RESULT != 0:
+                    flag_names.append("result")
+                #if node.flags & CS_NODE_IS_NOTIF != 0:
+                #if node.flags & CS_NODE_HAS_WHEN != 0:
+                #if node.flags & CS_NODE_HAS_DISPLAY_WHEN != 0:
+                #if node.flags & CS_NODE_META_DATA != 0:
+                #if node.flags & CS_NODE_IS_WRITE_ALL != 0:
+                if node.flags & CS_NODE_IS_LEAF_LIST != 0:
+                    flag_names.append("leaf-list")
+                if node.flags & CS_NODE_IS_LEAFREF != 0:
+                    flag_names.append("leafref")
+                if node.is_mount_point():
+                    flag_names.append("mount-point")
+                #if node.flags & CS_NODE_IS_STRING_AS_BINARY != 0:
+
+                if flag_names:
+                    flags = " (" + ", ".join(flag_names) + ")"
+            type_str = ""
+            type_descr = node.value_type
+            if type_descr is not None:
+                type_str = " : " + str(type_descr)
+            elif node.is_leaf():
+                type_str = " : CONF_" + str(node.conf_type)
+            qname = hash_to_name[node.tag.ns_hash] + " " + hash_to_name[node.tag.name_hash]
+            log.trace(indent + qname + keys + flags + type_str, None)
+            _pretty_print_nodes(node.children, indent + "  ")
+
+    def _pretty_print_types(types: dict[TypeId, Type], indent: str):
+        for t in types.values():
+            _pretty_print_type(t, indent)
+
+    def _pretty_print_type(t: Type, indent: str):
+        log.trace(indent + str(t), None)
+        parent_type = t.parent_type
+        if parent_type is not None:
+            _pretty_print_type(parent_type, indent + "  ")
 
 #
 
