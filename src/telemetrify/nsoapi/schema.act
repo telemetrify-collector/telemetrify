@@ -2789,7 +2789,7 @@ actor SchemaBuilder(log_handler: ?logging.Handler):
     var namespaces: dict[int, NamespaceDescription] = {}
     var mount_id_namespaces: dict[HTag, list[NamespaceDescription]] = {}
     var roots: dict[HTag, Node] = {}
-    var types: dict[TypeId, Type] = dict(builtin_types)
+    var types: dict[TypeId, Type] = dict(builtin_types.items())
 
     def on_ns_term(term: EObject) -> value:
         return _for_schema_lists(term, _on_ns_elem)
