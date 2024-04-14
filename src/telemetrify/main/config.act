@@ -67,7 +67,7 @@ def get_log_level(log_level_leaf: TNode) -> ?int:
         elif _val == 'critical':
             return logging.CRITICAL
         elif _val == 'error':
-            return logging.ERROR
+            return logging.ERR
         elif _val == 'warning':
             return logging.WARNING
         elif _val == 'info':
