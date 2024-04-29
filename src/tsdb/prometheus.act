@@ -81,3 +81,6 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, api_endpoint: str
         metric_payload = assemble_payload(metrics)
 
         http_client.post(api_endpoint, metric_payload, _on_response, {"Content-Encoding": "snappy", "Content-Type": "application/x-protobuf", "X-Prometheus-Remote-Write-Version": "0.1.0"})
+
+    def close():
+        http_client.close()
