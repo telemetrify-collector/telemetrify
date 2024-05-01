@@ -168,6 +168,9 @@ class Schema:
     def mount_id_map(self, mount_id: HTag) -> ?NamespaceMaps:
         return try_get(self._mount_id_maps, mount_id)
 
+    def prsrc(self) -> str:
+        return ""
+
 class Cursor:
     @property
     _schema: Schema
@@ -754,6 +757,16 @@ class Node(object):
         # if self.is_leaf_list():
         #     self.node_type = NODE_LEAF_LIST
 
+    def prsrc(self, nodes: dict[HTag, Node], types: dict[TypeId, Type]) -> str:
+        src_str = ""
+
+        value_type = self.value_type
+        if value_type is not None:
+            if not value_type.type_id in types:
+                src_str = src_str + value_type.prsrc(types)
+
+        return src_str
+
     def is_container(self) -> bool:
         return self.flags & CS_NODE_IS_CONTAINER != 0
 
@@ -828,6 +841,29 @@ class Type(object):
             parent_type_id = str(_parent_type.type_id)
         return str(self.type_id) + ", " + parent_type_id \
             + ", " + optional_str(self.conf_type, "None")
+
+    def prsrc(self, types: dict[TypeId, Type]) -> str:
+        src_str = ""
+
+        parent_str = "None"
+
+        parent = self.parent_type
+        if parent is not None:
+            if parent.type_id not in types:
+                src_str = src_str + parent.prsrc(types)
+                types[parent.type_id] = parent
+
+            parent_str = "types[" + str(parent.type_id) + "]"
+
+        conf_type = self.conf_type
+        if conf_type is not None:
+            conf_str = str(conf_type)
+        else:
+            conf_str = "None"
+
+        src_str = src_str + "Type(" + str(self.type_id) + ", " + parent_str + ", " + conf_str + ")\n"
+
+        return src_str
 
     #@staticmethod
     #def builtin_types() -> dict[TypeId, Type]:
