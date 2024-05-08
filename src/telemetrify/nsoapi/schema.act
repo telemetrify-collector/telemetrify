@@ -760,10 +760,25 @@ class Node(object):
     def prsrc(self, nodes: dict[HTag, Node], types: dict[TypeId, Type]) -> str:
         src_str = ""
 
+        type_str = "None"
         value_type = self.value_type
         if value_type is not None:
             if not value_type.type_id in types:
                 src_str = src_str + value_type.prsrc(types)
+            type_str = "types[" + str(value_type.type_id) + "]"
+
+        for child in self.children.values():
+            src_str += child.prsrc(nodes, types)
+
+        src_str += "nodes[" + str(self.tag)
+        src_str += "] = Node(" + str(self.tag) + ", "
+        src_str += str(self.min_occurs) + ", "
+        src_str += str(self.max_occurs) + ", "
+        src_str += str(self.flags) + ", "
+        src_str += str(self.conf_type) + ", "
+        src_str += type_str + ", "
+        #self.keys
+        #self.children
 
         return src_str
 
