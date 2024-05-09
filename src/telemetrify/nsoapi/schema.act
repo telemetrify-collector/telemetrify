@@ -169,7 +169,7 @@ class Schema:
         return try_get(self._mount_id_maps, mount_id)
 
     def prsrc(self) -> str:
-        return ""
+        return self._root.prsrc({}, {})
 
 class Cursor:
     @property
@@ -767,8 +767,16 @@ class Node(object):
                 src_str = src_str + value_type.prsrc(types)
             type_str = "types[" + str(value_type.type_id) + "]"
 
+        children_str = "["
         for child in self.children.values():
             src_str += child.prsrc(nodes, types)
+            children_str += "nodes[" + str(child.tag) + "], "
+        children_str += "]"
+
+        keys_str = "["
+        for key in self.keys:
+            keys_str += "nodes[" + str(key.tag) + "], "
+        keys_str += "]"
 
         src_str += "nodes[" + str(self.tag)
         src_str += "] = Node(" + str(self.tag) + ", "
@@ -777,8 +785,8 @@ class Node(object):
         src_str += str(self.flags) + ", "
         src_str += str(self.conf_type) + ", "
         src_str += type_str + ", "
-        #self.keys
-        #self.children
+        src_str += keys_str + ", "
+        src_str += children_str + "])\n"
 
         return src_str
 
