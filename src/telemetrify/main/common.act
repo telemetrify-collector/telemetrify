@@ -966,3 +966,27 @@ class TransformMixin(ServerMixin):
 
     def close(self):
         self.output_mixin.close()
+
+#
+# Shared (transform) resources
+#
+
+class SharedResource(object):
+    @property
+    close_fn: ?action() -> None
+
+    def __init__(self, close_fn: ?action() -> None):
+        self.close_fn = close_fn
+
+    def is_static(self) -> bool:
+        # # return self.close_fn is None # actonc codegen error
+        # _close_fn = self.close_fn
+        # return _close_fn is None # actonc codegen error
+        _close_fn: ?action() -> None = self.close_fn
+        return False if _close_fn is not None else True
+
+
+    proc def close(self):
+        _close_fn = self.close_fn
+        if _close_fn is not None:
+            _close_fn()

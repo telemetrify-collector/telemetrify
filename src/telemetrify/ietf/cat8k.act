@@ -19,6 +19,10 @@ from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.ietf.l3vpn_svc import L3vpnSvcParams
 from telemetrify.main.common import *
+from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.transform.ctor import *
+
+TAG = PTag('tlmt', 'cat8k-ip-sla')
 
 class IpSlaStats(object):
     @property
@@ -43,12 +47,19 @@ class OnewayStats(object):
         self.jitter = jitter
         self.packet_loss = packet_loss
 
+class IpSlaTransformCtor(TransformCtor):
+    def __init__(self):
+        pass
+
+    def create(self, uid: int, config: TNode, shared_resources: SharedResources, on_closed: action() -> None, log_handler: logging.Handler) -> Transform:
+        transform_act = IpSlaTransform(uid, config, shared_resources, on_closed, log_handler)
+        return Transform(uid, transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+
 actor IpSlaTransform(
         uid: int,
         config: TNode,
+        shared_resources: SharedResources,
         on_closed: action() -> None,
-        fetch_l3vpn_svc_tracker: action(action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None) -> None,
-        release_l3vpn_svc_tracker: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None,
         log_handler: ?logging.Handler):
 
     var logh = logging.Handler("cat8k-transform")
@@ -56,9 +67,11 @@ actor IpSlaTransform(
         logh.set_handler(log_handler)
     var log = logging.Logger(logh)
 
-    tasks: Wardrobe[(int, IpSlaStats, TNode)] = Wardrobe()
-    l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
-    pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
+    var shared_resources_collection: SharedResourceCollection = SharedResourceCollection(shared_resources, log)
+
+    var tasks: Wardrobe[(int, IpSlaStats, TNode)] = Wardrobe()
+    var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
+    var pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
 
     # Workaround compiler ordering issue
     #var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
@@ -212,7 +225,6 @@ actor IpSlaTransform(
                     _l3vpn_svc_tracker.lookup_by_hostnames_and_lan_interface_addresses(set([hostname]), target_addresses, action lambda h, i: _on_lookup_result(h, i, task_id))
                 else:
                     pending_fetch_l3vpn_svc_tracker_task_ids.append(task_id)
-                    fetch_l3vpn_svc_tracker(_on_fetched_l3vpn_svc_tracker)
 
         else:
             log.warning("Missing internal-tag 'hostname'", None)
@@ -352,15 +364,27 @@ actor IpSlaTransform(
 
     def _on_closed():
         log.debug("TRANSFORM cat8k CLOSED", None)
-        _l3vpn_svc_tracker = l3vpn_svc_tracker
-        if _l3vpn_svc_tracker is not None:
-            release_l3vpn_svc_tracker(_l3vpn_svc_tracker)
-            # l3vpn_svc_tracker = None # actonc: Name l3vpn_svc_tracker is reserved but not yet defined
+        shared_resources_collection.close()
+        l3vpn_svc_tracker = None
         on_closed()
 
     # # Workaround compiler ordering issue
     transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
     transform_base.on_closed = _on_closed
+
+    def _on_shared_resources_response(response: dict[PTag, SharedResource]):
+        shared_resources_collection.assume_ownership(response)
+
+        l3vpn_svc_tracker_res = try_get(shared_resources_collection.resources, telemetrify.ietf.l3vpn_svc.L3VPN_SVC_TRACKER_TAG)
+
+        if l3vpn_svc_tracker_res is not None and isinstance(l3vpn_svc_tracker_res, telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
+            _on_fetched_l3vpn_svc_tracker(l3vpn_svc_tracker_res)
+        else:
+            log.error("TRANSFORM cat8k ERROR Failed to acquire shared resources", None)
+
+    shared_resources.request(
+        set([telemetrify.ietf.l3vpn_svc.L3VPN_SVC_TRACKER_TAG]),
+        _on_shared_resources_response)
 
 def _try_parse_int_leaf(node: Node) -> ?int:
     _value = node.value()
