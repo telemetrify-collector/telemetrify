@@ -98,6 +98,12 @@ def create_reset_flow_params(base_flow_params: TNode, schema_path: ?SchemaPath, 
         reset_node.leaf(None, FLOW_PARAM_RESET_BROADCAST, None)
     return flow_params
 
+def try_get_flow_param_internal_tag_value(flow_params: TNode, tag: str) -> ?str:
+    return flow_params[FLOW_PARAM_INTERNAL_TAGS][Key([tag])][FLOW_PARAM_INTERNAL_TAGS_VALUE].try_str()
+
+def try_get_flow_param_external_tag_value(flow_params: TNode, tag: str) -> ?str:
+    return flow_params[FLOW_PARAM_EXTERNAL_TAGS][Key([tag])][FLOW_PARAM_EXTERNAL_TAGS_VALUE].try_str()
+
 # protocol ServerProxy:
 #     uid: pure() -> int
 #     attach: action(int, action(int) -> None) -> None
@@ -966,3 +972,27 @@ class TransformMixin(ServerMixin):
 
     def close(self):
         self.output_mixin.close()
+
+#
+# Shared (transform) resources
+#
+
+class SharedResource(object):
+    @property
+    close_fn: ?action() -> None
+
+    def __init__(self, close_fn: ?action() -> None):
+        self.close_fn = close_fn
+
+    def is_static(self) -> bool:
+        # # return self.close_fn is None # actonc codegen error
+        # _close_fn = self.close_fn
+        # return _close_fn is None # actonc codegen error
+        _close_fn: ?action() -> None = self.close_fn
+        return False if _close_fn is not None else True
+
+
+    proc def close(self):
+        _close_fn = self.close_fn
+        if _close_fn is not None:
+            _close_fn()

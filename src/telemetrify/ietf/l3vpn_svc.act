@@ -20,16 +20,63 @@ import telemetrify.nsoapi.schema as schema
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
+from telemetrify.main.common import SharedResource
+from telemetrify.main.resource.shared_resources import *
 from telemetrify.nso.subscriber import *
 from telemetrify.nsoapi.cdb import *
 
-actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema, log_handler: ?logging.Handler):
+import telemetrify.main.resource.builtin.env
+import telemetrify.main.resource.builtin.schema
+
+L3VPN_SVC_TRACKER_TAG = PTag('tlmt', 'l3vpn-svc-tracker')
+
+class L3vpnSvcTrackerCtor(SharedResourceCtor):
+    def __init__(self):
+        pass
+
+    proc def create(self, shared_resources: SharedResources, log_handler: logging.Handler) -> SharedResource:
+        l3vpnc_svc_tracker_act = L3vpnSvcTrackerActor(shared_resources, log_handler)
+        return L3vpnSvcTracker(
+            l3vpnc_svc_tracker_act.lookup_by_wan_interface_ipv4_addresses,
+            l3vpnc_svc_tracker_act.lookup_by_hostnames_and_lan_interface_addresses,
+            l3vpnc_svc_tracker_act.close,
+            shared_resources,
+            log_handler)
+
+class L3vpnSvcTracker(SharedResource):
+    @property
+    lookup_by_wan_interface_ipv4_addresses_fn: action(set[IPv4Address], action(dict[IPv4Address, L3vpnSvcParams]) -> None) -> None
+    @property
+    lookup_by_hostnames_and_lan_interface_addresses_fn: action(set[str], set[IPv4Address], action(dict[str, L3vpnSvcParams], dict[IPv4Address, L3vpnSvcParams]) -> None) -> None
+
+    def __init__(self,
+            lookup_by_wan_interface_ipv4_addresses_fn: action(set[IPv4Address], action(dict[IPv4Address, L3vpnSvcParams]) -> None) -> None,
+            lookup_by_hostnames_and_lan_interface_addresses_fn: action(set[str], set[IPv4Address], action(dict[str, L3vpnSvcParams], dict[IPv4Address, L3vpnSvcParams]) -> None) -> None,
+            close_fn: ?action() -> None,
+            shared_resources: SharedResources,
+            log_handler: logging.Handler):
+
+        SharedResource.__init__(self, close_fn)
+        self.lookup_by_wan_interface_ipv4_addresses_fn = lookup_by_wan_interface_ipv4_addresses_fn
+        self.lookup_by_hostnames_and_lan_interface_addresses_fn = lookup_by_hostnames_and_lan_interface_addresses_fn
+
+    def lookup_by_wan_interface_ipv4_addresses(self, ipv4_addresses: set[IPv4Address], result_cb: action(dict[IPv4Address, L3vpnSvcParams]) -> None):
+        self.lookup_by_wan_interface_ipv4_addresses_fn(ipv4_addresses, result_cb)
+
+    def lookup_by_hostnames_and_lan_interface_addresses(self, hostnames: set[str], ipv4_addresses: set[IPv4Address], result_cb: action(dict[str, L3vpnSvcParams], dict[IPv4Address, L3vpnSvcParams]) -> None):
+        self.lookup_by_hostnames_and_lan_interface_addresses_fn(hostnames, ipv4_addresses, result_cb)
+
+actor L3vpnSvcTrackerActor(shared_resources: SharedResources, log_handler: logging.Handler):
     var logh = logging.Handler("l3vpn-svc-tracker")
-    if log_handler is not None:
-        logh.set_handler(log_handler)
+    logh.set_handler(log_handler)
     var log = logging.Logger(logh)
 
+    var shared_resources_collection: SharedResourceCollection = SharedResourceCollection(shared_resources, log)
+
+    var cdb_sub_connection: ?CdbConnection = None
+    var cdb_cmd_connection: ?CdbConnection = None
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
+
     var site_access_path_params: dict[Keypath, L3vpnSvcParams] = {}
     var wan_interface_ipv4_address_params: dict[IPv4Address, L3vpnSvcParams] = {}
     var lan_interface_ipv4_address_params: dict[IPv4Address, L3vpnSvcParams] = {}
@@ -70,16 +117,24 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema, log_handler:
         result_cb(hostname_result, ipv4_address_result)
 
     def close():
-        pass # TODO
+        _cdb_sub_connection = cdb_sub_connection
+        if _cdb_sub_connection is not None:
+            _cdb_sub_connection.close()
+            cdb_sub_connection = None
+        _cdb_cmd_connection = cdb_cmd_connection
+        if _cdb_cmd_connection is not None:
+            _cdb_cmd_connection.close()
+            cdb_cmd_connection = None
+        shared_resources_collection.close()
 
     def _on_cdb_connect_error(e):
         log.error("CDB connect failed", {"error": e})
         # TODO
         # await async env.exit(1)
 
-    def _on_cdb_sub_connect(sc, s):
+    def _on_cdb_sub_connect(sc, env, s):
         log.debug("CDB (sub) connected", None)
-        cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
+        cdb_cmd_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
             action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, logh, None)
 
     def _on_cdb_cmd_connect(sc, cc, s):
@@ -135,8 +190,32 @@ actor L3vpnSvcTracker(env: Env, shared_schema: schema.SharedSchema, log_handler:
         log.error("CdbCache failed", {"error_message": optional_str(e.error_message, "")})
         # TODO
 
-    cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
-        action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
+    def _on_acquired_shared_resources(env, shared_schema):
+        cdb_sub_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
+            action lambda c: _on_cdb_sub_connect(c, env, shared_schema), _on_cdb_connect_error, logh, None)
+
+    def _on_shared_resources_response(response: dict[PTag, SharedResource]):
+        log.debug("_on_shared_resources_response", {"response": response})
+
+        shared_resources_collection.assume_ownership(response)
+
+        env_res = try_get(shared_resources_collection.resources, telemetrify.main.resource.builtin.env.TAG)
+        schema_res = try_get(shared_resources_collection.resources, telemetrify.main.resource.builtin.schema.TAG)
+
+        if env_res is not None and isinstance(env_res, telemetrify.main.resource.builtin.env.EnvResource) \
+                and schema_res is not None and isinstance(schema_res, telemetrify.main.resource.builtin.schema.SharedSchemaResource):
+
+            # _on_acquired_shared_resources(env_res.env, schema_res.shared_schema) # actonc: #### findAttr' fails for telemetrify.main.common.SharedResource . env
+            _env_res: telemetrify.main.resource.builtin.env.EnvResource = env_res
+            _schema_res: telemetrify.main.resource.builtin.schema.SharedSchemaResource = schema_res
+            _on_acquired_shared_resources(_env_res.env, _schema_res.shared_schema)
+        else:
+            log.error("Failed to acquire shared resources", None)
+
+    shared_resources.request(
+        set([telemetrify.main.resource.builtin.env.TAG, telemetrify.main.resource.builtin.schema.TAG]),
+        _on_shared_resources_response)
+
 
 class SiteNetworkAccessRefiner(MirrorRefiner):
     @property

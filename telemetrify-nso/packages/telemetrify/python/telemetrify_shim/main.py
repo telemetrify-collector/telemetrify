@@ -67,7 +67,7 @@ class Supervisor(threading.Thread):
         self.app.del_running_thread(self.name)
 
     def telemetrify_start(self):
-        bin_path = os.path.abspath(os.path.dirname(__file__) + "/../../bin/telemetrify.main.main")
+        bin_path = os.path.abspath(os.path.dirname(__file__) + "/../../bin/telemetrify.main.server")
         self.log.info("starting: " + bin_path)
         self.proc = subprocess.Popen(bin_path, stdout=sys.stdout, stderr=sys.stderr)
 

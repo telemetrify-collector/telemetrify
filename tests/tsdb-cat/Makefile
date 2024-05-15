@@ -96,7 +96,7 @@ nso-test:
 	$(MAKE) runcmdJ CMD="show devices device cat1 live-status ip-sla-stats"
 
 test:
-	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd /mnt/out/bin && ./telemetrify.main.main"
+	docker compose exec --user $(shell id -u):$(shell id -g) nso bash -lc "cd /mnt/out/bin && ./telemetrify.main.server"
 
 log:
 	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"

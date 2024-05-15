@@ -19,6 +19,7 @@ import telemetrify.nsoapi.maapi
 import telemetrify.nsoapi.schema as schema
 import telemetrify.ietf.l3vpn_svc
 import telemetrify.ietf.cat8k
+import telemetrify.main.resource.shared_resources
 import telemetrify.main.sink.m3db
 import telemetrify.main.sink.nso
 import telemetrify.main.sink.mock
@@ -28,7 +29,7 @@ import telemetrify.main.source.mock.netconf
 import telemetrify.main.source.mock.vmanage
 import telemetrify.main.subscriber.netconf
 import telemetrify.main.subscriber.vmanage
-import telemetrify.main.transform.mock
+import telemetrify.main.transform.builtin.mock
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
@@ -37,6 +38,11 @@ from telemetrify.nsoapi.cdb import *
 from telemetrify.nsoapi.maapi import *
 from telemetrify.main.common import *
 from telemetrify.main.config import *
+from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.resource.repo import prepare_shared_resource_ctors
+from telemetrify.main.transform.ctor import *
+from telemetrify.main.transform.repo import prepare_transform_ctors
+
 import telemetrify.vmanage.transform
 
 class PendingSubscriberUpdate(object):
@@ -155,6 +161,7 @@ actor SubscriberManager(
         env: Env,
         shared_schema: schema.SharedSchema,
         shared_resources: SharedResources,
+        additional_transform_ctors: dict[PTag, TransformCtor],
         log_handler: ?logging.Handler):
 
     var logh = logging.Handler("subscriber-manager")
@@ -170,6 +177,8 @@ actor SubscriberManager(
     var transforms: dict[Keypath, Transform] = {}
 
     var subscribers: dict[Keypath, SubscriberData] = {}
+
+    var transform_ctors: dict[PTag, TransformCtor] = prepare_transform_ctors(additional_transform_ctors)
 
     def on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
         source_configs: list[(Keypath, ?value)] = refiner_updates[SourceRefiner.id()]
@@ -437,38 +446,14 @@ actor SubscriberManager(
         def close_cb():
             _on_subscriber_closed(transform_key)
 
-        if config.has_child(PTag('tlmt', 'vmanage')):
-            uid = gen_uid()
-            transform_act = telemetrify.vmanage.transform.Transform(
-                uid,
-                config,
-                close_cb,
-                shared_resources.request_l3vpn_svc_tracker,
-                shared_resources.release_l3vpn_svc_tracker,
-                logh)
-            return Transform(uid,
-                transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
-        elif config.has_child(PTag('tlmt', 'cat8k-ip-sla')):
-            uid = gen_uid()
-            transform_act = telemetrify.ietf.cat8k.IpSlaTransform(
-                uid,
-                config,
-                close_cb,
-                shared_resources.request_l3vpn_svc_tracker,
-                shared_resources.release_l3vpn_svc_tracker,
-                logh)
-            return Transform(uid,
-                transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
-        else:
-            log.error("MAIN transform CREATE unknown transform type", {"transform_key": transform_key, "config": config})
-            uid = gen_uid()
-            transform_act = telemetrify.main.transform.mock.MockTransform(
-                uid,
-                config,
-                close_cb,
-                logh)
-            return Transform(uid,
-                transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+        transform_tag: ?Id = iterable_first(config.iter_ids())
+        if transform_tag is not None and isinstance(transform_tag, PTag):
+            transform_ctor = try_get(transform_ctors, transform_tag)
+            if transform_ctor is not None:
+                return transform_ctor.create(gen_uid(), config, shared_resources, close_cb, logh)
+
+        log.error("MAIN transform CREATE unknown transform type", {"transform_key": transform_key, "config": config})
+        return telemetrify.main.transform.builtin.mock.MockTransformCtor().create(gen_uid(), config, shared_resources, close_cb, logh)
 
     def _on_transform_closed(transform_key: Keypath):
         pass # TODO: No need?
@@ -488,30 +473,11 @@ actor SubscriberManager(
         next_uid = uid + 1
         return uid
 
-actor SharedResources(env: Env, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
-    var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
+actor Server(
+        env: Env,
+        additional_transform_ctors: dict[PTag, TransformCtor],
+        additional_shared_resource_ctors: dict[PTag, SharedResourceCtor]):
 
-    # def request_l3vpn_svc_tracker(cb: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
-    # TODO: Why do we get this error when there is MORE than one reference to the method, but NOT if there is ONLY one?
-    # ERROR: Error when compiling telemetrify.main.main module: Type error
-    #  1425:9-33
-    #      |
-    # 1425 |    def request_l3vpn_svc_tracker(cb: action(telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker) -> None):
-    #      |        ^^^^^^^^^^^^^^^^^^^^^^^^^
-    # NoInfo (Loc 58253 58278) 63
-    def request_l3vpn_svc_tracker(cb):
-        r = l3vpn_svc_tracker
-        if r is not None:
-            cb(r)
-        else:
-            n = telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker(env, shared_schema, log_handler)
-            l3vpn_svc_tracker = n
-            cb(n)
-
-    def release_l3vpn_svc_tracker(tracker: telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
-        pass # TODO: Could keep refcount and release when not used
-
-actor main(env):
     var cache: ?telemetrify.nso.subscriber.CdbCache = None
     var shared_resources: ?SharedResources = None
     var subscriber_manager: ?SubscriberManager = None
@@ -532,9 +498,10 @@ actor main(env):
     def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
         if e is None and shared_schema is not None:
             log.info("MAAPI loaded schema!!!!", None)
-            _shared_resources: SharedResources = SharedResources(env, shared_schema, logh)
+            shared_resource_ctors = prepare_shared_resource_ctors(env, shared_schema, additional_shared_resource_ctors)
+            _shared_resources: SharedResources = telemetrify.main.resource.shared_resources.SharedResources(shared_resource_ctors, logh)
             shared_resources = _shared_resources
-            subscriber_manager = SubscriberManager(env, shared_schema, _shared_resources, logh)
+            subscriber_manager = SubscriberManager(env, shared_schema, _shared_resources, additional_transform_ctors, logh)
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
         else:
@@ -607,10 +574,6 @@ actor main(env):
         # Logging
         _on_logging_level(refiner_updates[LoggingLevelRefiner.id()])
 
-    # def _on_device_streamer_reached_state_trampoline(_id: DelegateId, state: int):
-    #     # device_streamers.on_delegate_reached_state(_id, state)
-    #     DelegateManager_on_delegate_reached_state(device_streamers, _id, state) # https://github.com/actonlang/acton/issues/1448
-
     def _on_logging_level(updates: list[(Keypath, ?value)]):
         level: ?int = None
         for _keypath, state in updates:
@@ -625,9 +588,15 @@ actor main(env):
         log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
         await async env.exit(1)
 
-    # # Workaround compiler ordering issue
-    # device_streamers._on_delegate_reached_state_trampoline_fn = _on_device_streamer_reached_state_trampoline
-    # DelegateManager_set_target_state(device_streamers, STATE_RUNNING)
-
     log.info("Starting up...", None)
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)
+
+actor main(env):
+    Server(env,
+        {
+            telemetrify.ietf.cat8k.TAG: telemetrify.ietf.cat8k.IpSlaTransformCtor(),
+            telemetrify.vmanage.transform.TAG: telemetrify.vmanage.transform.VmanageTransformCtor(),
+        },
+        {
+            telemetrify.ietf.l3vpn_svc.L3VPN_SVC_TRACKER_TAG: telemetrify.ietf.l3vpn_svc.L3vpnSvcTrackerCtor(),
+        })
