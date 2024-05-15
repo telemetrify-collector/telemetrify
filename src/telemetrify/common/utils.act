@@ -438,6 +438,13 @@ def set_difference[T(Hashable)](self: set[T], other: set[T]):
             result.add(item)
     return result
 
+def set_intersection[T(Hashable)](self: set[T], other: set[T]):
+    result = set([])
+    for item in self:
+        if item in other:
+            result.add(item)
+    return result
+
 def set_str[T(Hashable)](a: set[T]) -> str:
     l: list[str] = []
     for x in a:
@@ -501,6 +508,11 @@ def optional_expect[T](v: ?T, error_msg: str) -> T:
     if v is not None:
         return v
     raise ValueError(error_msg)
+
+def iterable_first[T](iterable: Iterable[T]) -> ?T:
+    for item: T in iterable:
+        return item
+    return None
 
 def min2[T(Ord)](a: T, b: T) -> T:
     return a if a <= b else b

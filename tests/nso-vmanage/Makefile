@@ -5,7 +5,7 @@ SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
 #DOCKER_USER:=$(shell id -u):$(shell id -g)
-BIN?=acton_streamer.main.main
+BIN?=acton_streamer.main.server
 BIN_ARGS?=
 NCS_D?=ncs
 
@@ -85,7 +85,7 @@ llog:
 	docker compose exec nso bash -lc "less /log/ncs-python-vm.log"
 
 debug:
-	docker compose exec nso bash -lc "gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args /nso/run/state/packages-in-use.cur/1/telemetrify/bin/telemetrify.main.main --rts-wthreads 1"
+	docker compose exec nso bash -lc "gdb -ex 'handle SIGPWR SIGXCPU nostop noprint' --args /nso/run/state/packages-in-use.cur/1/telemetrify/bin/telemetrify.main.server --rts-wthreads 1"
 
 .PHONY: start stop test test-debug cli log
 

@@ -16,46 +16,8 @@ import logging
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 from telemetrify.main.common import *
+from telemetrify.main.resource.shared_resources import *
 
-actor MockTransform(
-        uid: int,
-        config: TNode,
-        on_closed: action() -> None,
-        log_handler: ?logging.Handler):
-
-    var logh = logging.Handler("mock-transform")
-    if log_handler is not None:
-        logh.set_handler(log_handler)
-    var log = logging.Logger(logh)
-
-    # Workaround compiler ordering issue
-    #var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
-    var transform_base = TransformMixin(uid, lambda m: None, lambda: None, log)
-
-    log.info("TRANSFORM mock CREATED", None)
-
-    def attach(client_uid: int, msg_cb: action(Message) -> None):
-        transform_base.attach(client_uid, msg_cb)
-
-    def detach(client_uid: int):
-        transform_base.detach(client_uid)
-
-    def update_output(update: list[(Keypath, ?OutputUpdate)]) -> None:
-        transform_base.update_output(update)
-
-    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
-        transform_base.write(sender_uid, node, flow_params)
-
-    def close():
-        transform_base.close()
-
-    def output_upstream_msg_trampoline(msg: Message) -> None:
-        transform_base.on_output_upstream_msg(msg)
-
-    def _on_closed():
-        log.debug("TRANSFORM mock CLOSED", None)
-        on_closed()
-
-    # # Workaround compiler ordering issue
-    transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
-    transform_base.on_closed = _on_closed
+class TransformCtor(object):
+    proc def create(self, uid: int, config: TNode, shared_resources: SharedResources, on_closed: action() -> None, log_handler: logging.Handler) -> Transform:
+        raise Exception("Not implemented")

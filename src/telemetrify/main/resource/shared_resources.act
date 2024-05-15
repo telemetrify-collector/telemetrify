@@ -1,0 +1,127 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+
+from telemetrify.main.common import SharedResource
+
+import telemetrify.nsoapi.schema as schema
+
+class SharedResourceCollection(object):
+    @property
+    shared_resources: SharedResources
+    @property
+    log: logging.Logger
+    @property
+    resources: dict[PTag, SharedResource]
+
+    def __init__(self, shared_resources: SharedResources, log: logging.Logger):
+        self.shared_resources = shared_resources
+        self.log = log
+        self.resources = {}
+
+    def assume_ownership(self, resources: dict[PTag, SharedResource]):
+        release_tags = set(None)
+
+        for tag, resource in resources.items():
+            if tag in self.resources:
+                release_tags.add(tag)
+            else:
+                self.resources[tag] = resource
+
+        if release_tags:
+            self.shared_resources.release(release_tags)
+
+    def release(self, tags: set[PTag]):
+        release_tags = set(None)
+        for tag in tags:
+            resource = try_pop(self.resources, tag)
+            if resource is not None:
+                release_tags.add(tag)
+        if release_tags:
+            self.shared_resources.release(release_tags)
+
+    def close(self):
+        self.release(set(self.resources.keys()))
+
+class SharedResourceData(object):
+    resource: SharedResource
+    ref_count: ?int
+
+    def __init__(self, resource: SharedResource):
+        self.resource = resource
+        if resource.is_static():
+            self.ref_count = None
+        else:
+            self.ref_count = 0
+
+    def acquire(self):
+        _ref_count = self.ref_count
+        if _ref_count is not None:
+            self.ref_count = _ref_count + 1
+
+    def release(self) -> bool:
+        _ref_count = self.ref_count
+        if _ref_count is not None:
+            _ref_count -= 1
+            self.ref_count = _ref_count
+            if _ref_count <= 0:
+                self.resource.close()
+                return True
+        return False
+
+actor SharedResources(
+        shared_resource_ctors: dict[PTag, SharedResourceCtor],
+        log_handler: logging.Handler):
+
+    var logh = logging.Handler("shared-resources")
+    logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
+    var resources: dict[PTag, SharedResourceData] = {}
+
+    def request(tags: set[PTag], response_cb: action(dict[PTag, SharedResource]) -> None):
+        log.debug("request", {"tags": set_str(tags)})
+
+        response: dict[PTag, SharedResource] = {}
+        for tag in tags:
+            resource_data = try_get(resources, tag)
+            if resource_data is not None:
+                resource_data.acquire()
+                response[tag] = resource_data.resource
+            else:
+                resource_ctor: ?SharedResourceCtor = try_get(shared_resource_ctors, tag)
+                if resource_ctor is not None:
+                    _resource_ctor: SharedResourceCtor = resource_ctor
+                    resource: SharedResource = _resource_ctor.create(self, log_handler)
+                    new_resource_data = SharedResourceData(resource)
+                    new_resource_data.acquire()
+                    resources[tag] = new_resource_data
+                    response[tag] = resource
+
+        log.debug("request - reply", {"tags": set_str(tags), "response": mapping_str(response)})
+
+        response_cb(response)
+
+    def release(tags: set[PTag]):
+        for tag in tags:
+            resource = try_get(resources, tag)
+            if resource is not None and resource.release():
+                del resources[tag]
+
+class SharedResourceCtor(object):
+    proc def create(self, shared_resources: SharedResources, log_handler: logging.Handler) -> SharedResource:
+        raise Exception("Not implemented")
