@@ -172,7 +172,20 @@ class Schema:
         return try_get(self._mount_id_maps, mount_id)
 
     def prsrc(self) -> str:
-        return self._root.prsrc({}, {})
+        src_str = "import telemetrify.nsoapi.schema\n"
+        src_str += "types = {}\n"
+        src_str += "nodes = {}\n"
+        src_str += self._root.prsrc({}, {})
+        src_str += "schema = Schema({}, "
+        src_str += str(self._nshash_to_namespace)
+        src_str += ", "
+        src_str += str(self._cns_to_namespace)
+        src_str += ", "
+        src_str += str(self._hash_to_name)
+        src_str += ", "
+        src_str += str(self._name_to_hash)
+        src_str += ", {})\n"
+        return src_str
 
 class Cursor:
     @property
