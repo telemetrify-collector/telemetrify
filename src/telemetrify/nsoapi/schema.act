@@ -176,11 +176,21 @@ class Schema:
         src_str += "types = {}\n"
         src_str += "nodes = {}\n"
         src_str += self._root.prsrc({}, {})
-        src_str += "schema = Schema({}, "
-        src_str += str(self._nshash_to_namespace)
-        src_str += ", "
+        src_str += "schema = Schema({}, {"
+        for nshash, ns in self._nshash_to_namespace.items():
+            src_str += str(nshash)
+            src_str += ": "
+            src_str += ns.prsrc()
+            src_str += ", "
+        src_str += "}, {"
         src_str += str(self._cns_to_namespace)
-        src_str += ", "
+        for cns, ns in self._cns_to_namespace.items():
+            src_str += "\""
+            src_str += cns
+            src_str += "\": "
+            src_str += ns.prsrc()
+            src_str += ", "
+        src_str += "}, "
         src_str += str(self._hash_to_name)
         src_str += ", "
         src_str += str(self._name_to_hash)
@@ -540,6 +550,17 @@ class NamespaceDescription:
 
     def __repr__(self):
         return self.__str__()
+
+    def prsrc(self):
+        revision_str = "None"
+        revision = self.revision
+
+        if revision is not None:
+            revision_str = "\"" + revision + "\""
+
+        return "NamespaceDescription(\"" \
+            + self.cns + "\",\"" + self.ns + "\",\"" + self.prefix + "\"," + str(self.ns_hash) + "," \
+            + revision_str + ",\"" + self.module + "\")"
 
     @staticmethod
     def from_ns_tuple(elems: list[EObject]) -> ?NamespaceDescription:
