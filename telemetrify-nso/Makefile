@@ -13,7 +13,7 @@ Dockerfile: prepare-telemetrify-bin
 prepare-telemetrify-bin:
 	$(MAKE) -C .. build test
 	mkdir -p packages/telemetrify/bin
-	cp -p ../out/bin/telemetrify.main.server packages/telemetrify/bin/
+	cp -p ../telemetrify-core/out/bin/telemetrify.main.server packages/telemetrify/bin/
 
 .PHONY: prepare-telemetrify-bin
 
