@@ -85,7 +85,7 @@ class TypeId:
         return self.__str__()
 
     def prsrc(self):
-        return "TypeId(" + str(self.ns_hash) + ", \"" + self.name + "\")" + ")"
+        return "TypeId(" + str(self.ns_hash) + ", \"" + self.name + "\")"
 
 extension TypeId(Hashable):
     def __eq__(self, other) -> bool:
@@ -172,11 +172,18 @@ class Schema:
         return try_get(self._mount_id_maps, mount_id)
 
     def prsrc(self) -> str:
-        src_str = "import telemetrify.nsoapi.schema\n"
+        src_str = "from telemetrify.common.mod import HTag\n"
+        src_str += "from telemetrify.nsoapi.schema import Schema, Node, Type, TypeId, NamespaceDescription, NamespaceMaps\n"
         src_str += "types = {}\n"
         src_str += "nodes = {}\n"
         src_str += self._root.prsrc({}, {})
-        src_str += "schema = Schema({}, {"
+        src_str += "schema = Schema({"
+        for tag in self._root.children.keys():
+            src_str += str(tag)
+            src_str += ": nodes["
+            src_str += str(tag)
+            src_str += "], "
+        src_str += "}, {"
         for nshash, ns in self._nshash_to_namespace.items():
             src_str += str(nshash)
             src_str += ": "
@@ -194,7 +201,13 @@ class Schema:
         src_str += str(self._hash_to_name)
         src_str += ", "
         src_str += str(self._name_to_hash)
-        src_str += ", {})\n"
+        src_str += ", {"
+        for tag, nsmaps in self._mount_id_maps.items():
+            src_str += str(tag)
+            src_str += ": nodes["
+            src_str += nsmaps.prsrc()
+            src_str += "], "
+        src_str += "})\n"
         return src_str
 
 class Cursor:
@@ -515,6 +528,36 @@ class NamespaceMaps:
         self.prefix_to_namespace = prefix_to_namespace
         self.module_to_namespace = module_to_namespace
 
+    def prsrc(self) -> str:
+        src_str = "NamespaceMaps({"
+
+        for ns, namespace in self.ns_to_namespace.items():
+            src_str += "\""
+            src_str += ns
+            src_str += "\": "
+            src_str += namespace.prsrc()
+            src_str += "\", "
+
+        src_str += "}, {"
+        for prefix, namespace in self.prefix_to_namespace.items():
+            src_str += "\""
+            src_str += prefix
+            src_str += "\": "
+            src_str += namespace.prsrc()
+            src_str += "\", "
+        
+        src_str += "}, {"
+        for module, namespace in self.module_to_namespace.items():
+            src_str += "\""
+            src_str += module
+            src_str += "\": "
+            src_str += namespace.prsrc()
+            src_str += "\", "
+
+        src_str += "})"
+
+        return src_str
+
 class NamespaceDescription:
     @property
     cns: str
@@ -802,7 +845,7 @@ class Node(object):
         if value_type is not None:
             if not value_type.type_id in types:
                 src_str = src_str + value_type.prsrc(types)
-            type_str = "types[" + str(value_type.type_id.prsrc()) + "]"
+            type_str = "types[" + value_type.type_id.prsrc() + "]"
 
         children_str = "["
         for child in self.children.values():
@@ -823,7 +866,7 @@ class Node(object):
         src_str += str(self.conf_type) + ", "
         src_str += type_str + ", "
         src_str += keys_str + ", "
-        src_str += children_str + "])\n"
+        src_str += children_str + ")\n"
 
         return src_str
 
@@ -913,7 +956,7 @@ class Type(object):
                 src_str = src_str + parent.prsrc(types)
                 types[parent.type_id] = parent
 
-            parent_str = "types[" + str(parent.type_id.prsrc()) + "]"
+            parent_str = "types[" + parent.type_id.prsrc() + "]"
 
         conf_type = self.conf_type
         if conf_type is not None:
@@ -921,7 +964,7 @@ class Type(object):
         else:
             conf_str = "None"
 
-        src_str = src_str + "types[" + self.type_id.prsrc() + "] = Type(" + str(self.type_id.prsrc()) + ", " + parent_str + ", " + conf_str + ")\n"
+        src_str = src_str + "types[" + self.type_id.prsrc() + "] = Type(" + self.type_id.prsrc() + ", " + parent_str + ", " + conf_str + ")\n"
 
         return src_str
 
