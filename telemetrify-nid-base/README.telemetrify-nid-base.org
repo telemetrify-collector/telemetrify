@@ -1,0 +1,16 @@
+* telemetrify-nid-base
+telemetrify-nid-base is a skeleton to help integrating telemetrify as an nso package in your nso-in-docker project.
+
+
+** Compile
+
+#+BEGIN_SRC shell
+TODO
+#+END_SRC
+
+
+** Run
+
+#+BEGIN_SRC shell
+TODO
+#+END_SRC
