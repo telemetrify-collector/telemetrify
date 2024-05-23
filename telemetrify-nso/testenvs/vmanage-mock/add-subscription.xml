@@ -47,7 +47,7 @@
     <transform>
       <name>vmanage</name>
       <type>
-        <vmanage xmlns="urn:telekom:abs:telemetrify-transform"/>
+        <vmanage xmlns="urn:example:telemetrify-ext"/>
       </type>
       <output>
         <sink>

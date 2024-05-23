@@ -51,7 +51,7 @@
     <transform>
       <name>cat8k-ip-sla</name>
       <type>
-        <cat8k-ip-sla xmlns="urn:telekom:abs:telemetrify-transform"/>
+        <cat8k-ip-sla xmlns="urn:example:telemetrify-ext"/>
       </type>
       <output>
         <sink>

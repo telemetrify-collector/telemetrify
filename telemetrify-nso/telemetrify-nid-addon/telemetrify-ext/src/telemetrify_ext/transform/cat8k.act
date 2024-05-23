@@ -13,16 +13,16 @@
 
 import logging
 
-import telemetrify.ietf.l3vpn_svc
+import telemetrify_ext.resource.l3vpn_svc
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
-from telemetrify.ietf.l3vpn_svc import L3vpnSvcParams
+from telemetrify_ext.resource.l3vpn_svc import L3vpnSvcParams
 from telemetrify.main.common import *
 from telemetrify.main.resource.shared_resources import *
 from telemetrify.main.transform.ctor import *
 
-TAG = PTag('tlmt', 'cat8k-ip-sla')
+TAG = PTag('tlme', 'cat8k-ip-sla')
 
 class IpSlaStats(object):
     @property
@@ -70,7 +70,7 @@ actor IpSlaTransform(
     var shared_resources_collection: SharedResourceCollection = SharedResourceCollection(shared_resources, log)
 
     var tasks: Wardrobe[(int, IpSlaStats, TNode)] = Wardrobe()
-    var l3vpn_svc_tracker: ?telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker = None
+    var l3vpn_svc_tracker: ?telemetrify_ext.resource.l3vpn_svc.L3vpnSvcTracker = None
     var pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
 
     # Workaround compiler ordering issue
@@ -341,7 +341,7 @@ actor IpSlaTransform(
                     _link_elem.leaf(OP_MERGE if jitter is not None else OP_DELETE, ITag(ns_dt_topo, 'jitter'), jitter)
                     _link_elem.leaf(OP_MERGE if packet_loss is not None else OP_DELETE, ITag(ns_dt_topo, 'packet-loss'), packet_loss)
 
-    def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
+    def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: telemetrify_ext.resource.l3vpn_svc.L3vpnSvcTracker):
         l3vpn_svc_tracker = _l3vpn_svc_tracker
         for task_id in pending_fetch_l3vpn_svc_tracker_task_ids:
             try:
@@ -375,15 +375,15 @@ actor IpSlaTransform(
     def _on_shared_resources_response(response: dict[PTag, SharedResource]):
         shared_resources_collection.assume_ownership(response)
 
-        l3vpn_svc_tracker_res = try_get(shared_resources_collection.resources, telemetrify.ietf.l3vpn_svc.L3VPN_SVC_TRACKER_TAG)
+        l3vpn_svc_tracker_res = try_get(shared_resources_collection.resources, telemetrify_ext.resource.l3vpn_svc.L3VPN_SVC_TRACKER_TAG)
 
-        if l3vpn_svc_tracker_res is not None and isinstance(l3vpn_svc_tracker_res, telemetrify.ietf.l3vpn_svc.L3vpnSvcTracker):
+        if l3vpn_svc_tracker_res is not None and isinstance(l3vpn_svc_tracker_res, telemetrify_ext.resource.l3vpn_svc.L3vpnSvcTracker):
             _on_fetched_l3vpn_svc_tracker(l3vpn_svc_tracker_res)
         else:
             log.error("TRANSFORM cat8k ERROR Failed to acquire shared resources", None)
 
     shared_resources.request(
-        set([telemetrify.ietf.l3vpn_svc.L3VPN_SVC_TRACKER_TAG]),
+        set([telemetrify_ext.resource.l3vpn_svc.L3VPN_SVC_TRACKER_TAG]),
         _on_shared_resources_response)
 
 def _try_parse_int_leaf(node: Node) -> ?int:

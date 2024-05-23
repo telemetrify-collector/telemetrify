@@ -1,7 +1,7 @@
-module telemetrify-transform {
+module telemetrify-ext {
   yang-version 1.1;
-  namespace "urn:telekom:abs:telemetrify-transform";
-  prefix tlmt;
+  namespace "urn:example:telemetrify-ext";
+  prefix tlme;
 
   import ietf-inet-types {
     prefix inet;
@@ -11,26 +11,14 @@ module telemetrify-transform {
     prefix yang;
   }
 
-  import tailf-common {
-    prefix tailf;
-  }
-
-  import tailf-ncs {
-    prefix ncs;
-  }
-
-  import tailf-ncs-ned {
-    prefix ned;
-  }
-
   import telemetrify {
     prefix tlm;
   }
 
   description
-      "Telemetry streaming implemented in Acton";
+      "Example Telemetrify extentension.";
 
-  revision 2024-04-10 {
+  revision 2024-05-27 {
     description
       "Initial revision.";
   }

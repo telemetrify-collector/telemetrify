@@ -28,7 +28,7 @@ from telemetrify.nsoapi.cdb import *
 import telemetrify.main.resource.builtin.env
 import telemetrify.main.resource.builtin.schema
 
-L3VPN_SVC_TRACKER_TAG = PTag('tlmt', 'l3vpn-svc-tracker')
+L3VPN_SVC_TRACKER_TAG = PTag('tlme', 'l3vpn-svc-tracker')
 
 class L3vpnSvcTrackerCtor(SharedResourceCtor):
     def __init__(self):

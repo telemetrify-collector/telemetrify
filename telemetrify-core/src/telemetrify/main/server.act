@@ -17,8 +17,6 @@ import telemetrify.nso.subscriber
 import telemetrify.nsoapi.cdb
 import telemetrify.nsoapi.maapi
 import telemetrify.nsoapi.schema as schema
-import telemetrify.ietf.l3vpn_svc
-import telemetrify.ietf.cat8k
 import telemetrify.main.resource.shared_resources
 import telemetrify.main.sink.m3db
 import telemetrify.main.sink.nso
@@ -43,7 +41,6 @@ from telemetrify.main.resource.repo import prepare_shared_resource_ctors
 from telemetrify.main.transform.ctor import *
 from telemetrify.main.transform.repo import prepare_transform_ctors
 
-import telemetrify.vmanage.transform
 
 class PendingSubscriberUpdate(object):
     @property
@@ -592,11 +589,4 @@ actor Server(
     maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)
 
 actor main(env):
-    Server(env,
-        {
-            telemetrify.ietf.cat8k.TAG: telemetrify.ietf.cat8k.IpSlaTransformCtor(),
-            telemetrify.vmanage.transform.TAG: telemetrify.vmanage.transform.VmanageTransformCtor(),
-        },
-        {
-            telemetrify.ietf.l3vpn_svc.L3VPN_SVC_TRACKER_TAG: telemetrify.ietf.l3vpn_svc.L3vpnSvcTrackerCtor(),
-        })
+    Server(env, {}, {})
