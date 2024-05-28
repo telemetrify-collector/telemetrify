@@ -190,7 +190,6 @@ class Schema:
             src_str += ns.prsrc()
             src_str += ", "
         src_str += "}, {"
-        src_str += str(self._cns_to_namespace)
         for cns, ns in self._cns_to_namespace.items():
             src_str += "\""
             src_str += cns
@@ -536,7 +535,7 @@ class NamespaceMaps:
             src_str += ns
             src_str += "\": "
             src_str += namespace.prsrc()
-            src_str += "\", "
+            src_str += ", "
 
         src_str += "}, {"
         for prefix, namespace in self.prefix_to_namespace.items():
@@ -544,7 +543,7 @@ class NamespaceMaps:
             src_str += prefix
             src_str += "\": "
             src_str += namespace.prsrc()
-            src_str += "\", "
+            src_str += ", "
         
         src_str += "}, {"
         for module, namespace in self.module_to_namespace.items():
@@ -552,7 +551,7 @@ class NamespaceMaps:
             src_str += module
             src_str += "\": "
             src_str += namespace.prsrc()
-            src_str += "\", "
+            src_str += ", "
 
         src_str += "})"
 
