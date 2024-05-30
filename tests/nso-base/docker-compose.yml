@@ -1,0 +1,10 @@
+version: "3.3"
+services:
+    nso:
+        image: gitlab.dev.terastrm.net:4567/abs/nso-docker/cisco-nso-base:${NSO_VERSION}
+        volumes:
+          - ../../:/mnt
+        ports:
+          - 4569:4569
+        labels:
+          - "com.cisco.nso.testenv.name=${CNT_PREFIX}"
