@@ -174,39 +174,37 @@ class Schema:
     def prsrc(self) -> str:
         src_str = "from telemetrify.common.mod import HTag\n"
         src_str += "from telemetrify.nsoapi.schema import Schema, Node, Type, TypeId, NamespaceDescription, NamespaceMaps\n"
-        src_str += "types: dict[TypeId, Type] = {}\n"
-        src_str += "nodes: dict[HTag, Node] = {}\n"
         src_str += self._root.prsrc({}, {})
-        src_str += "schema = Schema({"
+        src_str += "roots: dict[HTag, Node] = {"
         for tag in self._root.children.keys():
             src_str += str(tag)
-            src_str += ": nodes["
-            src_str += str(tag)
-            src_str += "], "
-        src_str += "}, {"
+            src_str += ": nodes_%d_%d, " % (tag.ns_hash, tag.name_hash)
+        src_str += "}\n"
+        src_str += "nshash_to_namespace: dict[int, NamespaceDescription] = {"
         for nshash, ns in self._nshash_to_namespace.items():
             src_str += str(nshash)
             src_str += ": "
             src_str += ns.prsrc()
             src_str += ", "
-        src_str += "}, {"
+        src_str += "}\n"
+        src_str += "cns_to_namespace: dict[str, NamespaceDescription] = {"
         for cns, ns in self._cns_to_namespace.items():
             src_str += "\""
             src_str += cns
             src_str += "\": "
             src_str += ns.prsrc()
             src_str += ", "
-        src_str += "}, "
-        src_str += str(self._hash_to_name)
-        src_str += ", "
-        src_str += str(self._name_to_hash)
-        src_str += ", {"
+        src_str += "}\n"
+        src_str += "hash_to_name: dict[int, str] = %s\n" % str(self._hash_to_name)
+        src_str += "name_to_hash: dict[str, int] = %s\n" % str(self._name_to_hash)
+        src_str += "mount_id_maps: dict[HTag, NamespaceMaps] = {"
         for tag, nsmaps in self._mount_id_maps.items():
             src_str += str(tag)
             src_str += ": "
             src_str += nsmaps.prsrc()
             src_str += ", "
-        src_str += "})\n"
+        src_str += "}\n"
+        src_str += "schema = Schema(roots, nshash_to_namespace, cns_to_namespace, hash_to_name, name_to_hash, mount_id_maps)"
         return src_str
 
 class Cursor:
@@ -844,23 +842,23 @@ class Node(object):
         if value_type is not None:
             if not value_type.type_id in types:
                 src_str = src_str + value_type.prsrc(types)
-            type_str = "types[" + value_type.type_id.prsrc() + "]"
+            type_str = "types_%d_%s" % (value_type.type_id.ns_hash, value_type.type_id.name.replace('-', '_').replace('.', 'dot'))
 
         children_str = "{"
         for tag, child in self.children.items():
             src_str += child.prsrc(nodes, types)
             children_str += str(tag)
             children_str += ": "
-            children_str += "nodes[" + str(child.tag) + "], "
+            children_str += "nodes_%d_%d, " % (child.tag.ns_hash, child.tag.name_hash)
         children_str += "}"
 
         keys_str = "["
         for key in self.keys:
-            keys_str += "nodes[" + str(key.tag) + "], "
+            keys_str += "nodes_%d_%d, " % (key.tag.ns_hash, key.tag.name_hash)
         keys_str += "]"
 
-        src_str += "nodes[" + str(self.tag)
-        src_str += "] = Node(" + str(self.tag) + ", "
+        src_str += "nodes_%d_%d" % (self.tag.ns_hash, self.tag.name_hash)
+        src_str += " = Node(" + str(self.tag) + ", "
         src_str += str(self.min_occurs) + ", "
         src_str += str(self.max_occurs) + ", "
         src_str += str(self.flags) + ", "
@@ -957,7 +955,7 @@ class Type(object):
                 src_str = src_str + parent.prsrc(types)
                 types[parent.type_id] = parent
 
-            parent_str = "types[" + parent.type_id.prsrc() + "]"
+            parent_str = "types_%d_%s" % (parent.type_id.ns_hash, parent.type_id.name.replace('-', '_').replace('.', 'dot'))
 
         conf_type = self.conf_type
         if conf_type is not None:
@@ -965,7 +963,7 @@ class Type(object):
         else:
             conf_str = "None"
 
-        src_str = src_str + "types[" + self.type_id.prsrc() + "] = Type(" + self.type_id.prsrc() + ", " + parent_str + ", " + conf_str + ")\n"
+        src_str = src_str + "types_%d_%s" % (self.type_id.ns_hash, self.type_id.name.replace('-', '_').replace('.', 'dot')) + " = Type(" + self.type_id.prsrc() + ", " + parent_str + ", " + conf_str + ")\n"
 
         return src_str
 
