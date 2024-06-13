@@ -19,22 +19,26 @@ from telemetrify.main.common import *
 from telemetrify.main.resource.shared_resources import *
 from telemetrify.main.transform.common import *
 from telemetrify.main.transform.ctor import *
+from telemetrify.nsoapi.schema import Schema
 
-YANG_NAME = 'example'
+import telemetrify.main.resource.builtin.schema
+
+YANG_NAME = 'example-schema'
 
 TAG = PTag('tlme', YANG_NAME)
 
-class ExampleTransformCtor(TransformCtor):
+class ExampleSchemaTransformCtor(TransformCtor):
     def __init__(self):
         pass
 
     def create(self, uid: int, config: TNode, shared_resources: SharedResources, on_closed: action() -> None, log_handler: logging.Handler) -> Transform:
-        transform_act = ExampleTransform(uid, config, on_closed, log_handler)
+        transform_act = ExampleSchemaTransform(uid, config, shared_resources, on_closed, log_handler)
         return Transform(uid, transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
 
-actor ExampleTransform(
+actor ExampleSchemaTransform(
         uid: int,
         config: TNode,
+        shared_resources: SharedResources,
         on_closed: action() -> None,
         log_handler: ?logging.Handler):
 
@@ -46,6 +50,10 @@ actor ExampleTransform(
     # Workaround compiler ordering issue
     # var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
     var transform_base = TransformMixin(uid, lambda m: None, lambda: None, log)
+
+    var shared_resources_collection: SharedResourceCollection = SharedResourceCollection(shared_resources, log)
+
+    var schema: ?Schema = None
 
     log.info("TRANSFORM " + YANG_NAME + " CREATED", {"uid": uid})
 
@@ -59,11 +67,25 @@ actor ExampleTransform(
         transform_base.update_output(update)
 
     def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
+        _schema = schema
+        if _schema is not None:
+            cursor = try_get_flow_param_schema_cursor(flow_params, _schema)
+            if cursor is not None:
+                input_node = strict_node_to_ptag_tnode(node, cursor)
 
-        # TODO: Create output data
-        output_node = node
+                output_node = _transform(input_node, flow_params)
 
-        transform_base.write(sender_uid, output_node, flow_params)
+                if output_node:
+                    transform_base.write(sender_uid, output_node, flow_params)
+            else:
+                log.warning("Missing flow_param schema_path", {"uid": uid})
+
+    def _transform(input_node: TNode, flow_params: TNode) -> TNode:
+        output_node = tnode_root()
+
+        # BUILD upon output_node
+
+        return output_node
 
     def close():
         transform_base.close()
@@ -73,8 +95,25 @@ actor ExampleTransform(
 
     def _on_closed():
         log.debug("TRANSFORM " + YANG_NAME + " CLOSED", {"uid": uid})
+        shared_resources_collection.close()
+        schema = None
         on_closed()
 
     # Workaround compiler ordering issue
     transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
     transform_base.on_closed = _on_closed
+
+    def _on_shared_resources_response(response: dict[PTag, SharedResource]):
+        shared_resources_collection.assume_ownership(response)
+
+        schema_res = try_get(shared_resources_collection.resources, telemetrify.main.resource.builtin.schema.TAG)
+
+        if schema_res is not None and isinstance(schema_res, telemetrify.main.resource.builtin.schema.SharedSchemaResource):
+            _schema_res: telemetrify.main.resource.builtin.schema.SharedSchemaResource = schema_res
+            schema = _schema_res.get_schema()
+        else:
+            log.error("TRANSFORM " + YANG_NAME + " ERROR Failed to acquire shared resources", None)
+
+    shared_resources.request(
+        set([telemetrify.main.resource.builtin.schema.TAG]),
+        _on_shared_resources_response)

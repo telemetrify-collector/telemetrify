@@ -1,0 +1,133 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import telemetrify.nsoapi.schema as schema
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+
+def strict_node_to_ptag_tnode(node: Node, cursor: schema.Cursor) -> TNode:
+    return strict_node_to_tnode(node, cursor, _get_ptag, PTag.root)
+
+def strict_node_to_tnode(node: Node, cursor: schema.Cursor, get_tag: (Tag, schema.Cursor) -> Tag, get_root_tag: () -> Tag) -> TNode:
+    tag = node.tag()
+    if tag is not None and tag.is_root() or tag is None: # if tag is None or tag.is_root():
+        return TTree(node.op(), get_root_tag(), None, _strict_nodes_to_tnodes(node.children(), cursor, get_tag))
+    else:
+        return optional_expect_or_throw(iterable_first(_strict_nodes_to_tnodes([node], cursor, get_tag).values()),
+            lambda: ValueError("Broken invariant: One-to-one node mapping"))
+
+def _strict_nodes_to_tnodes(nodes: list[Node], cursor: schema.Cursor, get_tag: (Tag, schema.Cursor) -> Tag) -> dict[Id, TNode]:
+    t_nodes: dict[Id, TNode] = {}
+
+    for node in nodes:
+        native_tag = optional_expect_or_throw(node.tag(),
+            lambda: ValueError("Missing tag under %s" % str(cursor.get_ptag_keypath())))
+        tag: Tag = get_tag(native_tag, cursor)
+        _tag: Id = tag
+        if not cursor.push(tag):
+            raise ValueError("Missing schema for tag %s under %s" % (str(tag), str(cursor.get_ptag_keypath())))
+
+        try:
+            s_node = cursor.node()
+
+            if s_node.is_non_empty_leaf():
+                t_nodes[_tag] = TLeaf(node.op(), tag, _strict_convert_node_value(node, cursor))
+            elif s_node.is_empty_leaf():
+                t_nodes[_tag] = TLeaf(node.op(), tag, None)
+            elif s_node.is_container():
+                t_nodes[_tag] = TTree(node.op(), tag, None, _strict_nodes_to_tnodes(node.children(), cursor, get_tag))
+            elif s_node.is_list():
+                t_children: dict[Id, TNode] = _strict_nodes_to_tnodes(node.children(), cursor, get_tag)
+
+                key_values: list[value] = []
+
+                node_keys: list[Node] = node.keys()
+                node_keys_len = len(node_keys)
+
+                key_i = 0
+                for key_s_node in s_node.keys:
+                    if not cursor.push(key_s_node.tag):
+                        raise ValueError("Missing schema for tag %s under %s" % (str(key_s_node.tag), str(cursor.get_ptag_keypath())))
+                    try:
+                        schema_key_ptag = get_tag(key_s_node.tag, cursor)
+
+                        if key_i < node_keys_len:
+                            # Explicit key
+                            key_node = node_keys[key_i]
+                            key_node_tag = key_node.tag()
+                            if key_node_tag is not None:
+                                # For named keys we verify the name
+                                key_node_ptag = get_tag(key_node_tag, cursor)
+                                if key_node_ptag != schema_key_ptag:
+                                    raise ValueError("Key tag mismatch, expected: %s, actual: %s" % (str(schema_key_ptag), str(key_node_ptag)))
+                            key_value = optional_expect_or_throw(_strict_convert_node_value(key_node, cursor),
+                                lambda: ValueError("Empty key leaf value %s" % str(cursor.get_ptag_keypath())))
+                            key_values.append(key_value)
+                        else:
+                            # No explicit key, hence we look for key-leafs
+                            key_tnode = optional_expect_or_throw(try_get(t_children, schema_key_ptag),
+                                lambda: ValueError("Missing key leaf tag %s" % str(cursor.get_ptag_keypath())))
+                            key_value = optional_expect_or_throw(key_tnode.try_value(),
+                                lambda: ValueError("Missing key leaf value %s" % str(cursor.get_ptag_keypath())))
+                            key_values.append(key_value)
+                    finally:
+                        cursor.pop()
+                        key_i += 1
+
+                key = Key(key_values)
+                t_elem = TTree(node.op(), tag, key, t_children)
+                t_list = get_or_create(t_nodes, _tag, lambda: TTree(node.op(), tag, None, {}))
+                t_list.attach(key, t_elem)
+
+            elif s_node.is_leaf_list():
+                leaf_list = get_or_create(t_nodes, _tag, lambda: TTree(node.op(), tag, None, {}))
+                elem = optional_expect_or_throw(_strict_convert_node_value(node, cursor),
+                    lambda: ValueError("Empty leaf-list elem %s" % str(cursor.get_ptag_keypath())))
+                leaf_list.leaf_elem(node.op(), elem)
+            else:
+                raise ValueError("Invalid schema type under " + str(cursor.get_ptag_keypath() + Keypath([tag])))
+        finally:
+            cursor.pop()
+
+    return t_nodes
+
+def _get_ptag(tag: Tag, cursor: schema.Cursor) -> PTag:
+    ptag = cursor.lookup_ptag(tag)
+    if ptag is not None:
+        return ptag
+    raise ValueError("Missing schema lookup for tag %s under %s" % (str(tag), str(cursor.get_ptag_keypath())))
+
+def _convert_node_value(cursor: schema.Cursor, node: Node) -> ?value:
+    s_node = cursor.node()
+    _type = s_node.value_type
+    v: ?value = node.value()
+    _v: ?value = v
+    if _v is not None and _type is not None:
+        if isinstance(_v, str):
+            v = _type.netconf_to_value(_v, cursor, node.namespaces())
+    return v
+
+def _strict_convert_node_value(node: Node, cursor: schema.Cursor) -> ?value:
+    s_node = cursor.node()
+    _type = s_node.value_type
+    if _type is not None:
+        v: ?value = node.value()
+        _v: ?value = v
+        if _v is not None and isinstance(_v, str):
+            v = _type.netconf_to_value(_v, cursor, node.namespaces())
+        # # TODO: Implement schema value validation
+        # # if not _type.validate_value(cursor, v):
+        # #     raise ValueError("Failed value validation for " + str(cursor.get_ptag_keypath()) + " = " + optional_str(node.value()))
+        return v
+    raise ValueError("Missing schema value type for " + str(cursor.get_ptag_keypath()) + " = " + optional_str(node.value()))

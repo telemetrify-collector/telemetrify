@@ -1,0 +1,177 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import net
+import time
+import xml
+
+import telemetrify.net.netconf as netconf
+import telemetrify.nsoapi.schema as schema
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.common.io import Buffer
+from telemetrify.main.common import *
+from telemetrify.main.config import *
+from telemetrify.nsoapi.schema import QName, SchemaPath
+from telemetrify.main.source.netconf import *
+
+def create_mock_netconf_replay_source(uid: int, config: TNode, listen_cap: net.TCPListenCap, log_handler: logging.Handler) -> NetconfSource:
+    source_act = MockNetconfReplaySourceAct(uid, config, listen_cap, log_handler)
+    return NetconfSource(uid, source_act.attach, source_act.detach, source_act.close, source_act.rpc, source_act.rpc_action)
+
+actor MockNetconfReplaySourceAct(
+        uid: int,
+        config: TNode,
+        listen_cap: net.TCPListenCap,
+        log_handler: logging.Handler):
+
+    var logh = logging.Handler("mock-netconf-replay-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    # Workaround compiler ordering issue
+    #var source_mixin = SourceMixin(uid, _on_source_mixin_closed)
+    var source_mixin = SourceMixin(uid, lambda: None)
+
+    var listener: ?net.TCPListener = None
+    var receivers: dict[int, Receiver] = {}
+    var next_receiver_id: int = 0
+
+    var next_message_id: int = 0
+
+    var current_reply: xml.Node = xml.Node("rpc-reply", [(None, netconf.NS_NC_1_1)], None, [], [
+            xml.Node("rpc-error", [], None, [], [
+                xml.Node("error-type", [], None, [], [], "rpc", None),
+                xml.Node("error-message", [], None, [("xml:lang", "en")], [], "Nothing yet", None),
+            ], None, None)
+        ], None, None)
+
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        source_mixin.attach(client_uid, msg_cb)
+
+    def detach(client_uid: int):
+        source_mixin.detach(client_uid)
+
+    def close():
+        source_mixin.on_closing()
+
+    def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
+        if log.output_level >= logging.TRACE:
+            log.trace("SOURCE mock-netconf-replay RPC", {"content": content.encode(), "add_rpc_attrs": list_str(add_rpc_attrs)})
+
+        last_reply: xml.Node = current_reply
+
+        if last_reply.tag == "rpc-reply":
+            rpc_reply_attrs = {}
+            for k, v in add_rpc_attrs:
+                rpc_reply_attrs[k] = v
+            for k, v in last_reply.attributes:
+                rpc_reply_attrs[k] = v
+            rpc_reply_attrs["message-id"] = str(_gen_message_id())
+
+            current_reply = xml.Node(last_reply.tag, last_reply.nsdefs, last_reply.prefix,
+                list(rpc_reply_attrs.items()), last_reply.children, last_reply.text, last_reply.tail)
+
+        callback(current_reply)
+
+    def rpc_action(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
+        callback(None)
+
+    def _gen_message_id() -> int:
+        message_id = next_message_id
+        next_message_id += 1
+        return message_id
+
+    # def _on_netconf_notif(node: xml.Node, seqno: int):
+    #     pass
+
+    def _on_source_mixin_closed():
+        _close_client()
+
+    def _on_received_success(receiver_id: int, payload: bytes):
+        text = payload.decode()
+        try:
+            root = xml.decode(text)
+        except Exception as ex:
+            log.warning("SOURCE mock-netconf-replay RECEIVED invalid xml data", {"data": text, "errmsg": ex.error_message})
+        else:
+            _root: xml.Node = root
+            if log.output_level >= logging.TRACE:
+                log.trace("SOURCE mock-netconf-replay RECEIVED", {"xml": _root.encode()})
+            current_reply = _root
+        try_pop(receivers, receiver_id)
+
+    def _on_received_error(receiver_id: int, errmsg: str):
+        log.warning("SOURCE mock-netconf-replay LISTEN failed", {"errmsg": errmsg})
+        try_pop(receivers, receiver_id)
+
+    def _on_listener_accept(c: net.TCPListenConnection):
+        receiver_id = next_receiver_id
+        next_receiver_id += 1
+        log.debug("SOURCE mock-netconf-replay ACCEPT", {"receiver_id": receiver_id})
+        receivers[receiver_id] = Receiver(receiver_id, c, _on_received_success, _on_received_error)
+
+    def _on_listener_defunct(c: net.TCPListener, errmsg: str):
+        log.warning("SOURCE mock-netconf-replay LISTEN failed", {"errmsg": errmsg})
+        # Retry after 1 sec
+        after 1: _create_listener()
+
+    def _create_listener():
+        log.debug("SOURCE mock-netconf-replay LISTEN", None)
+
+        source_config = config[SOURCE_TYPE_TAG_MOCK_NETCONF_REPLAY]
+        address = source_config[PTag('tlm', 'address')].try_str()
+        port = source_config[PTag('tlm', 'port')].try_int()
+
+        if address is not None and port is not None:
+            listener = net.TCPListener(listen_cap, address, port, _on_listener_defunct, _on_listener_accept)
+            log.debug("SOURCE mock-netconf-replay LISTEN setup", {"address": address, "port": port})
+
+    def _close_client():
+        log.debug("SOURCE mock-netconf-replay DISCONNECT", None)
+        source_mixin.on_stopped()
+
+    # Workaround compiler ordering issue
+    source_mixin.on_closed = _on_source_mixin_closed
+
+    log.info("SOURCE mock-netconf-replay CREATED", None)
+
+    _create_listener()
+    source_mixin.on_started()
+
+actor Receiver(
+        receiver_id: int,
+        c: net.TCPListenConnection,
+        on_received: action(int, bytes) -> None,
+        on_error: action(int, str) -> None):
+
+    chunks: list[bytes] = []
+
+    def close():
+        c.close()
+
+    def _on_receive(c: net.TCPListenConnection, data: bytes):
+        chunks.append(data)
+
+    def _on_error(c: net.TCPListenConnection, errmsg: str):
+        on_error(receiver_id, errmsg)
+
+    def _on_remote_close(c: net.TCPListenConnection):
+        res = bytes([]).join(chunks)
+        on_received(receiver_id, res)
+
+    c.cb_install(_on_receive, _on_error, _on_remote_close)

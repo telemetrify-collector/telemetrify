@@ -1,0 +1,263 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import time
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.main.common import *
+from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.transform.common import *
+from telemetrify.main.transform.ctor import *
+from telemetrify.nsoapi.schema import Schema
+
+import telemetrify.main.resource.builtin.schema
+
+SEVERITY_CLEARED = 'cleared'
+SEVERITY_INDETERMINATE = 'indeterminate'
+SEVERITY_MINOR = 'minor'
+SEVERITY_WARNING = 'warning'
+SEVERITY_MAJOR = 'major'
+SEVERITY_CRITICAL = 'critical'
+
+class AlarmId(object):
+    @property
+    device: str
+    @property
+    type: str
+    @property
+    managed_object: str
+    @property
+    specific_problem: str
+
+    def __init__(self,
+            device: str,
+            type: str,
+            managed_object: str,
+            specific_problem: str = ''):
+
+        self.device = device
+        self.type = type
+        self.managed_object = managed_object
+        self.specific_problem = specific_problem
+
+    def to_key(self):
+        return Key([self.device, self.type, self.managed_object, self.specific_problem])
+
+extension AlarmId(Hashable):
+    def __eq__(self, other: AlarmId) -> bool:
+        return \
+            self.device == other.device and \
+            self.type == other.type and \
+            self.managed_object == other.managed_object and \
+            self.specific_problem == other.specific_problem
+
+    def __hash__(self) -> int:
+        return safe_hash(
+            7 * hash(self.device) +
+            5 * hash(self.type) +
+            3 * hash(self.managed_object) +
+            2 * hash(self.specific_problem))
+
+class Alarm(object):
+    @property
+    severity: str
+    @property
+    alarm_text: ?str
+
+    def __init__(self, severity: str, alarm_text: ?str):
+        self.severity = severity
+        self.alarm_text = alarm_text
+
+extension Alarm(Eq):
+    def __eq__(self, other: Alarm) -> bool:
+        return \
+            self.severity == other.severity and \
+            eq_optional(self.alarm_text, other.alarm_text)
+
+class AlarmState(object):
+    @property
+    alarm: Alarm
+    @property
+    timestamp: ?time.DateTime
+
+    def __init__(self, alarm: Alarm, timestamp: ?time.DateTime):
+        self.alarm = alarm
+        self.timestamp = timestamp
+
+class AlarmMapper(object):
+    proc def map(self, input_node: TNode, flow_params: TNode) -> dict[AlarmId, AlarmState]:
+        raise Exception("Not Implemented")
+
+#
+
+class AlarmTransformCtor(TransformCtor):
+    @property
+    name: str
+    @property
+    mapper_ctor: (TNode, logging.Logger) -> AlarmMapper
+
+    def __init__(self, name: str, mapper_ctor: (TNode, logging.Logger) -> AlarmMapper):
+        self.name = name
+        self.mapper_ctor = mapper_ctor
+
+    def create(self, uid: int, config: TNode, shared_resources: SharedResources, on_closed: action() -> None, log_handler: logging.Handler) -> Transform:
+        transform_act = AlarmTransform(self.name, self.mapper_ctor, uid, config, shared_resources, on_closed, log_handler)
+        return Transform(uid, transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+
+#
+
+actor AlarmTransform(
+        name: str,
+        mapper_ctor: (TNode, logging.Logger) -> AlarmMapper,
+        uid: int,
+        config: TNode,
+        shared_resources: SharedResources,
+        on_closed: action() -> None,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler(name + "-transform")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
+    # Workaround compiler ordering issue
+    # var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
+    var transform_base = TransformMixin(uid, lambda m: None, lambda: None, log)
+
+    var shared_resources_collection: SharedResourceCollection = SharedResourceCollection(shared_resources, log)
+
+    var schema: ?Schema = None
+
+    var mapper = mapper_ctor(config, log)
+
+    var alarm_states: dict[AlarmId, AlarmState] = {}
+
+    log.info("TRANSFORM " + name + " CREATED", {"uid": uid})
+
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        transform_base.attach(client_uid, msg_cb)
+
+    def detach(client_uid: int):
+        transform_base.detach(client_uid)
+
+    def update_output(update: list[(Keypath, ?OutputUpdate)]) -> None:
+        transform_base.update_output(update)
+
+    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
+        output_node = tnode_root()
+        PR = 'al'
+
+        is_reset = flow_params.has_child(FLOW_PARAM_RESET)
+        if is_reset:
+            if alarm_states:
+                alarm_list = output_node.cont(OP_MERGE, PTag(PR, 'alarms')).cont(OP_MERGE, PTag(PR, 'alarm-list')).list(OP_MERGE, PTag(PR, 'alarm'))
+
+                for alarm_id in alarm_states.keys():
+                    alarm_list.elem(OP_DELETE, alarm_id.to_key())
+                    # alarm_states.clear()
+                    alarm_states = {}
+
+        else:
+            _schema = schema
+            if _schema is not None:
+                cursor = try_get_flow_param_schema_cursor(flow_params, _schema)
+                if cursor is not None:
+                    input_node = strict_node_to_ptag_tnode(node, cursor)
+
+                    updates = mapper.map(input_node, flow_params)
+                    for alarm_id, alarm_state in updates.items():
+                        old_alarm_state = try_get(alarm_states, alarm_id)
+
+                        if old_alarm_state is None and alarm_state.alarm.severity == SEVERITY_CLEARED:
+                            # TODO: Initialize alarm_states from alarm subscriber (in shared_resource) and hold off writes until then
+                            alarm_states[alarm_id] = AlarmState(alarm_state.alarm, None)
+                            alarm_list = output_node.cont(OP_MERGE, PTag(PR, 'alarms')).cont(OP_MERGE, PTag(PR, 'alarm-list')).list(OP_MERGE, PTag(PR, 'alarm'))
+                            alarm_list.elem(OP_DELETE, alarm_id.to_key())
+
+                        else:
+                            new_alarm_state = alarm_state
+                            write_alarm_state: ?AlarmState = None
+
+                            if old_alarm_state is not None:
+                                # Keep alarm_text from last non-cleared alarm_state
+                                # if new_alarm_state.alarm.severity == SEVERITY_CLEARED and new_alarm_state.alarm.alarm_text is None:
+                                new_alarm_text = new_alarm_state.alarm.alarm_text
+                                if new_alarm_state.alarm.severity == SEVERITY_CLEARED and new_alarm_text is None:
+                                    new_alarm_state = AlarmState(Alarm(new_alarm_state.alarm.severity, old_alarm_state.alarm.alarm_text), new_alarm_state.timestamp)
+
+                                if new_alarm_state.alarm != old_alarm_state.alarm:
+                                    write_alarm_state = new_alarm_state
+                            else:
+                                write_alarm_state = new_alarm_state
+
+                            if write_alarm_state is not None:
+                                new_alarm = write_alarm_state.alarm
+                                timestamp = write_alarm_state.timestamp
+                                new_timestamp: time.DateTime = timestamp if timestamp is not None else time.now()
+                                write_alarm_state.timestamp = new_timestamp
+
+                                alarm_states[alarm_id] = write_alarm_state
+
+                                yang_timestamp = DateTime.from_std_datetime(timestamp if timestamp is not None else time.now())
+
+                                alarm_list = output_node.cont(OP_MERGE, PTag(PR, 'alarms')).cont(OP_MERGE, PTag(PR, 'alarm-list')).list(OP_MERGE, PTag(PR, 'alarm'))
+                                alarm_node = alarm_list.elem(OP_MERGE, alarm_id.to_key())
+
+                                alarm_node.leaf(OP_MERGE, PTag(PR, 'is-cleared'), new_alarm.severity == SEVERITY_CLEARED)
+                                alarm_node.leaf(OP_MERGE, PTag(PR, 'last-status-change'), yang_timestamp)
+                                alarm_node.leaf(OP_MERGE, PTag(PR, 'last-perceived-severity'), new_alarm.severity)
+
+                                alarm_text = new_alarm.alarm_text
+                                alarm_node.leaf(OP_MERGE if alarm_text is not None else OP_DELETE, PTag(PR, 'last-alarm-text'), alarm_text)
+
+                                status_change_node = alarm_node.list(OP_MERGE, PTag(PR, 'status-change')).elem(OP_MERGE, Key([yang_timestamp]))
+                                status_change_node.leaf(OP_MERGE, PTag(PR, 'perceived-severity'), new_alarm.severity)
+                                status_change_node.leaf(OP_MERGE if alarm_text is not None else OP_DELETE, PTag(PR, 'alarm-text'), alarm_text)
+                else:
+                    log.warning("Missing flow_param schema_path", {"uid": uid})
+
+        if output_node:
+            transform_base.write(sender_uid, output_node, flow_params)
+
+    def close():
+        transform_base.close()
+
+    def output_upstream_msg_trampoline(msg: Message) -> None:
+        transform_base.on_output_upstream_msg(msg)
+
+    def _on_closed():
+        log.debug("TRANSFORM " + name + " CLOSED", {"uid": uid})
+        shared_resources_collection.close()
+        schema = None
+        on_closed()
+
+    # Workaround compiler ordering issue
+    transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+    transform_base.on_closed = _on_closed
+
+    def _on_shared_resources_response(response: dict[PTag, SharedResource]):
+        shared_resources_collection.assume_ownership(response)
+
+        schema_res = try_get(shared_resources_collection.resources, telemetrify.main.resource.builtin.schema.TAG)
+
+        if schema_res is not None and isinstance(schema_res, telemetrify.main.resource.builtin.schema.SharedSchemaResource):
+            _schema_res: telemetrify.main.resource.builtin.schema.SharedSchemaResource = schema_res
+            schema = _schema_res.get_schema()
+        else:
+            log.error("TRANSFORM " + name + " ERROR Failed to acquire shared resources", None)
+
+    shared_resources.request(
+        set([telemetrify.main.resource.builtin.schema.TAG]),
+        _on_shared_resources_response)

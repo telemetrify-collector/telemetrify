@@ -18,7 +18,7 @@ import telemetrify.common.utils as utils
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
-from telemetrify.nsoapi.schema import SchemaPath
+from telemetrify.nsoapi.schema import Schema, SchemaPath, Cursor
 
 def tnode_void() -> TNode:
     return TNode(OP_NONE, PTag.root())
@@ -103,6 +103,15 @@ def try_get_flow_param_internal_tag_value(flow_params: TNode, tag: str) -> ?str:
 
 def try_get_flow_param_external_tag_value(flow_params: TNode, tag: str) -> ?str:
     return flow_params[FLOW_PARAM_EXTERNAL_TAGS][Key([tag])][FLOW_PARAM_EXTERNAL_TAGS_VALUE].try_str()
+
+def try_get_flow_param_schema_cursor(flow_params: TNode, schema: Schema) -> ?Cursor:
+    schema_path: ?value = flow_params[FLOW_PARAM_SCHEMA_PATH].value()
+    #schema_path: ?SchemaPath = _schema_path if _schema_path is not None and isinstance(_schema_path, SchemaPath) else None
+    if schema_path is not None and isinstance(schema_path, SchemaPath):
+        cursor = Cursor(schema)
+        if cursor.push_schema_path(schema_path):
+            return cursor
+    return None
 
 # protocol ServerProxy:
 #     uid: pure() -> int
@@ -406,6 +415,8 @@ class SubscriberMixin(object):
         self.output_mixin.write(sender_uid, node, flow_params)
 
     def update_config(self, update: SubscriberUpdate):
+        self.log.trace("update_config", {"update": update})
+
         if self._update_config_requires_restart(update):
             self._stop()
         self._update_config(update)
@@ -421,8 +432,6 @@ class SubscriberMixin(object):
         return False
 
     def _update_config(self, update: SubscriberUpdate):
-        self.log.trace("_update_config", {"update": update})
-
         if self.state in [STATE_CLOSING, STATE_CLOSED]:
             raise ValueError("Attempted config update to closing/closed subscriber")
 

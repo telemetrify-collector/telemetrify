@@ -279,12 +279,12 @@ actor IpSlaTransform(
         network_ref = vpn_id + "-SITE"
 
         _network = root.cont(OP_MERGE, ITag(ns, 'networks')).list(OP_MERGE, ITag(ns, 'network'))
-        _network_elem = _network.elem(OP_MERGE, [network_id])
+        _network_elem = _network.elem(OP_MERGE, Key([network_id]))
         _network_elem.leaf(OP_MERGE, ITag(ns, 'network-id'), network_id)
 
         # <supporting-network>
         _supporting_network = _network_elem.list(OP_MERGE, ITag(ns, 'supporting-network'))
-        _supporting_network_elem = _supporting_network.elem(OP_MERGE, [network_ref])
+        _supporting_network_elem = _supporting_network.elem(OP_MERGE, Key([network_ref]))
         _supporting_network_elem.leaf(OP_MERGE, ITag(ns, 'network-ref'), network_ref)
 
         src_ip = src_svc.lan_interface_ipv4_address
@@ -295,16 +295,16 @@ actor IpSlaTransform(
             tp_id = str(src_ip)
 
             _node = _network_elem.list(OP_MERGE, ITag(ns, 'node'))
-            _node_elem = _node.elem(OP_MERGE, [node_id])
+            _node_elem = _node.elem(OP_MERGE, Key([node_id]))
             _node_elem.leaf(OP_MERGE, ITag(ns, 'node-id'), node_id)
 
             _supporting_node = _node_elem.list(OP_MERGE, ITag(ns, 'supporting-node'))
-            _supporting_node_elem = _supporting_node.elem(OP_MERGE, [network_ref, node_ref])
+            _supporting_node_elem = _supporting_node.elem(OP_MERGE, Key([network_ref, node_ref]))
             _supporting_node_elem.leaf(OP_MERGE, ITag(ns, 'network-ref'), network_ref)
             _supporting_node_elem.leaf(OP_MERGE, ITag(ns, 'node-ref'), node_ref)
 
             _termination_point = _node_elem.list(OP_MERGE, ITag(ns_topo, 'termination-point'))
-            _termination_point_elem = _termination_point.elem(OP_MERGE, [tp_id])
+            _termination_point_elem = _termination_point.elem(OP_MERGE, Key([tp_id]))
             _termination_point_elem.leaf(OP_MERGE, ITag(ns_topo, 'tp-id'), tp_id)
 
         # <network-name>
@@ -320,7 +320,7 @@ actor IpSlaTransform(
                 link_id = hostname + "--" + destination_hostname
 
                 _link = _network_elem.list(OP_MERGE, ITag(ns_topo, 'link'))
-                _link_elem = _link.elem(OP_MERGE, [link_id])
+                _link_elem = _link.elem(OP_MERGE, Key([link_id]))
                 _link_elem.leaf(OP_MERGE, ITag(ns_topo, 'link-id'), link_id)
 
                 _source = _link_elem.cont(OP_MERGE, ITag(ns_topo, 'source'))

@@ -21,6 +21,7 @@ from telemetrify.main.common import *
 SOURCE_TYPE_TAG_NETCONF = PTag('tlm', 'netconf')
 SOURCE_TYPE_TAG_VMANAGE_HTTP = PTag('tlm', 'vmanage-http')
 SOURCE_TYPE_TAG_MOCK_NETCONF = PTag('tlm', 'mock-netconf')
+SOURCE_TYPE_TAG_MOCK_NETCONF_REPLAY = PTag('tlm', 'mock-netconf-replay')
 SOURCE_TYPE_TAG_MOCK_VMANAGE_HTTP = PTag('tlm', 'mock-vmanage-http')
 
 SUBSCRIPTION_TYPE_TAG_NETCONF_RPC_POLLER = PTag('tlm', 'netconf-rpc-poll')
@@ -261,7 +262,7 @@ class SubscriptionSourceRefRefiner(Refiner):
             subscription_source_ref_node = root[PTag('tlm', 'telemetrify')][PTag('tlm', 'subscription')][sub_key[0]][PTag('tlm', 'source')][PTag('tlm', 'source-ref')]
             if subscription_source_ref_node:
                 self.subscription_source_refs[sub_key] = subscription_source_ref_node
-                source_ref = subscription_source_ref_node[PTag('tlm', 'source-ref')].try_str()
+                source_ref = subscription_source_ref_node.try_str()
                 if source_ref is not None:
                     source_key = Keypath([Key([source_ref])])
                     dict_set_add(self.source_to_sub_keys, source_key, sub_key)

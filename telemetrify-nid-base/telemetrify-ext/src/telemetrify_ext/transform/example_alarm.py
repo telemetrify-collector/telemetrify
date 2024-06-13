@@ -15,31 +15,24 @@ import logging
 
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
-
-from telemetrify.main.common import SharedResource
+from telemetrify.main.common import *
 from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.transform.common import *
+from telemetrify.main.transform.ctor import *
 
-import telemetrify.nsoapi.schema as schema
+from telemetrify_ext.base.alarm import *
 
-TAG = PTag(None, 'schema')
+YANG_NAME = 'example-alarm'
 
-class SharedSchemaResourceCtor(SharedResourceCtor):
-    @property
-    shared_schema: schema.SharedSchema
+TAG = PTag('tlme', YANG_NAME)
 
-    def __init__(self, shared_schema: schema.SharedSchema):
-        self.shared_schema = shared_schema
+class ExampleAlarmTransformCtor(AlarmTransformCtor):
+    def __init__(self):
+        AlarmTransformCtor.__init__(self, ExampleAlarmMapper)
 
-    proc def create(self, shared_resources: SharedResources, log_handler: logging.Handler) -> SharedResource:
-        return SharedSchemaResource(self.shared_schema)
+class ExampleAlarmMapper(AlarmMapper):
+    def __init__(self, config: TNode, log: logging.Logger):
+        pass
 
-class SharedSchemaResource(SharedResource):
-    @property
-    shared_schema: schema.SharedSchema
-
-    def __init__(self, shared_schema: schema.SharedSchema):
-        SharedResource.__init__(self, None)
-        self.shared_schema = shared_schema
-
-    def get_schema(self) -> schema.Schema:
-        return schema.unsafe_get_shared_schema(self.shared_schema)
+    proc def map(self, input_node: TNode, flow_params: TNode) -> dict[AlarmId, AlarmState]:
+        return {} # TODO

@@ -352,7 +352,11 @@ class Keypath:
         self.path = path
 
     def __str__(self) -> str:
-        return list_str(self.path)
+        l: list[str] = []
+        for x in self.path:
+            unsafe_list_append(l, '/')
+            unsafe_list_append(l, str(x))
+        return "".join(l)
 
     def __repr__(self):
         return "Keypath(" + self.__str__() + ")"
@@ -541,6 +545,12 @@ class XNode(Node):
     def namespaces(self) -> ?(?str) -> ?str:
         return self._namespaces
 
+    def value(self) -> ?value:
+        return None
+
+    def children(self) -> list[Node]:
+        return []
+
 class XTree(XNode):
     @property
     _children: list[Node]
@@ -677,8 +687,11 @@ class TNode(Node):
     def list(self, op: ?int, tag: Tag) -> TNode:
         return self.tree(op, tag)
 
-    def elem(self, op: ?int, keys: list[value]) -> TNode:
-        return self.tree(op, Key(keys))
+    def elem(self, op: ?int, key: Key) -> TNode:
+        return self.tree(op, key)
+
+    def leaf_list(self, op: ?int, tag: Tag) -> TNode:
+        return self.tree(op, tag)
 
     def leaf_elem(self, op: ?int, _val: value) -> TNode:
         return self.leaf(op, Key([_val]), _val)

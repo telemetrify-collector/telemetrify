@@ -1,0 +1,20 @@
+<alarms xmlns="http://tail-f.com/ns/ncs-alarms">
+  <alarm-list>
+    <alarm>
+      <device>junos-1</device>
+      <type xmlns:tlme="urn:example:telemetrify-ext">tlme:backbone-interface-down</type>
+      <managed-object>/infrastructure/backbone-interface[device='junos-1' and interface='xe-0/0/0']</managed-object>
+      <specific-problem/>
+      <snmp-index>2</snmp-index>
+      <is-cleared>false</is-cleared>
+      <last-status-change>Stripped for compare</last-status-change>
+      <last-perceived-severity>warning</last-perceived-severity>
+      <last-alarm-text>Physical interface is operationally down.</last-alarm-text>
+      <status-change>
+        <event-time>Stripped for compare</event-time>
+        <perceived-severity>warning</perceived-severity>
+        <alarm-text>Physical interface is operationally down.</alarm-text>
+      </status-change>
+    </alarm>
+  </alarm-list>
+</alarms>
