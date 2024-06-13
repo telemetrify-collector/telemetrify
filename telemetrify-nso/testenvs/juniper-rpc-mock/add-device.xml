@@ -10,7 +10,7 @@
     </group>
   </authgroups>
     <device>
-      <name>junos</name>
+      <name>junos-1</name>
       <address>127.0.0.1</address>
       <authgroup>vrnetlab</authgroup>
       <device-type>

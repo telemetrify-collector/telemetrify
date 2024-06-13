@@ -14,7 +14,7 @@
 import logging
 
 import telemetrify.nsoapi.conf as conf
-from telemetrify.common.mod import Tag, ITag, HTag, PTag, MTag, Keypath, Key
+from telemetrify.common.mod import Id, Tag, ITag, HTag, PTag, MTag, Keypath, Key
 from telemetrify.common.utils import *
 from telemetrify.nsoapi.conf import *
 from telemetrify.nsoapi.proto import *
@@ -109,10 +109,20 @@ class SchemaPath(object):
         self.mount_ids = mount_ids
 
     def __str__(self) -> str:
-        return self.__repr__()
+        l: list[str] = []
+        for x in self.tags:
+            unsafe_list_append(l, '/')
+            unsafe_list_append(l, str(x))
+        return "".join(l)
 
     def __repr__(self) -> str:
         return "SchemaPath(%s, %s)" % (list_repr(self.tags), list_optional_repr(self.mount_ids))
+
+    def to_keypath(self) -> Keypath:
+        l: list[Id] = []
+        for t in self.tags:
+            l.append(t)
+        return Keypath(l)
 
 actor SharedSchema(schema: Schema):
     def __dummy() -> Schema:
@@ -232,9 +242,11 @@ class Cursor:
         tags: list[Tag] = []
         mount_ids: list[?HTag] = []
         for node in self._path[1:]:
-            tags.append(node.tag)
-        for entry in self._mount_points:
-            mount_ids.append(entry.0 if entry is not None else None)
+            # tags.append(node.tag)
+            unsafe_list_append(tags, node.tag)
+        for entry in self._mount_points[1:]:
+            # mount_ids.append(entry.0 if entry is not None else None)
+            unsafe_list_append(mount_ids, entry.0 if entry is not None else None)
         return SchemaPath(tags, mount_ids)
 
     def push_schema_path(self, schema_path: SchemaPath) -> bool:
@@ -509,6 +521,22 @@ class Cursor:
                     return HTag(self.node().tag.ns_hash if inherit_ns else 0, name_hash)
         return None
 
+    def get_ptag_keypath(self) -> Keypath:
+        path: list[Id] = []
+        for node in self._path[1:]:
+            # tags.append(node.tag)
+            ptag = self.lookup_ptag(node.tag)
+            unsafe_list_append(path, ptag if ptag is not None else node.tag)
+        return Keypath(path)
+
+    def get_itag_keypath(self) -> Keypath:
+        path: list[Id] = []
+        for node in self._path[1:]:
+            # tags.append(node.tag)
+            itag = self.lookup_itag(node.tag)
+            unsafe_list_append(path, itag if itag is not None else node.tag)
+        return Keypath(path)
+
 class NamespaceMaps:
     @property
     ns_to_namespace: dict[str, NamespaceDescription]
@@ -542,7 +570,7 @@ class NamespaceMaps:
             src_str += "\": "
             src_str += namespace.prsrc()
             src_str += ", "
-        
+
         src_str += "}, {"
         for module, namespace in self.module_to_namespace.items():
             src_str += "\""
@@ -1057,7 +1085,7 @@ class Type(object):
         if parent is not None:
             retval = parent.value_to_netconf(v, cursor)
         if retval is None:
-            retval = Any.value_to_netconf(v, cursor)
+            retval = Any.value_to_netconf(v, self._get_conf_type(cursor), cursor)
         return retval
 
     def value_to_eobject(self, v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
@@ -1066,7 +1094,7 @@ class Type(object):
         if parent is not None:
             retval = parent.value_to_eobject(v, cursor, use_ikp)
         if retval is None:
-            retval = Any.value_to_eobject(v, cursor, use_ikp)
+            retval = Any.value_to_eobject(v, self._get_conf_type(cursor), cursor, use_ikp)
         return retval
 
     def eobject_to_conf_type_and_value(self, obj: ?EObject, cursor: Cursor) -> (int, ?value):
@@ -1077,6 +1105,12 @@ class Type(object):
 
     def validate_value(self, cursor: Cursor, v: ?value) -> bool:
         return False # TODO
+
+    def _get_conf_type(self, cursor: Cursor) -> int:
+        _conf_type = self.conf_type
+        if _conf_type is not None:
+            return _conf_type
+        return cursor.node().conf_type
 
 class EnumType(Type):
     @property
@@ -1178,17 +1212,20 @@ class UnionType(Type):
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject, pending_type_resolves: list[(TypeId, mut(Type) -> None)]) -> ?Type:
         if isinstance(opaque, EList):
             utypes = []
-            for _elem in list_reversed(opaque.elems):
+            index = 0
+            for _elem in opaque.elems:
                 if isinstance(_elem, ETuple):
                     _elems = _elem.elems
                     if len(_elems) == 2:
                         _ns_hash = _elems[0]
                         _name = _elems[1]
                         if isinstance(_ns_hash, EInt) and isinstance(_name, EAtom):
+                            utypes.append(Type.unknown_type()) # Placeholder
                             utype_id = TypeId(_ns_hash.val, str(_name))
                             def _resolve_cb(t: Type):
-                                utypes.append(t)
+                                utypes[index] = t
                             pending_type_resolves.append((utype_id, _resolve_cb))
+                            index += 1
             return UnionType(type_id, parent_type, utypes)
         return None
 
@@ -1578,7 +1615,7 @@ class IdentityType(Type):
     def from_ns_opaque(type_id: TypeId, parent_type: ?Type, opaque: EObject) -> ?Type:
         if isinstance(opaque, EList):
             identities: set[HTag] = set([])
-            for _elem in list_reversed(opaque.elems):
+            for _elem in opaque.elems:
                 if isinstance(_elem, ETuple):
                     _elems = _elem.elems
                     if len(_elems) == 3:
@@ -1996,9 +2033,17 @@ class ConfTaggedTag:
 
     @staticmethod
     def value_to_eobject(v: ?value, cursor: Cursor, use_ikp: bool, conf_type: int) -> ?EObject:
-        inner = BasicTag.value_to_eobject(v, cursor, use_ikp)
-        if inner is not None:
-            return ETuple([EInt(conf_type), inner])
+        if v is not None and isinstance(v, Tag):
+            if use_ikp:
+                itag = cursor.lookup_itag(v)
+                if itag is not None:
+                    _ns = itag.ns
+                    if _ns is not None:
+                        return ETuple([EInt(conf_type), ETuple([EAtom(_ns), EAtom(itag.name)])])
+            else:
+                htag = cursor.lookup_htag(v, False)
+                if htag is not None:
+                    return ETuple([EInt(conf_type), ETuple([EInt(htag.ns_hash), EInt(htag.name_hash)])])
         return None
 
 class BasicTag:
@@ -2085,6 +2130,8 @@ class Oid_:
         if v is not None and isinstance(v, list): # if v is not None and isinstance(v, list[int]):
             w = BufferWriter()
             for x in v:
+                if not isinstance(x, int):
+                    return None
                 w.write_u32_be(x)
             return ETuple([EInt(C_OID), EBinary(w.to_bytes())])
         return None
@@ -2276,8 +2323,7 @@ class Any:
         return None
 
     @staticmethod
-    def value_to_netconf(v: ?value, cursor: Cursor) -> ?value: # ?(str OR list[str])
-        conf_type = cursor.node().conf_type
+    def value_to_netconf(v: ?value, conf_type: int, cursor: Cursor) -> ?value: # ?(str OR list[str])
         if conf_type == C_NOEXISTS:
             return None
         elif conf_type == C_XMLTAG:
@@ -2359,8 +2405,7 @@ class Any:
         return None
 
     @staticmethod
-    def value_to_eobject(v: ?value, cursor: Cursor, use_ikp: bool) -> ?EObject:
-        conf_type = cursor.node().conf_type
+    def value_to_eobject(v: ?value, conf_type: int, cursor: Cursor, use_ikp: bool) -> ?EObject:
         if conf_type == C_NOEXISTS:
             return E_NOEXISTS
         elif conf_type == C_XMLTAG:

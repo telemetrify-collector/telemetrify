@@ -18,15 +18,21 @@
         </schema>
       </source>
       <output>
-        <sink>
+        <transform>
+          <transform-ref>backbone-interface-alarm-junos-1</transform-ref>
+        </transform>
+        <!-- <sink>
           <sink-ref>cdb</sink-ref>
-        </sink>
+        </sink> -->
         <!-- <sink>
           <sink-ref>m3db</sink-ref>
         </sink> -->
+        <sink>
+          <sink-ref>mock</sink-ref>
+        </sink>
       </output>
     </subscription>
-    <source>
+    <!-- <source>
       <name>netconf</name>
       <mock-netconf>
         <juniper-rpc>
@@ -35,12 +41,13 @@
           </get-interface-information>
         </juniper-rpc>
       </mock-netconf>
-      <!-- <netconf>
-        <address>cat1-mock</address>
-        <port>443</port>
-        <username>vrnetlab</username>
-        <password>VR-netlab9</password>
-      </netconf> -->
+    </source> -->
+    <source>
+      <name>netconf</name>
+      <mock-netconf-replay>
+        <address>127.0.0.1</address>
+        <port>7890</port>
+      </mock-netconf-replay>
     </source>
     <sink>
       <name>cdb</name>
@@ -60,6 +67,24 @@
         <log-level>debug</log-level>
       </mock>
     </sink>
+    <transform>
+      <name>backbone-interface-alarm-junos-1</name>
+      <type>
+        <backbone-interface-alarm-junos xmlns="urn:example:telemetrify-ext">
+          <device>junos-1</device>
+          <interface-name>xe-0/0/0</interface-name>
+          <service-instance>/infrastructure/backbone-interface[device='junos-1' and interface='xe-0/0/0']</service-instance>
+        </backbone-interface-alarm-junos>
+      </type>
+      <output>
+        <sink>
+          <sink-ref>cdb</sink-ref>
+        </sink>
+        <sink>
+          <sink-ref>mock</sink-ref>
+        </sink>
+      </output>
+    </transform>
     <logging>
       <!-- <level>debug</level> -->
       <level>trace</level>

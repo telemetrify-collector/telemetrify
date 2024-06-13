@@ -53,7 +53,8 @@ module telemetrify {
           container netconf-rpc-poll {
             presence true;
             must "deref(current()/../tlm:source-ref)/../tlm:netconf
-                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf" {
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf-replay" {
               tailf:dependency "/tlm:telemetrify/tlm:source";
             }
 
@@ -90,7 +91,8 @@ module telemetrify {
           container netconf-get-poll {
             presence true;
             must "deref(current()/../tlm:source-ref)/../tlm:netconf
-                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf" {
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf-replay" {
               tailf:dependency "/tlm:telemetrify/tlm:source";
             }
 
@@ -227,6 +229,21 @@ module telemetrify {
                 default 96;
               }
             }
+          }
+        }
+
+        container mock-netconf-replay {
+          tailf:hidden debug;
+          presence true;
+
+          leaf address {
+            mandatory true;
+            type string;
+          }
+
+          leaf port {
+            mandatory true;
+            type inet:port-number;
           }
         }
 

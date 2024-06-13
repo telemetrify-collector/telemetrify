@@ -76,8 +76,17 @@ stop:
 	docker compose down -v
 
 test:
-	@echo -e "\033[0;33mTODO: When we have juniper -> self-test model transform.\033[0m"
-# 	$(MAKE) try-until-timeout CMD='$(MAKE) compare-oper-xml BASENAME=self-test.xml CLIPATH="path:path"' PERIOD=5 RETRIES=60
+	$(MAKE) await-listener PORT=7890
+	$(MAKE) replay-nc FILE="rpc-reply/interface-information-oper-down.xml" PORT=7890
+	$(MAKE) try-until-timeout CMD='$(MAKE) compare-oper-xml BASENAME=1-oper-down.xml CLIPATH="alarms alarm-list alarm junos-1" TRANSFORM="./strip.sh"' PERIOD=5 RETRIES=60
+	$(MAKE) replay-nc FILE="rpc-reply/interface-information-ok.xml" PORT=7890
+	$(MAKE) try-until-timeout CMD='$(MAKE) compare-oper-xml BASENAME=2-oper-down-cleared.xml CLIPATH="alarms alarm-list alarm junos-1" TRANSFORM="./strip.sh"' PERIOD=5 RETRIES=60
+
+fix:
+	$(MAKE) replay-nc FILE="rpc-reply/interface-information-ok.xml" PORT=7890
+
+break:
+	$(MAKE) replay-nc FILE="rpc-reply/interface-information-oper-down.xml" PORT=7890
 
 log:
 	docker compose exec nso bash -lc "tail -n +0 -f /log/ncs-python-vm.log"

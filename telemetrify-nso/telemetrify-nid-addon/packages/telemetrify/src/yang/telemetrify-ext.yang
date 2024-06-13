@@ -11,6 +11,10 @@ module telemetrify-ext {
     prefix yang;
   }
 
+  import tailf-ncs-alarms {
+    prefix al;
+  }
+
   import telemetrify {
     prefix tlm;
   }
@@ -23,6 +27,15 @@ module telemetrify-ext {
       "Initial revision.";
   }
 
+  identity backbone-alarm {
+    base al:alarm-type;
+  }
+
+  identity backbone-interface-down {
+    base al:alarm-type;
+    base backbone-alarm;
+  }
+
   augment "/tlm:telemetrify/tlm:transform/tlm:type/tlm:transform-type" {
     container vmanage {
       presence true;
@@ -30,6 +43,30 @@ module telemetrify-ext {
 
     container cat8k-ip-sla {
       presence true;
+    }
+
+    container backbone-interface-alarm-junos {
+      presence true;
+
+      leaf device {
+        mandatory true;
+        // type leafref {
+        //   path "/ncs:devices/ncs:device/ncs:name";
+        // }
+        type string;
+      }
+
+      leaf interface-name {
+        mandatory true;
+        type string;
+      }
+
+      leaf service-instance {
+        mandatory true;
+        description "As alarm managed-object";
+        // type managed-object-t;
+        type string;
+      }
     }
   }
 }

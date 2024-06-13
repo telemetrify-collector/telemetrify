@@ -95,7 +95,7 @@ actor NsoCdbSink(uid: int, config: TNode, env: Env, shared_schema: schema.Shared
 
     def _on_write(e: ?Exception, txn_handle: int, task_id: int):
         if e is not None:
-            log.error("SINK nso-cdb MAAPI write txn_handle failed:", {"txn_handle": txn_handle, "exception": e})
+            log.error("SINK nso-cdb MAAPI write txn_handle failed:", {"txn_handle": txn_handle, "exception": str(e)})
         m = maapi_connection
         if m is not None:
             m.apply_trans(txn_handle, False, 0, lambda _c, e: _on_apply_trans(e, txn_handle, task_id))
@@ -104,7 +104,7 @@ actor NsoCdbSink(uid: int, config: TNode, env: Env, shared_schema: schema.Shared
 
     def _on_apply_trans(e: ?Exception, txn_handle: int, task_id: int):
         if e is not None:
-            log.error("SINK nso-cdb MAAPI apply transaction failed:", {"txn_handle": txn_handle, "exception": e})
+            log.error("SINK nso-cdb MAAPI apply transaction failed:", {"txn_handle": txn_handle, "exception": str(e)})
         m = maapi_connection
         if m is not None:
             m.finish_trans(txn_handle, lambda _c, e: _on_finish_trans(e, txn_handle, task_id))
@@ -113,7 +113,7 @@ actor NsoCdbSink(uid: int, config: TNode, env: Env, shared_schema: schema.Shared
 
     def _on_finish_trans(e: ?Exception, txn_handle: int, task_id: int):
         if e is not None:
-            log.error("SINK nso-cdb MAAPI finish transaction failed:", {"txn_handle": txn_handle, "exception": e})
+            log.error("SINK nso-cdb MAAPI finish transaction failed:", {"txn_handle": txn_handle, "exception": str(e)})
         else:
             log.debug("SINK nso-cdb WRITE DONE", None)
         _complete_task(task_id)

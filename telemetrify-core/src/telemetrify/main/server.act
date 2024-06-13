@@ -12,6 +12,7 @@
 #
 
 import logging
+import net
 
 import telemetrify.nso.subscriber
 import telemetrify.nsoapi.cdb
@@ -24,6 +25,7 @@ import telemetrify.main.sink.mock
 import telemetrify.main.source.netconf
 import telemetrify.main.source.vmanage
 import telemetrify.main.source.mock.netconf
+import telemetrify.main.source.mock.netconf_replay
 import telemetrify.main.source.mock.vmanage
 import telemetrify.main.subscriber.netconf
 import telemetrify.main.subscriber.vmanage
@@ -368,6 +370,9 @@ actor SubscriberManager(
             return telemetrify.main.source.vmanage.create_vmanage_source(gen_uid(), config, env.cap, shared_schema, logh)
         elif config.has_child(SOURCE_TYPE_TAG_MOCK_NETCONF):
             return telemetrify.main.source.mock.netconf.create_mock_netconf_source(gen_uid(), config, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_MOCK_NETCONF_REPLAY):
+            return telemetrify.main.source.mock.netconf_replay.create_mock_netconf_replay_source(
+                gen_uid(), config, net.TCPListenCap(net.TCPCap(net.NetCap(env.cap))), logh)
         elif config.has_child(SOURCE_TYPE_TAG_MOCK_VMANAGE_HTTP):
             return telemetrify.main.source.mock.vmanage.create_mock_vmanage_source(gen_uid(), config, logh)
         raise Exception("Unknown source config: " + str(config))
