@@ -78,6 +78,9 @@ actor main(env):
     def run_test_print_schema(env: Env, opts: Opts):
         test_print_schema(env, opts)
 
+    def run_test_print_schema_filter(env: Env, opts: Opts):
+        test_print_schema_filter(env, opts)
+
     def run_test_set_values_ikp(env: Env, opts: Opts):
         test_set_values_ikp(env, opts)
 
@@ -111,6 +114,7 @@ actor main(env):
     tests: dict[str, proc(env: Env, opts: Opts) -> None] = {
         "maapi-schema": run_test_maapi_session_schema,
         "print-schema": run_test_print_schema,
+        "print-schema-filter": run_test_print_schema_filter,
         "set-values-ikp": run_test_set_values_ikp,
         "set-values-hkp": run_test_set_values_hkp,
         "writer": run_test_writer,
@@ -203,6 +207,49 @@ actor test_print_schema(env: Env, opts: Opts):
             print("MAAPI loaded schema!!!! ")
             schema = unsafe_get_shared_schema(shared_schema)
             print(schema.prsrc())
+            c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI load schema failed:", optional_str(e, "None"))
+            await async env.exit(1)
+
+    def _on_end_user_session(c, e):
+        if e is None:
+            print("MAAPI ended user session")
+            await async env.exit(0)
+        else:
+            print("MAAPI end user session failed:", e)
+            await async env.exit(1)
+
+    print("Current time:", time.now())
+    print("Starting up...")
+    sess = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_connect, _on_connect_error, None, opts.record_to)
+
+actor test_print_schema_filter(env: Env, opts: Opts):
+    def _on_connect_error(e):
+        print("MAAPI connect failed:", e)
+
+    def _on_connect(c):
+        print("MAAPI connected!!!! ")
+        c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, True, UserIdentity(None, None, None, None)), _on_user_session)
+
+    def _on_user_session(c, e):
+        if e is None:
+            print("MAAPI user session started!!!! ")
+            c.load_schema(_on_load_schema)
+            #c.end_user_session(_on_end_user_session)
+        else:
+            print("MAAPI user session failed:", e)
+            await async env.exit(1)
+
+    def _on_load_schema(c, e, shared_schema):
+        if e is None and shared_schema is not None:
+            print("MAAPI loaded schema!!!! ")
+            schema = unsafe_get_shared_schema(shared_schema)
+
+            cursor = Cursor(schema)
+            cursor.push(ITag("http://tail-f.com/ns/ncs", "packages"))
+
+            print(schema.prsrc_filter(cursor.get_schema_path()))
             c.end_user_session(_on_end_user_session)
         else:
             print("MAAPI load schema failed:", optional_str(e, "None"))
