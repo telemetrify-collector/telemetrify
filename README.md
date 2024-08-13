@@ -62,7 +62,6 @@ reading YANG models and exposing an interface for configuration.
 4. Start the `nso-tsdb` test environment
    - `cd tests/nso-tsdb`
    - `make start configure`
-   - ``
 5. Check out Grafana for pretty graphs
    - `make show-address`
 6. TODO: describe how to configure etc
