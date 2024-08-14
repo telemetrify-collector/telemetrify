@@ -207,6 +207,47 @@ class Schema:
         src_str += "schema = Schema(roots, nshash_to_namespace, cns_to_namespace, hash_to_name, name_to_hash, mount_id_maps)"
         return src_str
 
+    def prsrc_filter(self, filter_path: SchemaPath) -> str:
+        cursor = Cursor(self)
+
+        if not cursor.push_schema_path(filter_path):
+             return "Invalid schema filter path"
+
+        src_str = "from telemetrify.common.mod import HTag\n"
+        src_str += "from telemetrify.nsoapi.schema import Schema, Node, Type, TypeId, NamespaceDescription, NamespaceMaps\n"
+        src_str += cursor.node().prsrc({}, {})
+        src_str += "roots: dict[HTag, Node] = {"
+        root_tag = cursor.node().tag
+        src_str += str(root_tag)
+        src_str += ": nodes_%d_%d, " % (root_tag.ns_hash, root_tag.name_hash)
+        src_str += "}\n"
+        src_str += "nshash_to_namespace: dict[int, NamespaceDescription] = {"
+        for nshash, ns in self._nshash_to_namespace.items():
+            src_str += str(nshash)
+            src_str += ": "
+            src_str += ns.prsrc()
+            src_str += ", "
+        src_str += "}\n"
+        src_str += "cns_to_namespace: dict[str, NamespaceDescription] = {"
+        for cns, ns in self._cns_to_namespace.items():
+            src_str += "\""
+            src_str += cns
+            src_str += "\": "
+            src_str += ns.prsrc()
+            src_str += ", "
+        src_str += "}\n"
+        src_str += "hash_to_name: dict[int, str] = %s\n" % str(self._hash_to_name)
+        src_str += "name_to_hash: dict[str, int] = %s\n" % str(self._name_to_hash)
+        src_str += "mount_id_maps: dict[HTag, NamespaceMaps] = {"
+        for tag, nsmaps in self._mount_id_maps.items():
+            src_str += str(tag)
+            src_str += ": "
+            src_str += nsmaps.prsrc()
+            src_str += ", "
+        src_str += "}\n"
+        src_str += "schema = Schema(roots, nshash_to_namespace, cns_to_namespace, hash_to_name, name_to_hash, mount_id_maps)"
+        return src_str
+
 class Cursor:
     @property
     _schema: Schema
