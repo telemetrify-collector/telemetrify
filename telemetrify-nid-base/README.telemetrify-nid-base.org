@@ -1,0 +1,24 @@
+* telemetrify-nid-base
+telemetrify-nid-base is a skeleton to help integrating telemetrify as an nso package in your nso-in-docker project.
+
+** Introduction
+
+Telemetrify can be extended by defining custom transforms, implemented in acton, that can be configured to be instantiated as part of telemetrify the data flow pipeline between source and sink.
+
+Given a input data-tree (=telemetrify.common.mod.Node=) a transform may output another data-tree (=telemetrify.common.mod.Node=).
+
+A transform may acquire shared resources such as the system-loaded yang-schemas. Custom shared resources can also be added when useful. E.g. to keep a shared subscriber to CDB config.
+While a shared resource may be used to do any kind of coordination between transform instances it is preferable to keep different data flows as decoupled as possible, and use the transform output
+data-tree OR tags in =flow_params= for any in-flow signalling.
+
+** Setup
+
+1. Copy contents of this directory to top of target nid-project.
+
+2. Add entries to =packages/telemetrify/src/yang/telemetrify-ext.yang= (or other .yang) to augment custom transforms configuration cases into telemetrify model.
+
+3. Add acton files of custom transforms and resources to =telemetrify-ext/src/telemetrify_ext/transform= and =telemetrify-ext/src/telemetrify_ext/resource= respectively.
+
+4. Update =telemetrify-ext/src/telemetrify_ext/server.act= with any added transforms and resources.
+
+5. Modify your nid-project build process to run the =prepare-telemetrify-pkg= target in =telemetrify-ext.mk= as a prerequisite to building the =packages/telemetrify= packages.

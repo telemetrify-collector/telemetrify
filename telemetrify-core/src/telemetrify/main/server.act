@@ -1,0 +1,592 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+
+import telemetrify.nso.subscriber
+import telemetrify.nsoapi.cdb
+import telemetrify.nsoapi.maapi
+import telemetrify.nsoapi.schema as schema
+import telemetrify.main.resource.shared_resources
+import telemetrify.main.sink.m3db
+import telemetrify.main.sink.nso
+import telemetrify.main.sink.mock
+import telemetrify.main.source.netconf
+import telemetrify.main.source.vmanage
+import telemetrify.main.source.mock.netconf
+import telemetrify.main.source.mock.vmanage
+import telemetrify.main.subscriber.netconf
+import telemetrify.main.subscriber.vmanage
+import telemetrify.main.transform.builtin.mock
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nso.subscriber import *
+from telemetrify.nsoapi.cdb import *
+from telemetrify.nsoapi.maapi import *
+from telemetrify.main.common import *
+from telemetrify.main.config import *
+from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.resource.repo import prepare_shared_resource_ctors
+from telemetrify.main.transform.ctor import *
+from telemetrify.main.transform.repo import prepare_transform_ctors
+
+
+class PendingSubscriberUpdate(object):
+    @property
+    config: ?TNode
+    @property
+    source_key: ?Keypath
+    @property
+    output_configs: dict[Keypath, ?TNode]
+
+    def __init__(self, config: ?TNode, source_key: ?Keypath, output_configs: dict[Keypath, ?TNode]):
+        self.config = config
+        self.source_key = source_key
+        self.output_configs = output_configs
+
+    @staticmethod
+    def make_empty():
+        return PendingSubscriberUpdate(None, None, {})
+
+    @staticmethod
+    def make_delete():
+        return PendingSubscriberUpdate(None, None, {})
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        s = []
+        for output_key, output_config in self.output_configs.items():
+            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_config, "None") + ")")
+        return "PendingSubscriberUpdate(" + optional_str(self.config, "None") + ", " + optional_str(self.source_key, "None") + ", " + str(s) + ")"
+
+    def is_delete(self):
+        #return self.config is None and self.source_key is None and len(self.output) == 0 # actonc codegen error
+        _config = self.config
+        _source_key = self.source_key
+        return _config is None and _source_key is None and not self.output_configs
+
+    def delete(self):
+        self.config = None
+        self.source_key = None
+        self.output_configs = {}
+
+    def merge(self, other: PendingSubscriberUpdate):
+        if other.is_delete():
+            self.delete()
+            return
+
+        _other_config = other.config
+        if _other_config is not None:
+            self.config = _other_config
+
+        _other_source_key = other.source_key
+        if _other_source_key is not None:
+            self.source_key = _other_source_key
+
+        for output_key, other_output_config in other.output_configs.items():
+            self.output_configs[output_key] = other_output_config
+
+class PendingTransformUpdate(object):
+    @property
+    config: ?TNode
+    @property
+    output_configs: dict[Keypath, ?TNode]
+
+    def __init__(self, config: ?TNode, output_configs: dict[Keypath, ?TNode]):
+        self.config = config
+        self.output_configs = output_configs
+
+    @staticmethod
+    def make_empty():
+        return PendingTransformUpdate(None, {})
+
+    @staticmethod
+    def make_delete():
+        return PendingTransformUpdate(None, {})
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self) -> str:
+        s = []
+        for output_key, output_config in self.output_configs.items():
+            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_config, "None") + ")")
+        return "PendingTransformUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
+
+    def is_delete(self):
+        _config = self.config
+        return _config is None and not self.output_configs
+
+    def delete(self):
+        self.config = None
+        self.output_configs = {}
+
+class SubscriberData(object):
+    @property
+    subscriber: Subscriber
+    @property
+    pending_replacement: ?PendingSubscriberUpdate
+
+    def __init__(self, subscriber: Subscriber):
+        self.subscriber = subscriber
+        self.pending_replacement = None
+
+# class TransformData(object):
+#     @property
+#     transform: Transform
+#     @property
+#     pending_replacement: ?PendingTransformUpdate
+
+#     def __init__(self, transform: Transform):
+#         self.transform = transform
+#         self.pending_replacement = None
+
+actor SubscriberManager(
+        env: Env,
+        shared_schema: schema.SharedSchema,
+        shared_resources: SharedResources,
+        additional_transform_ctors: dict[PTag, TransformCtor],
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("subscriber-manager")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    var next_uid = INVALID_UID + 1
+
+    var sources: dict[Keypath, Source] = {}
+    var sinks: dict[Keypath, Sink] = {}
+    var transforms: dict[Keypath, Transform] = {}
+
+    var subscribers: dict[Keypath, SubscriberData] = {}
+
+    var transform_ctors: dict[PTag, TransformCtor] = prepare_transform_ctors(additional_transform_ctors)
+
+    def on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
+        source_configs: list[(Keypath, ?value)] = refiner_updates[SourceRefiner.id()]
+        sub_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionRefiner.id()]
+        sub_type_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionTypeRefiner.id()]
+        sub_source_ref_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionSourceRefRefiner.id()]
+        sub_sink_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionOutputSinkRefiner.id()]
+        sub_trans_configs: list[(Keypath, ?value)] = refiner_updates[SubscriptionOutputTransformRefiner.id()]
+        sink_configs: list[(Keypath, ?value)] = refiner_updates[SinkRefiner.id()]
+        trans_sink_configs: list[(Keypath, ?value)] = refiner_updates[TransformOutputSinkRefiner.id()]
+        trans_output_configs: list[(Keypath, ?value)] = refiner_updates[TransformOutputTransformRefiner.id()]
+        transform_configs: list[(Keypath, ?value)] = refiner_updates[TransformTypeRefiner.id()]
+
+        # Sources
+        for source_key, source_config in source_configs:
+            # Close old source
+            old_source = try_pop(sources, source_key)
+            if old_source is not None:
+                old_source.close()
+            # Setup new source
+            if source_config is not None and isinstance(source_config, TNode):
+                new_source = _create_source(source_config)
+                sources[source_key] = new_source
+
+        # Sinks
+        for sink_key, sink_config in sink_configs:
+            old_sink = try_pop(sinks, sink_key)
+            if old_sink is not None:
+                old_sink.close()
+            # Setup new sink
+            if sink_config is not None and isinstance(sink_config, TNode):
+                new_sink = _create_sink(sink_config)
+                sinks[sink_key] = new_sink
+
+        #
+        # Transforms
+        #
+
+        pending_trans_updates: dict[Keypath, PendingTransformUpdate] = {}
+
+        def _get_or_create_pending_transform_update(sub_key: Keypath) -> PendingTransformUpdate:
+            trans_update = try_get(pending_trans_updates, sub_key)
+            if trans_update is not None:
+                return trans_update
+            new_trans_update = PendingTransformUpdate.make_empty()
+            pending_trans_updates[sub_key] = new_trans_update
+            return new_trans_update
+
+        # Transform output sinks
+        for trans_sink_key, trans_sink_config in trans_sink_configs:
+            trans_key = trans_sink_key.try_slice(0, 1)
+            sink_key = trans_sink_key.try_slice(1, 2)
+            if trans_key is not None and sink_key is not None:
+                trans_update = _get_or_create_pending_transform_update(trans_key)
+                _trans_sink_config = trans_sink_config if trans_sink_config is not None and isinstance(trans_sink_config, TNode) else tnode_void()
+                trans_update.output_configs[Keypath([OUTPUT_TYPE_TAG_SINK_REF]) + sink_key] = _trans_sink_config
+
+        # Transform output transforms
+        for trans_output_key, trans_output_config in trans_output_configs:
+            trans_key = trans_output_key.try_slice(0, 1)
+            output_trans_key = trans_output_key.try_slice(1, 2)
+            if trans_key is not None and output_trans_key is not None:
+                trans_update = _get_or_create_pending_transform_update(trans_key)
+                _trans_output_config = trans_output_config if trans_output_config is not None and isinstance(trans_output_config, TNode) else tnode_void()
+                trans_update.output_configs[Keypath([OUTPUT_TYPE_TAG_TRANSFORM_REF]) + trans_key] = _trans_output_config
+
+        # Transform config
+        new_transform_type_keys: set[Keypath] = set(None)
+        for transform_key, transform_config in transform_configs:
+            trans_update = _get_or_create_pending_transform_update(transform_key)
+            if transform_config is not None and isinstance(transform_config, TNode):
+                trans_update.config = transform_config
+                new_transform_type_keys.add(transform_key)
+            else:
+                trans_update.delete()
+
+        # Create/delete transform
+        for transform_key, pending_update in pending_trans_updates.items():
+            log.debug("MAIN transform UPDATE", {"transform_key": transform_key, "pending_update": pending_update})
+            create_new_transform = transform_key in new_transform_type_keys
+            if create_new_transform or pending_update.is_delete():
+                transform = try_pop(transforms, transform_key)
+                if transform is not None:
+                    transform.close()
+            if transform_key in new_transform_type_keys:
+                # New/changed transform
+                new_trans = _create_transform(transform_key,
+                    optional_expect(pending_update.config, "None-check should already have been done."))
+                transforms[transform_key] = new_trans
+
+        # Update transform outputs
+        for transform_key, pending_update in pending_trans_updates.items():
+            output_update = _create_transform_output_update(pending_update)
+            if output_update is not None:
+                transform = try_get(transforms, transform_key)
+                if transform is not None:
+                    transform.update_output(output_update)
+
+        #
+        # Subscriber
+        #
+
+        pending_sub_updates: dict[Keypath, PendingSubscriberUpdate] = {}
+
+        def _get_or_create_pending_subscriber_update(sub_key: Keypath) -> PendingSubscriberUpdate:
+            sub_update = try_get(pending_sub_updates, sub_key)
+            if sub_update is not None:
+                return sub_update
+            new_sub_update = PendingSubscriberUpdate.make_empty()
+            pending_sub_updates[sub_key] = new_sub_update
+            return new_sub_update
+
+        # Subscriber sources
+        for sub_source_ref_key, sub_source_ref_config in sub_source_ref_configs:
+            if sub_source_ref_config is not None and isinstance(sub_source_ref_config, TNode):
+                sub_update = _get_or_create_pending_subscriber_update(sub_source_ref_key)
+                #source_ref = sub_source_ref_config.try_str() # actonc: #### findAttr' fails for __builtin__.value . try_str
+                _sub_source_ref_config: TNode = sub_source_ref_config
+                source_ref = _sub_source_ref_config.try_str()
+                if source_ref is not None:
+                    sub_update.source_key = Keypath([Key([source_ref])])
+
+        # Subscriber output sinks
+        for sub_sink_key, sub_sink_config in sub_sink_configs:
+            sub_key = sub_sink_key.try_slice(0, 1)
+            sink_key = sub_sink_key.try_slice(1, 2)
+            if sub_key is not None and sink_key is not None:
+                sub_update = _get_or_create_pending_subscriber_update(sub_key)
+                _sub_sink_config = sub_sink_config if sub_sink_config is not None and isinstance(sub_sink_config, TNode) else tnode_void()
+                sub_update.output_configs[Keypath([OUTPUT_TYPE_TAG_SINK_REF]) + sink_key] = _sub_sink_config
+
+        # Subscriber output transforms
+        for sub_trans_key, sub_trans_config in sub_trans_configs:
+            sub_key = sub_trans_key.try_slice(0, 1)
+            trans_key = sub_trans_key.try_slice(1, 2)
+            if sub_key is not None and trans_key is not None:
+                sub_update = _get_or_create_pending_subscriber_update(sub_key)
+                _sub_trans_config = sub_trans_config if sub_trans_config is not None and isinstance(sub_trans_config, TNode) else tnode_void()
+                sub_update.output_configs[Keypath([OUTPUT_TYPE_TAG_TRANSFORM_REF]) + trans_key] = _sub_trans_config
+
+        # Subscriber config
+        for sub_key, sub_config in sub_configs:
+            sub_update = _get_or_create_pending_subscriber_update(sub_key)
+            if sub_config is not None and isinstance(sub_config, TNode):
+                sub_update.config = sub_config
+            else:
+                sub_update.delete()
+
+        new_sub_type_keys: set[Keypath] = set(None)
+        for sub_type_key, sub_type_config in sub_type_configs:
+            if sub_type_config is not None:
+                new_sub_type_keys.add(sub_type_key)
+
+        # Update subscriber
+        for sub_key, pending_update in pending_sub_updates.items():
+            log.debug("MAIN sub UPDATE", {"sub_key": sub_key, "pending_update": pending_update})
+            if pending_update.is_delete():
+                sub_data = try_get(subscribers, sub_key)
+                if sub_data is not None:
+                    sub_data.subscriber.close()
+                    sub_data.pending_replacement = None
+            else:
+                if sub_key in new_sub_type_keys:
+                    # New/changed subscriber-type
+                    sub_data = try_get(subscribers, sub_key)
+                    if sub_data is not None:
+                        pending_replacement = sub_data.pending_replacement
+                        if pending_replacement is not None:
+                            pending_replacement.merge(pending_update)
+                        else:
+                            sub_data.subscriber.close()
+                            sub_data.pending_replacement = pending_update
+                    else:
+                        new_sub = _create_subscriber(sub_key, pending_update)
+                        subscribers[sub_key] = SubscriberData(new_sub)
+                else:
+                    # Existing, with same subscriber-type
+                    sub_data = try_get(subscribers, sub_key)
+                    if sub_data is not None:
+                        pending_replacement = sub_data.pending_replacement
+                        if pending_replacement is not None:
+                            pending_replacement.merge(pending_update)
+                        else:
+                            sub_data.subscriber.update_config(_create_subscription_update(pending_update))
+
+    def _create_source(config: TNode) -> Source:
+        if config.has_child(SOURCE_TYPE_TAG_NETCONF):
+            return telemetrify.main.source.netconf.create_netconf_source(gen_uid(), config, env.cap, shared_schema, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_VMANAGE_HTTP):
+            return telemetrify.main.source.vmanage.create_vmanage_source(gen_uid(), config, env.cap, shared_schema, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_MOCK_NETCONF):
+            return telemetrify.main.source.mock.netconf.create_mock_netconf_source(gen_uid(), config, logh)
+        elif config.has_child(SOURCE_TYPE_TAG_MOCK_VMANAGE_HTTP):
+            return telemetrify.main.source.mock.vmanage.create_mock_vmanage_source(gen_uid(), config, logh)
+        raise Exception("Unknown source config: " + str(config))
+
+    def _create_sink(config: TNode):
+        if config.has_child(SINK_TYPE_TAG_M3DB):
+            return telemetrify.main.sink.m3db.create_m3db_sink(gen_uid(), config, env.cap, shared_schema, logh)
+        # elif config.has_child(SINK_TYPE_TAG_NSO_DP):
+        #     return telemetrify.main.sink.nso.create_nso_dp_sink(gen_uid(), config, env, shared_schema, logh)
+        elif config.has_child(SINK_TYPE_TAG_NSO_CDB):
+            return telemetrify.main.sink.nso.create_nso_cdb_sink(gen_uid(), config, env, shared_schema, logh)
+        elif config.has_child(SINK_TYPE_TAG_MOCK):
+            return telemetrify.main.sink.mock.create_mock_sink(gen_uid(), config, logh)
+        raise Exception("Unknown sink config: " + str(config))
+
+    def _create_subscriber(sub_key: Keypath, pending_update: PendingSubscriberUpdate) -> Subscriber:
+        sub_config = pending_update.config
+        if sub_config is not None:
+            sub_type = get_subscription_type(sub_config)
+            if sub_type is not None:
+                sub = _create_subscriber_type(sub_key, sub_type)
+                sub.update_config(_create_subscription_update(pending_update))
+                return sub
+        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
+
+    def _create_subscriber_type(sub_key: Keypath, sub_type: Id) -> Subscriber:
+        def close_cb():
+            _on_subscriber_closed(sub_key)
+        if sub_type == SUBSCRIPTION_TYPE_TAG_NETCONF_RPC_POLLER:
+           sub_act = telemetrify.main.subscriber.netconf.NetconfRpcPollSubscription(gen_uid(), close_cb, shared_schema, logh)
+           return Subscriber(sub_act.update_config, sub_act.close)
+        elif sub_type == SUBSCRIPTION_TYPE_TAG_NETCONF_GET_POLLER:
+            sub_act = telemetrify.main.subscriber.netconf.NetconfGetPollSubscription(gen_uid(), close_cb, shared_schema, logh)
+            return Subscriber(sub_act.update_config, sub_act.close)
+        elif sub_type == SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER:
+            sub_act = telemetrify.main.subscriber.vmanage.VManagePollSubscription(gen_uid(), close_cb, shared_schema, logh)
+            return Subscriber(sub_act.update_config, sub_act.close)
+        raise Exception("Unknown subscription type: " + str(sub_type))
+
+    def _create_subscription_update(pending_update: PendingSubscriberUpdate) -> SubscriberUpdate:
+        source_key = pending_update.source_key
+        source: ?Source = try_get(sources, source_key) if source_key is not None else None
+
+        output = _create_output_update(pending_update.output_configs)
+
+        return SubscriberUpdate(pending_update.config, source, output)
+
+    def _create_output_update(output_configs: dict[Keypath, ?TNode]) -> list[(Keypath, ?OutputUpdate)]:
+        outputs: list[(Keypath, ?OutputUpdate)] = []
+        for output_key, config in output_configs.items():
+            output_type_key = output_key.try_slice(0, 1)
+            output_name_key = output_key.try_slice(1, 2)
+            if output_type_key is not None and output_name_key is not None:
+                if config is not None:
+                    output: ?Output = None
+
+                    output_type_key_0 = output_type_key[0]
+                    if output_type_key_0 == OUTPUT_TYPE_TAG_TRANSFORM_REF:
+                        output = try_get(transforms, output_name_key)
+                    elif output_type_key_0 == OUTPUT_TYPE_TAG_SINK_REF:
+                        output = try_get(sinks, output_name_key)
+                    if output is not None:
+                        outputs.append((output_key, OutputUpdate(config, output)))
+                else:
+                    outputs.append((output_key, None))
+
+        return outputs
+
+    def _create_transform_output_update(pending_update: PendingTransformUpdate) -> list[(Keypath, ?OutputUpdate)]:
+        return _create_output_update(pending_update.output_configs)
+
+    def _create_transform(transform_key: Keypath, config: TNode) -> Transform:
+        def close_cb():
+            _on_subscriber_closed(transform_key)
+
+        transform_tag: ?Id = iterable_first(config.iter_ids())
+        if transform_tag is not None and isinstance(transform_tag, PTag):
+            transform_ctor = try_get(transform_ctors, transform_tag)
+            if transform_ctor is not None:
+                return transform_ctor.create(gen_uid(), config, shared_resources, close_cb, logh)
+
+        log.error("MAIN transform CREATE unknown transform type", {"transform_key": transform_key, "config": config})
+        return telemetrify.main.transform.builtin.mock.MockTransformCtor().create(gen_uid(), config, shared_resources, close_cb, logh)
+
+    def _on_transform_closed(transform_key: Keypath):
+        pass # TODO: No need?
+
+    def _on_subscriber_closed(sub_key: Keypath):
+        sub_data = try_get(subscribers, sub_key)
+        if sub_data is not None:
+            pending_replacement = sub_data.pending_replacement
+            if pending_replacement is not None:
+                sub_data.subscriber = _create_subscriber(sub_key, pending_replacement)
+                sub_data.pending_replacement = None
+            else:
+                del subscribers[sub_key]
+
+    def gen_uid() -> int:
+        uid = next_uid
+        next_uid = uid + 1
+        return uid
+
+actor Server(
+        env: Env,
+        additional_transform_ctors: dict[PTag, TransformCtor],
+        additional_shared_resource_ctors: dict[PTag, SharedResourceCtor]):
+
+    var cache: ?telemetrify.nso.subscriber.CdbCache = None
+    var shared_resources: ?SharedResources = None
+    var subscriber_manager: ?SubscriberManager = None
+
+    var logh = logging.Handler("telemetrify")
+    var log = logging.Logger(logh)
+
+    logh.set_output_level(logging.NOTICE)
+    logh.add_sink(logging.StdoutSink())
+
+    def _on_maapi_connect_error(e):
+        log.error("MAAPI connect failed:" + str(e), None)
+
+    def _on_maapi_connect(c):
+        log.info("MAAPI connected!!!!", None)
+        c.load_schema(_on_load_schema)
+
+    def _on_load_schema(c, e: ?Exception, shared_schema: ?schema.SharedSchema):
+        if e is None and shared_schema is not None:
+            log.info("MAAPI loaded schema!!!!", None)
+            shared_resource_ctors = prepare_shared_resource_ctors(env, shared_schema, additional_shared_resource_ctors)
+            _shared_resources: SharedResources = telemetrify.main.resource.shared_resources.SharedResources(shared_resource_ctors, logh)
+            shared_resources = _shared_resources
+            subscriber_manager = SubscriberManager(env, shared_schema, _shared_resources, additional_transform_ctors, logh)
+            cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
+                action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
+        else:
+            log.error("MAAPI load schema failed:" + optional_str(e, ""), None)
+            await async env.exit(1)
+
+    def _on_cdb_connect_error(e):
+        log.error("CDB connect failed:" + str(e), None)
+        await async env.exit(1)
+
+    def _on_cdb_sub_connect(sc, s):
+        log.info("CDB (sub) connected!!!!", None)
+        cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
+            action lambda cc: _on_cdb_cmd_connect(sc, cc, s), _on_cdb_connect_error, logh, None)
+
+    def _on_cdb_cmd_connect(sc, cc, s):
+        log.info("CDB (cmd) connected!!!!", None)
+        cache = telemetrify.nso.subscriber.CdbCache(sc, cc, s,
+            [
+                SourceRefiner,
+                SinkRefiner,
+                SubscriptionSourceRefBaseRefiner,
+                SubscriptionSourceRefRefiner,
+                SubscriptionRefiner,
+                SubscriptionTypeRefiner,
+                SubscriptionOutputTransformBaseRefiner,
+                SubscriptionOutputSinkBaseRefiner,
+                SubscriptionOutputTransformRefiner,
+                SubscriptionOutputSinkRefiner,
+                TransformTypeRefiner,
+                TransformOutputTransformBaseRefiner,
+                TransformOutputSinkBaseRefiner,
+                TransformOutputTransformRefiner,
+                TransformOutputSinkRefiner,
+                LoggingLevelRefiner,
+            ],
+            [([
+                SourceRefiner.id(),
+                SinkRefiner.id(),
+                SubscriptionSourceRefBaseRefiner.id(),
+                SubscriptionSourceRefRefiner.id(),
+                SubscriptionRefiner.id(),
+                SubscriptionTypeRefiner.id(),
+                SubscriptionOutputTransformBaseRefiner.id(),
+                SubscriptionOutputSinkBaseRefiner.id(),
+                SubscriptionOutputTransformRefiner.id(),
+                SubscriptionOutputSinkRefiner.id(),
+                TransformTypeRefiner.id(),
+                TransformOutputTransformBaseRefiner.id(),
+                TransformOutputSinkBaseRefiner.id(),
+                TransformOutputTransformRefiner.id(),
+                TransformOutputSinkRefiner.id(),
+                LoggingLevelRefiner.id(),
+            ],
+            lambda r: _on_config_update(r, s))], _on_config_cache_error,
+            logh)
+        #await async env.exit(0)
+
+    def _on_config_update(refiner_updates: dict[int, list[(Keypath, ?value)]], shared_schema: schema.SharedSchema):
+        for refiner_id, updates in refiner_updates.items():
+            log.debug("refiner_id:", {"refiner_id": refiner_id})
+            _updates = {}
+            for k, v in updates:
+                _updates[str(k)] = str(v) if v is not None else "DELETED"
+            log.debug("refiner updates", _updates)
+
+        if subscriber_manager is not None:
+            subscriber_manager.on_config_update(refiner_updates, shared_schema)
+
+        # Logging
+        _on_logging_level(refiner_updates[LoggingLevelRefiner.id()])
+
+    def _on_logging_level(updates: list[(Keypath, ?value)]):
+        level: ?int = None
+        for _keypath, state in updates:
+            if state is not None and isinstance(state, TNode):
+                _leaf: TNode = state
+                level = get_log_level(_leaf)
+
+        if level is not None:
+            logh.set_output_level(level)
+
+    def _on_config_cache_error(e):
+        log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
+        await async env.exit(1)
+
+    log.info("Starting up...", None)
+    maapi_connection = telemetrify.nsoapi.maapi.MaapiConnection(env, 4569, _on_maapi_connect, _on_maapi_connect_error, logh, None)
+
+actor main(env):
+    Server(env, {}, {})

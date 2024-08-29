@@ -1,0 +1,211 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import http
+import net
+import time
+import xml
+
+import telemetrify.net.netconf as netconf
+import telemetrify.nsoapi.schema as schema
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nsoapi.schema import QName, SchemaPath
+from telemetrify.main.common import *
+from telemetrify.main.config import *
+from telemetrify.main.source.vmanage import *
+import telemetrify.vmanage.vmanage as vmanage
+
+actor VManagePollSubscription(
+        uid: int,
+        on_closed: action() -> None,
+        shared_schema: schema.SharedSchema,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("vmanage-poll")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    _schema = schema.unsafe_get_shared_schema(shared_schema)
+
+    var base_flow_params = tnode_root()
+
+    var poller_seqno: int = 0
+    var poll_path: ?str = None
+    var schema_path: ?SchemaPath = None
+    var period: time.Duration = time.Duration(60, 0, time.MonotonicClock(0, 0, 0))
+
+    # # Workaround compiler ordering issue
+    # var subscriber_base = SubscriberMixin(
+    #     uid,
+    #     _start,
+    #     _stop,
+    #     update_sub_config,
+    #     source_msg_trampoline,
+    #     lambda: None,
+    #     write_reset,
+    #     output_upstream_msg_trampoline,
+    #     on_closed,
+    #     log)
+    var subscriber_base = SubscriberMixin(
+        uid,
+        lambda: None,
+        lambda: None,
+        lambda c: None,
+        lambda m: None,
+        lambda: None,
+        lambda b: None,
+        lambda m: None,
+        lambda: None,
+        log)
+
+    log.info("SUBSCRIBER vmanage-poll CREATED", None)
+
+    def _do_poll(seqno: int, poll_ts: time.Instant):
+        if seqno != poller_seqno:
+            return
+
+        log.debug("SUBSCRIBER vmanage-poll GET_REQUEST", None)
+        log.trace("SUBSCRIBER vmanage-poll POLL_PATH", {"poll_path": optional_str(poll_path, "None")})
+
+        _source = subscriber_base.get_source()
+        if poll_path is not None and _source is not None and isinstance(_source, VManageSource):
+            source: VManageSource = _source
+
+            request_ts = time.time()
+            url = "/dataservice" + poll_path
+            source.get("/dataservice" + poll_path, lambda r: _on_poll_reply(seqno, poll_ts, request_ts, r))
+            #try:
+            #    source.get("/dataservice" + poll_path, lambda r: _on_poll_reply(seqno, poll_ts, request_ts, r))
+            #except vmanage.NoConnError:
+            #    after 1.0: _do_poll(seqno, next_ts)
+
+    def _on_poll_reply(seqno: int, last_ts: time.Instant, request_ts: time.Instant, reply: ?http.Response):
+        if seqno != poller_seqno:
+            return
+
+        if reply is not None:
+            try:
+                ar = reply.decode_json()
+                ar_data = ar["data"]
+                if isinstance(ar_data, list):
+                    xnode = vmanage.approute_to_xnode(ar_data)
+                    flow_params = create_data_flow_params(base_flow_params, schema_path)
+                    subscriber_base.write(uid, xnode, flow_params)
+            except Exception as exc:
+                log.error("Exception", {"exception": exc})
+                log.debug("Reply body", {"body": reply.body})
+
+        _schedule_next_poll(seqno, last_ts)
+
+    def _schedule_next_poll(seqno: int, last_ts: time.Instant):
+        curr_ts = time.monotonic()
+        next_ts = last_ts.add(period)
+
+        if next_ts < curr_ts:
+            # Allow drift when reply arrived later than next period
+            # TODO: Quantize to period?
+            next_ts = curr_ts
+
+        # print("  last_ts:", last_ts)
+        # print("  curr_ts:", curr_ts)
+        # print("  next_ts:", next_ts)
+
+        delay = next_ts.since(curr_ts)
+        after delay.to_float(): _do_poll(seqno, next_ts)
+
+    def update_config(update: SubscriberUpdate):
+        subscriber_base.update_config(update)
+
+    def update_sub_config(config: TNode):
+        log.debug("SUBSCRIBER vmanage-poll CONFIG", {"config": config})
+
+        base_flow_params = get_subscription_base_flow_params(config)
+
+        poll = config[SUBSCRIPTION_TYPE_TAG_VMANAGE_POLLER]
+        path = poll[PTag('tlm', 'path')].try_str()
+        period_ms = poll[PTag('tlm', 'period')].try_int()
+
+        if path is not None:
+            poll_path = path
+            # TODO: Proper parsing into ptag-/key-path
+            #_tag = schema.QName.netconf_to_value(path, None)
+            _tag = QName.netconf_to_value(path, None)
+            if _tag is not None:
+                _update_schema_cursor(config, Keypath([_tag]))
+
+        if period_ms is not None and poll_path is not None:
+            period = time.Duration(period_ms // 10**3, (period_ms % 10**3) * 10**15, time.MonotonicClock(0, 0, 0))
+        else:
+            pass # TODO: Indicate config error
+
+    def _update_schema_cursor(config: TNode, kpath: Keypath):
+        cursor = schema.Cursor(_schema)
+        if cursor.push_schema_path(SchemaPath([PTag('ncs', 'devices'), PTag('ncs', 'device')], [])):
+            if cursor.push(PTag('ncs', 'live-status')): # TODO: Any benefit to using PTag('ncs', 'config') instead? All actions are duplicated right?
+                # Defaulting to device live-status ned-id unless explicitly set for subscription source
+                if cursor.node().is_mount_point():
+                    ned_id = get_subscription_source_ned_id(config)
+                    if ned_id is not None:
+                        cursor.set_mount_id(ned_id)
+                schema_path = cursor.get_schema_path()
+
+    def write_reset(broadcast: bool) -> None:
+        log.trace("SUBSCRIBER vmanage-poll WRITE RESET", None)
+
+        cleanup_payload = XTree(OP_NOCREATE, ITag.root(), None, []) # TODO
+        flow_params = create_reset_flow_params(base_flow_params, schema_path, broadcast)
+        subscriber_base.write(uid, cleanup_payload, flow_params)
+
+    def _start():
+        log.debug("SUBSCRIBER vmanage-poll START", None)
+        log.trace("SUBSCRIBER vmanage-poll POLL_PATH", {"poll_path": optional_str(poll_path, "None")})
+        if poll_path is not None:
+            curr_ts = time.monotonic()
+            after 0: _do_poll(poller_seqno, curr_ts)
+        subscriber_base.on_started()
+
+    def _stop():
+        log.debug("SUBSCRIBER vmanage-poll STOP", None)
+
+        # stop poller
+        poller_seqno += 1
+
+        subscriber_base.on_stopped()
+
+    def close():
+        subscriber_base.close()
+
+    def source_msg_trampoline(msg: Message) -> None:
+        subscriber_base.on_source_msg(msg)
+
+    def output_upstream_msg_trampoline(msg: Message) -> None:
+        subscriber_base.on_output_upstream_msg(msg)
+
+    def _on_closed():
+        log.debug("SUBSCRIBER vmanage-poll CLOSED", None)
+        on_closed()
+
+    # # Workaround compiler ordering issue
+    subscriber_base._start_fn = _start
+    subscriber_base._stop_fn = _stop
+    subscriber_base._update_sub_config_fn = update_sub_config
+    subscriber_base.source_mixin._source_msg_trampoline_fn = source_msg_trampoline
+    #subscriber_base.output_mixin.resync_source = lambda: None
+    subscriber_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+    subscriber_base.write_reset = write_reset
+    subscriber_base.on_closed_fn = _on_closed

@@ -1,0 +1,138 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import net
+import time
+
+import telemetrify.nsoapi.schema as schema
+import telemetrify.tsdb.writer
+import tsdb.m3
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.nsoapi.schema import SchemaPath
+from telemetrify.main.common import *
+
+def create_m3db_sink(uid: int, config: TNode, auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    sink_act = M3dbSink(uid, config, auth, shared_schema, log_handler)
+    return Sink(uid, sink_act.attach, sink_act.detach, sink_act.close, sink_act.write)
+
+actor M3dbSink(uid: int, config: TNode, auth: WorldCap, shared_schema: schema.SharedSchema, log_handler: logging.Handler):
+    var logh = logging.Handler("m3db-sink")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    # Workaround compiler ordering issue
+    #var sink_mixin = SinkMixin(uid, _on_sink_mixin_closed)
+    var sink_mixin = SinkMixin(uid, lambda: None)
+
+    config_m3db = config[PTag('tlm', 'm3db')]
+    address = config_m3db[PTag('tlm', 'address')].req_str()
+    port = config_m3db[PTag('tlm', 'port')].req_int()
+
+    var client: ?tsdb.m3.Client = None
+    var writer: ?telemetrify.tsdb.writer.TSDBWriter = None
+
+    var tasks: Wardrobe[(Node, TNode)] = Wardrobe() # (node, flow_params)
+    var state = STATE_STOPPED
+
+    log.info("SINK m3db CREATED", None)
+
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        sink_mixin.attach(client_uid, msg_cb)
+
+    def detach(client_uid: int):
+        sink_mixin.detach(client_uid)
+
+    def close():
+        sink_mixin.on_closing()
+
+    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
+        # We don't need to messages when outputing to a log-style sink that is not ready.
+        if state == STATE_RUNNING:
+            w = writer
+            if w is not None:
+                task_id = tasks.put((node, flow_params))
+                _write(w, task_id, node, flow_params)
+                return
+
+    def _write(_writer: telemetrify.tsdb.writer.TSDBWriter, task_id: int, node: Node, flow_params: TNode) -> None:
+        _schema_path: ?value = flow_params[FLOW_PARAM_SCHEMA_PATH].value()
+        schema_path: ?SchemaPath = _schema_path if _schema_path is not None and isinstance(_schema_path, SchemaPath) else None
+        _timestamp: ?value = flow_params[FLOW_PARAM_TIMESTAMP].value()
+        timestamp: time.Instant = _timestamp if _timestamp is not None and isinstance(_timestamp, time.Instant) else time.time()
+        base_tags: list[(str, str)] = []
+        for tag_entry in flow_params[FLOW_PARAM_EXTERNAL_TAGS].iter():
+            _tag = tag_entry[FLOW_PARAM_EXTERNAL_TAGS_NAME].try_str()
+            _value = tag_entry[FLOW_PARAM_EXTERNAL_TAGS_VALUE].try_str()
+            if _tag is not None and _value is not None:
+                base_tags.append((_tag, _value))
+
+        m3db_timestamp = timestamp.second # TODO: Subsecond precision
+        # TODO:
+        # Why: Cannot unify ?T_619 and telemetrify.common.mod.SchemaPath
+        # when argment is ?SchemaPath ?
+        #w.write(node, schema_path, [], base_tags, m3db_timestamp, lambda c, e: _on_write_done(c, e, task_id))
+        _writer.write(node, schema_path if schema_path is not None else SchemaPath([], []), base_tags, m3db_timestamp, lambda c, e: _on_write_done(c, e, task_id))
+
+    def _on_tsdb_connect(c: tsdb.m3.Client):
+        client = c
+        c.quick_init(_on_tsdb_init)
+        log.info("SINK m3db CONNECTED", None)
+
+    def _on_tsdb_init(c: tsdb.m3.Client, success: bool):
+        writer = telemetrify.tsdb.writer.TSDBWriter(c, shared_schema)
+        log.info("SINK m3db INITIALIZED", None)
+        state = STATE_RUNNING
+
+    def _on_tsdb_error(c: tsdb.m3.Client, e):
+        log.error("SINK m3db CLIENT ERROR:", {"error": str(e)})
+        # TODO: Reconnect ourselves or pass along upwards?
+        _close()
+
+    def _on_write_done(c, e, task_id: int):
+        if e is not None:
+            log.error("SINK m3db WRITE ERROR:", {"error": str(e)})
+        else:
+            log.info("SINK m3db WRITE DONE", None)
+        _complete_task(task_id)
+
+    def _complete_task(task_id: int):
+        try:
+            _node, _flow_params = tasks.pop(task_id)
+        except KeyError:
+            pass
+
+    def _on_sink_mixin_closed():
+        _close()
+
+    def _close():
+        tasks.pop_all()
+        if state != STATE_CLOSED:
+            state = STATE_CLOSED
+            _writer = writer
+            if _writer is not None:
+                _writer = None
+            log.info("SINK m3db CLOSED", None)
+
+    # TODO: When we have destructors support in acton!
+    def __del__():
+        _close()
+
+    # Workaround compiler ordering issue
+    sink_mixin.on_closed = _on_sink_mixin_closed
+
+    tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(auth))), address, port, _on_tsdb_connect, _on_tsdb_error, logh)

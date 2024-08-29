@@ -1,0 +1,484 @@
+module telemetrify {
+  yang-version 1.1;
+  namespace "urn:telekom:abs:telemetrify";
+  prefix tlm;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  import ietf-yang-types {
+    prefix yang;
+  }
+
+  import tailf-common {
+    prefix tailf;
+  }
+
+  import tailf-ncs {
+    prefix ncs;
+  }
+
+  import tailf-ncs-ned {
+    prefix ned;
+  }
+
+  description
+      "Telemetry streaming implemented in Acton";
+
+  revision 2023-08-24 {
+    description
+      "Initial revision.";
+  }
+
+  container telemetrify {
+    list subscription {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      container source {
+        leaf source-ref {
+          mandatory true;
+          type leafref {
+            path "/tlm:telemetrify/tlm:source/tlm:name";
+          }
+        }
+
+        choice subscription-type {
+          mandatory true;
+
+          container netconf-rpc-poll {
+            presence true;
+            must "deref(current()/../tlm:source-ref)/../tlm:netconf
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf" {
+              tailf:dependency "/tlm:telemetrify/tlm:source";
+            }
+
+            leaf path {
+              mandatory true;
+              description "RPC/Action path";
+              type kpath;
+            }
+
+            list input {
+              key "path";
+
+              leaf path {
+                description "Parameter path relative to rpc 'input' node";
+                type kpath;
+              }
+
+              leaf value {
+                description "Optional parameter value";
+                type string;
+              }
+            }
+
+            leaf period {
+              mandatory true;
+              description "Polling period";
+              type uint32; // TODO: xs:duration?
+              units "ms";
+            }
+
+            // TODO: Input parameters?
+          }
+
+          container netconf-get-poll {
+            presence true;
+            must "deref(current()/../tlm:source-ref)/../tlm:netconf
+                or deref(current()/../tlm:source-ref)/../tlm:mock-netconf" {
+              tailf:dependency "/tlm:telemetrify/tlm:source";
+            }
+
+            leaf path {
+              mandatory true;
+              description "Get tag-path";
+              type string;
+            }
+
+            // leaf-list path {
+            //   min-elements 1;
+            //   description "Get tag-path";
+            //   type kpath;
+            // }
+
+            leaf period {
+              mandatory true;
+              description "Polling period";
+              type uint32; // TODO: xs:duration?
+              units "ms";
+            }
+
+            // TODO: Input parameters?
+          }
+
+          container vmanage-poll {
+            presence true;
+            must "deref(current()/../tlm:source-ref)/../tlm:vmanage-http
+                or deref(current()/../tlm:source-ref)/../tlm:mock-vmanage-http" {
+              tailf:dependency "/tlm:telemetrify/tlm:source";
+            }
+
+            leaf path {
+              mandatory true;
+              description "Path to fetch";
+              type string;
+            }
+
+            leaf period {
+              mandatory true;
+              description "Polling period";
+              type uint32; // TODO: xs:duration?
+              units "ms";
+            }
+          }
+        }
+
+        container schema {
+          description "Schema settings for source (pre-transform).";
+          when "../netconf-rpc-poll
+              or ../netconf-get-poll";
+          uses schema-settings-g;
+        }
+      }
+
+      container output {
+        uses output-g;
+      }
+    }
+
+    list source {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      choice source-type {
+        container netconf {
+          presence true;
+
+          // TODO: Use /devices/device settings by default
+
+          leaf address {
+            mandatory true;
+            type string;
+          }
+
+          leaf port {
+            mandatory true;
+            type inet:port-number;
+          }
+
+          // TODO:
+          // leaf authgroup {
+          //   type leafref {
+          //     "/ncs:devices/ncs:authgroups/ncs:group/ncs:name";
+          //   }
+          // }
+
+          leaf username {
+            mandatory true;
+            type string;
+          }
+
+          leaf password {
+            mandatory true;
+            // TODO:
+            // type tailf:aes-256-cfb-128-encrypted-string;
+            type string;
+          }
+        }
+
+        container vmanage-http {
+          presence true;
+
+          leaf address {
+            type string;
+          }
+
+          leaf port {
+            type inet:port-number;
+          }
+
+          leaf username {
+            type string;
+          }
+
+          leaf password {
+            // TODO:
+            // type tailf:aes-256-cfb-128-encrypted-string;
+            type string;
+          }
+        }
+
+        container mock-netconf {
+          tailf:hidden debug;
+          presence true;
+
+          container juniper-rpc {
+            container get-interface-information {
+              leaf number-of-interfaces {
+                type uint32;
+                default 96;
+              }
+            }
+          }
+        }
+
+        container mock-vmanage-http {
+          tailf:hidden debug;
+          presence true;
+        }
+      }
+    }
+
+    list sink {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      choice target {
+        mandatory true;
+
+        // container nso-data-provider {
+        //   presence true;
+        //   leaf base-path {
+        //     type string;
+        //   }
+        // }
+
+        container nso-cdb {
+          presence true;
+
+          // leaf address {
+          //   mandatory true;
+          //   type string;
+          // }
+
+          // leaf port {
+          //   mandatory true;
+          //   type uint16;
+          // }
+
+          // leaf base-path {
+          //   type string;
+          // }
+        }
+
+        container m3db {
+          presence true;
+          leaf address {
+            mandatory true;
+            type string;
+          }
+
+          leaf port {
+            mandatory true;
+            type uint16;
+          }
+
+          // TODO: Authentication?
+          // leaf authgroup {
+          //   type leafref {
+          //     path "/ncs:devices/ncs:authgroups/ncs:group/ncs:name";
+          //   }
+          // }
+        }
+
+        container mock {
+          tailf:hidden debug;
+          presence true;
+
+          leaf log-level {
+            description "Print to log.";
+            type log-level;
+          }
+        }
+      }
+    }
+
+    list transform {
+      key "name";
+
+      leaf name {
+        type string;
+      }
+
+      container type {
+        choice transform-type {
+          mandatory true;
+
+          // container prefix-path {
+          //   type kpath;
+          // }
+
+          container mock {
+            tailf:hidden debug;
+            presence true;
+          }
+        }
+      }
+
+      container output {
+        uses output-g;
+      }
+    }
+
+    container logging {
+      leaf level {
+        description "Log-level to output.";
+        type log-level;
+        default "warning";
+      }
+
+      // leaf stdout {
+      //   description "Send logs to standard output.";
+      //   type boolean;
+      //   default "true";
+      // }
+
+      // container file {
+      //   presence true;
+      //
+      //   leaf path {
+      //     type string;
+      //   }
+      //
+      //   leaf size {
+      //   }
+      //
+      //   leaf rotate {
+      //   }
+      // }
+    }
+
+    tailf:action restart {
+      tailf:actionpoint restart-telemetrify;
+    }
+
+    tailf:action start {
+      tailf:actionpoint restart-telemetrify;
+    }
+
+    tailf:action stop {
+      tailf:actionpoint restart-telemetrify;
+    }
+  }
+
+  typedef log-level {
+    type enumeration {
+      enum off;
+      enum emergency;
+      enum alert;
+      enum critical;
+      enum error;
+      enum warning;
+      enum info;
+      enum notice;
+      enum debug;
+      enum verbose;
+      enum trace;
+      enum all;
+    }
+  }
+
+  typedef kpath {
+    type string {
+      pattern
+        "([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)"
+      + "(\\[([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+)"
+      + "( +and +([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+))*\\])?"
+      + "(/([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)"
+      + "(\\[([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+)"
+      + "( +and +([a-zA-Z_][a-zA-Z_0-9\\-\\.]*(:[a-zA-Z_][a-zA-Z_0-9\\-\\.]*)?)=([^\\] '\"]+|('[^']+')+|(\"[^\"]+\")+))*\\])?)*";
+    }
+    description
+      "Simplified YANG/XPath1.0 path of '/' separated yang identifiers
+       with optional key predicates that do standalone or conjunctive '=' comparisions only.
+       e.g: /foo/bar[x=2 and y='baz']";
+  }
+
+  grouping transform-refs-g {
+    leaf-list transform {
+      ordered-by user;
+      type leafref {
+        path "/tlm:telemetrify/tlm:transform/tlm:name";
+      }
+    }
+  }
+
+  grouping output-g {
+    list transform {
+      key "transform-ref";
+      description "Send output to transform.";
+
+      leaf transform-ref {
+        type leafref {
+          path "/tlm:telemetrify/tlm:transform/tlm:name";
+        }
+      }
+
+      uses output-params-g;
+    }
+
+    list sink {
+      key "sink-ref";
+      description "Send output to sink.";
+
+      leaf sink-ref {
+        type leafref {
+          path "/tlm:telemetrify/tlm:sink/tlm:name";
+        }
+      }
+
+      uses output-params-g;
+    }
+  }
+
+  grouping output-params-g {
+    list internal-tag {
+      key "name";
+      description "Tag name/value pairs related to internal flow / transforms.";
+
+      leaf name {
+        type string;
+      }
+
+      leaf value {
+        type string;
+      }
+    }
+
+    list external-tag {
+      key "name";
+      description "Tag name/value pairs related to external output / sinks.";
+
+      leaf name {
+        type string;
+      }
+
+      leaf value {
+        type string;
+      }
+    }
+  }
+
+  grouping schema-settings-g {
+    leaf ned-id {
+      description
+        "Override ned-id otherwise gathered from /devices/device/device-type/*/ned-id or from
+        /devices/device/live-status-protocol/device-type/*/ned-id.";
+
+      type identityref {
+        base ned:ned-id;
+      }
+    }
+  }
+}

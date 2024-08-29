@@ -32,10 +32,10 @@ jobs:
           sudo apt-get install -qy acton
       - name: "Build"
         run: |
-          actonc build
+          make build
       - name: "Test"
         run: |
-          acton test
+          make test
 
 #  test-macos:
 #    runs-on: macos-12
@@ -49,4 +49,4 @@ jobs:
 #          echo "PATH=$(pwd)/acton/bin:$PATH" >> $GITHUB_ENV
 #      - name: "Build"
 #        run: |
-#          actonc build
+#          make build

@@ -1,0 +1,12 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>telemetrify-ext</name>
+  <package-version>1.0</package-version>
+  <description>Streaming telemetry</description>
+  <ncs-min-version>6.1</ncs-min-version>
+  <component>
+    <name>Telemetrify App Lifecycle Shim</name>
+    <application>
+      <python-class-name>telemetrify_shim.main.App</python-class-name>
+    </application>
+  </component>
+</ncs-package>

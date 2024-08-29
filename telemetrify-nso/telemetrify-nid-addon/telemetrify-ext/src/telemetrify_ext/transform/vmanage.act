@@ -1,0 +1,282 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+
+import telemetrify_ext.resource.l3vpn_svc
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify_ext.resource.l3vpn_svc import L3vpnSvcParams
+from telemetrify.main.common import *
+from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.transform.ctor import *
+
+TAG = PTag('tlme', 'vmanage')
+
+class VmanageTransformCtor(TransformCtor):
+    def __init__(self):
+        pass
+
+    def create(self, uid: int, config: TNode, shared_resources: SharedResources, on_closed: action() -> None, log_handler: logging.Handler) -> Transform:
+        transform_act = VmanageTransform(uid, config, shared_resources, on_closed, log_handler)
+        return Transform(uid, transform_act.attach, transform_act.detach, transform_act.close, transform_act.write, transform_act.update_output)
+
+actor VmanageTransform(
+        uid: int,
+        config: TNode,
+        shared_resources: SharedResources,
+        on_closed: action() -> None,
+        log_handler: ?logging.Handler):
+
+    var logh = logging.Handler("vmanage-transform")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+    var log = logging.Logger(logh)
+
+    var shared_resources_collection: SharedResourceCollection = SharedResourceCollection(shared_resources, log)
+
+    var tasks: Wardrobe[(int, list[dict[str, str]], TNode)] = Wardrobe()
+    var l3vpn_svc_tracker: ?telemetrify_ext.resource.l3vpn_svc.L3vpnSvcTracker = None
+    var pending_fetch_l3vpn_svc_tracker_task_ids: list[int] = []
+
+    # Workaround compiler ordering issue
+    #var transform_base = TransformMixin(uid, output_upstream_msg_trampoline, _on_closed, log)
+    var transform_base = TransformMixin(uid, lambda m: None, lambda: None, log)
+
+    log.info("TRANSFORM vmanage CREATED", None)
+
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        transform_base.attach(client_uid, msg_cb)
+
+    def detach(client_uid: int):
+        transform_base.detach(client_uid)
+
+    def update_output(update: list[(Keypath, ?OutputUpdate)]) -> None:
+        transform_base.update_output(update)
+
+    def write(sender_uid: int, node: Node, flow_params: TNode) -> None:
+        is_reset = flow_params.has_child(FLOW_PARAM_RESET)
+        if is_reset:
+            _transform_reset(sender_uid, node, flow_params)
+        else:
+            _transform_update(sender_uid, node, flow_params)
+
+    def _transform_update(sender_uid: int, node: Node, flow_params: TNode):
+        log.debug("Transform update", None)
+
+        src_ns = 'http://terastrm.net/ns/yang/vmanage'
+
+        #task_ids: list[int] = []
+        approutes: list[dict[str, str]] = []
+        ipv4_addresses: set[IPv4Address] = set([])
+
+        for _statistic in node.children():
+            if eq_optional(_statistic.tag(), ITag(src_ns, 'statistics')):
+                for _approute in _statistic.children():
+                    if eq_optional(_approute.tag(), ITag(src_ns, 'approute')):
+                        params: dict[str, str] = {}
+                        for _var in _approute.children():
+                            _var_tag = _var.tag()
+                            if _var_tag is not None and isinstance(_var_tag, ITag):
+                                _var_itag: ITag = _var_tag
+                                if eq_optional(_var_itag.ns, src_ns) and _var_itag.name in [
+                                        'host_name', 'src_ip', 'dst_ip', 'siteid', 'latency', 'jitter', 'loss_percentage']:
+                                    _var_value = _var.value()
+                                    if _var_value is not None:
+                                        params[_var_itag.name] = str(_var_value)
+
+                        src_ip = try_parse_ipv4_address(try_get(params, 'src_ip'))
+                        if src_ip is not None:
+                            ipv4_addresses.add(src_ip)
+
+                        dst_ip = try_parse_ipv4_address(try_get(params, 'dst_ip'))
+                        if dst_ip is not None:
+                            ipv4_addresses.add(dst_ip)
+
+                        approutes.append(params)
+
+        if approutes:
+            task_id = tasks.put((sender_uid, approutes, flow_params))
+
+            _l3vpn_svc_tracker = l3vpn_svc_tracker
+            if _l3vpn_svc_tracker is not None:
+                _l3vpn_svc_tracker.lookup_by_wan_interface_ipv4_addresses(ipv4_addresses, action lambda r: _on_lookup_result(r, task_id))
+            else:
+                pending_fetch_l3vpn_svc_tracker_task_ids.append(task_id)
+
+    def _transform_reset(sender_uid: int, node: Node, flow_params: TNode):
+        log.debug("Transform reset", None)
+        # TODO: ...
+
+    def _on_lookup_result(params_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
+
+        log.debug("lookup", {"result": mapping_str(params_lookup)})
+
+        try:
+            sender_uid, approutes, flow_params = tasks.pop(task_id)
+        except KeyError:
+            pass # TODO: debug/trace log?
+        else:
+            root = TTree(OP_MERGE, ITag.root(), None, {})
+
+            # TODO: DELETE/REPLACE based on l3vpn-svc?
+
+            for approute in approutes:
+                src_ip = try_parse_ipv4_address(try_get(approute, 'src_ip'))
+                dst_ip = try_parse_ipv4_address(try_get(approute, 'dst_ip'))
+
+                if src_ip is not None:
+                    _create_network_node(root, src_ip, dst_ip, params_lookup, approute)
+                    if dst_ip is not None:
+                        _create_network_node(root, dst_ip, src_ip, params_lookup, None)
+
+            transform_base.write(sender_uid, root, flow_params)
+
+    def _create_network_node(root, src_ip: IPv4Address, dst_ip: ?IPv4Address, params_lookup: dict[IPv4Address, L3vpnSvcParams], approute: ?dict[str, str]):
+        ns = "urn:ietf:params:xml:ns:yang:ietf-network-state"
+        ns_topo = "urn:ietf:params:xml:ns:yang:ietf-network-topology-state"
+        ns_dt_topo = "https://telekom.com/ns/yang/dt-network-topology-state"
+
+        source_service_params = try_get(params_lookup, src_ip)
+        if source_service_params is not None:
+            hostname = source_service_params.hostname
+            vpn_id = source_service_params.vpn_id
+            site_id = source_service_params.site_id
+            device_reference = source_service_params.device_reference
+            customer_name = source_service_params.customer_name
+
+            # <network>
+            network_id = vpn_id + "-L3VPN-SLA-IPV4"
+            network_ref = vpn_id + "-SITE"
+
+            _network = root.cont(OP_MERGE, ITag(ns, 'networks')).list(OP_MERGE, ITag(ns, 'network'))
+            _network_elem = _network.elem(OP_MERGE, [network_id])
+            _network_elem.leaf(OP_MERGE, ITag(ns, 'network-id'), network_id)
+
+            # <supporting-network>
+            _supporting_network = _network_elem.list(OP_MERGE, ITag(ns, 'supporting-network'))
+            _supporting_network_elem = _supporting_network.elem(OP_MERGE, [network_ref])
+            _supporting_network_elem.leaf(OP_MERGE, ITag(ns, 'network-ref'), network_ref)
+
+            # <node>
+            node_id = hostname
+            node_ref = site_id + "-" + device_reference
+            tp_id = str(src_ip)
+
+            _node = _network_elem.list(OP_MERGE, ITag(ns, 'node'))
+            _node_elem = _node.elem(OP_MERGE, [node_id])
+            _node_elem.leaf(OP_MERGE, ITag(ns, 'node-id'), node_id)
+
+            _supporting_node = _node_elem.list(OP_MERGE, ITag(ns, 'supporting-node'))
+            _supporting_node_elem = _supporting_node.elem(OP_MERGE, [network_ref, node_ref])
+            _supporting_node_elem.leaf(OP_MERGE, ITag(ns, 'network-ref'), network_ref)
+            _supporting_node_elem.leaf(OP_MERGE, ITag(ns, 'node-ref'), node_ref)
+
+            _termination_point = _node_elem.list(OP_MERGE, ITag(ns_topo, 'termination-point'))
+            _termination_point_elem = _termination_point.elem(OP_MERGE, [tp_id])
+            _termination_point_elem.leaf(OP_MERGE, ITag(ns_topo, 'tp-id'), tp_id)
+
+            # <network-name>
+            network_name = customer_name + " (SLA)" if customer_name is not None else None
+            _network_elem.leaf(OP_MERGE if network_name is not None else OP_DELETE, ITag(ns_dt_topo, 'network-name'), network_name)
+
+            #
+            if dst_ip is not None:
+                destination_service_params = try_get(params_lookup, dst_ip)
+                if destination_service_params is not None:
+                    destination_hostname = destination_service_params.hostname
+
+                    # <link>
+                    link_id = hostname + "--" + destination_hostname
+
+                    _link = _network_elem.list(OP_MERGE, ITag(ns_topo, 'link'))
+                    _link_elem = _link.elem(OP_MERGE, [link_id])
+                    _link_elem.leaf(OP_MERGE, ITag(ns_topo, 'link-id'), link_id)
+
+                    _source = _link_elem.cont(OP_MERGE, ITag(ns_topo, 'source'))
+                    _source.leaf(OP_MERGE, ITag(ns_topo, 'source-node'), hostname)
+                    _source.leaf(OP_MERGE, ITag(ns_topo, 'source-tp'), str(src_ip))
+
+                    _destination = _link_elem.cont(OP_MERGE, ITag(ns_topo, 'destination'))
+                    _destination.leaf(OP_MERGE, ITag(ns_topo, 'dest-node'), destination_hostname)
+                    _destination.leaf(OP_MERGE, ITag(ns_topo, 'dest-tp'), str(dst_ip))
+
+                    if approute is not None:
+                        latency = try_get(approute, 'latency')
+                        jitter = try_get(approute, 'jitter')
+                        loss_percentage = None
+                        loss_percentage_raw = try_get(approute, 'loss_percentage')
+                        if loss_percentage_raw is not None:
+                            loss_percentage = str(round(float(loss_percentage_raw), 2))
+
+                        _link_elem.leaf(OP_MERGE, ITag(ns_dt_topo, 'sla-status'), 'in-compliance') # ?
+                        _link_elem.leaf(OP_MERGE if latency is not None else OP_DELETE, ITag(ns_dt_topo, 'latency'), latency)
+                        _link_elem.leaf(OP_MERGE if jitter is not None else OP_DELETE, ITag(ns_dt_topo, 'jitter'), jitter)
+                        _link_elem.leaf(OP_MERGE if loss_percentage is not None else OP_DELETE, ITag(ns_dt_topo, 'packet-loss'), loss_percentage)
+
+    def _on_fetched_l3vpn_svc_tracker(_l3vpn_svc_tracker: telemetrify_ext.resource.l3vpn_svc.L3vpnSvcTracker):
+        l3vpn_svc_tracker = _l3vpn_svc_tracker
+        for task_id in pending_fetch_l3vpn_svc_tracker_task_ids:
+            try:
+                sender_uid, approutes, _flow_params = tasks.borrow(task_id)
+            except KeyError:
+                pass # TODO: debug/trace log?
+            else:
+                ipv4_addresses: set[IPv4Address] = set([])
+                for approute in approutes:
+                    src_ip = try_parse_ipv4_address(try_get(approute, 'src_ip'))
+                    if src_ip is not None:
+                        ipv4_addresses.add(src_ip)
+                    dst_ip = try_parse_ipv4_address(try_get(approute, 'dst_ip'))
+                    if dst_ip is not None:
+                        ipv4_addresses.add(dst_ip)
+                if ipv4_addresses:
+                    _l3vpn_svc_tracker.lookup_by_wan_interface_ipv4_addresses(ipv4_addresses, action lambda r: _on_lookup_result(r, task_id))
+
+        pending_fetch_l3vpn_svc_tracker_task_ids.clear()
+
+    def close():
+        transform_base.close()
+
+    def output_upstream_msg_trampoline(msg: Message) -> None:
+        transform_base.on_output_upstream_msg(msg)
+
+    def _on_closed():
+        log.debug("TRANSFORM vmanage CLOSED", None)
+        shared_resources_collection.close()
+        l3vpn_svc_tracker = None
+        on_closed()
+
+    def _on_shared_resources_response(response: dict[PTag, SharedResource]):
+        shared_resources_collection.assume_ownership(response)
+
+        l3vpn_svc_tracker_res = try_get(shared_resources_collection.resources, telemetrify_ext.resource.l3vpn_svc.L3VPN_SVC_TRACKER_TAG)
+
+        if l3vpn_svc_tracker_res is not None and isinstance(l3vpn_svc_tracker_res, telemetrify_ext.resource.l3vpn_svc.L3vpnSvcTracker):
+            _on_fetched_l3vpn_svc_tracker(l3vpn_svc_tracker_res)
+        else:
+            log.error("TRANSFORM cat8k ERROR Failed to acquire shared resources", None)
+
+    shared_resources.request(
+        set([telemetrify_ext.resource.l3vpn_svc.L3VPN_SVC_TRACKER_TAG]),
+        _on_shared_resources_response)
+
+    # # Workaround compiler ordering issue
+    transform_base.output_mixin.output_upstream_msg_trampoline = output_upstream_msg_trampoline
+    transform_base.on_closed = _on_closed
+
+def try_parse_ipv4_address(s: ?str) -> ?IPv4Address:
+    if s is not None:
+        return IPv4Address.try_parse(s.strip(" \t\r\n"))
+    return None

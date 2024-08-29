@@ -1,0 +1,434 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import net
+import time
+import xml
+
+import telemetrify.net.netconf as netconf
+import telemetrify.nsoapi.schema as schema
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.main.common import *
+from telemetrify.main.config import *
+from telemetrify.nsoapi.schema import QName, SchemaPath
+from telemetrify.main.source.netconf import *
+
+def create_mock_netconf_source(uid: int, config: TNode, log_handler: logging.Handler) -> NetconfSource:
+    source_act = MockNetconfSourceAct(uid, config, log_handler)
+    return NetconfSource(uid, source_act.attach, source_act.detach, source_act.close, source_act.rpc, source_act.rpc_action)
+
+actor MockNetconfSourceAct(
+        uid: int,
+        config: TNode,
+        log_handler: logging.Handler):
+
+    var logh = logging.Handler("mock-netconf-source")
+    if log_handler is not None:
+        logh.set_handler(log_handler)
+
+    var log = logging.Logger(logh)
+
+    # Workaround compiler ordering issue
+    #var source_mixin = SourceMixin(uid, _on_source_mixin_closed)
+    var source_mixin = SourceMixin(uid, lambda: None)
+
+    var client_seqno: int = 0
+
+    var next_message_id: int = 0
+
+    def attach(client_uid: int, msg_cb: action(Message) -> None):
+        source_mixin.attach(client_uid, msg_cb)
+
+    def detach(client_uid: int):
+        source_mixin.detach(client_uid)
+
+    def close():
+        source_mixin.on_closing()
+
+    def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
+        if log.output_level >= logging.TRACE:
+            log.trace("SOURCE mock-netconf RPC", {"content": content.encode(), "add_rpc_attrs": list_str(add_rpc_attrs)})
+
+        reply_inner: list[xml.Node] = []
+
+        request = netconf.netconf_to_xnode(content, [], OP_NONE)
+
+        tag = request.tag()
+        if eq_optional(tag, ITag(netconf.NS_NC_1_1, 'get')):
+            reply_inner.append(_rpc_nc_get(request))
+        else:
+            reply_inner.extend(_rpc_other(request))
+
+        reply: ?xml.Node = None
+        if reply_inner:
+            rpc_attrs = list_concat([("message-id", str(_gen_message_id()))], add_rpc_attrs)
+            reply = xml.Node("rpc-reply", [(None, netconf.NS_NC_1_1)], None, rpc_attrs, reply_inner, None, None)
+
+        callback(reply)
+
+    def _rpc_nc_get(request: Node) -> xml.Node:
+        result: list[xml.Node] = []
+
+        for n1 in request.children():
+            tag1 = n1.tag()
+            if eq_optional(tag1, ITag(netconf.NS_NC_1_1, 'filter')):
+                for n2 in n1.children():
+                    tag2 = n2.tag()
+                    if eq_optional(tag2, ITag('http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper', 'ip-sla-stats')):
+                        result.append(_rpc_nc_get_ios_xe_ip_sla_stats())
+                    # TODO?
+                    # else:
+                    #     return xml.Node("rpc-error", [], None, [], [
+                    #         xml.Node("error-type", [], None, [], [], "rpc", None)
+                    #     ], None, None)
+
+        return xml.Node("data", [], None, [], result, None, None)
+
+    def _rpc_nc_get_ios_xe_ip_sla_stats() -> xml.Node:
+        # '<get><filter><ip-sla-stats xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper"></ip-sla-stats></filter></get>'
+        return xml.decode("""
+            <ip-sla-stats xmlns="http://cisco.com/ns/yang/Cisco-IOS-XE-ip-sla-oper">
+              <sla-oper-entry>
+                <oper-id>167837954</oper-id>
+                <stats>
+                  <oneway-latency>
+                    <sample-count>100</sample-count>
+                    <sd>
+                      <min>7</min>
+                      <avg>8</avg>
+                      <max>11</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </sd>
+                    <ds>
+                      <min>2</min>
+                      <avg>13</avg>
+                      <max>35</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </ds>
+                  </oneway-latency>
+                  <jitter>
+                    <sd-sample-count>100</sd-sample-count>
+                    <ds-sample-count>100</ds-sample-count>
+                    <sd>
+                      <min>2</min>
+                      <avg>3</avg>
+                      <max>4</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </sd>
+                    <ds>
+                      <min>3</min>
+                      <avg>4</avg>
+                      <max>5</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </ds>
+                  </jitter>
+                  <packet-loss>
+                    <sd-count>1</sd-count>
+                    <ds-count>2</ds-count>
+                  </packet-loss>
+                </stats>
+              </sla-oper-entry>
+              <sla-oper-entry>
+                <oper-id>167838210</oper-id>
+                <stats>
+                  <oneway-latency>
+                    <sample-count>200</sample-count>
+                    <sd>
+                      <min>4</min>
+                      <avg>5</avg>
+                      <max>6</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </sd>
+                    <ds>
+                      <min>5</min>
+                      <avg>6</avg>
+                      <max>7</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </ds>
+                  </oneway-latency>
+                  <jitter>
+                    <sd-sample-count>200</sd-sample-count>
+                    <ds-sample-count>200</ds-sample-count>
+                    <sd>
+                      <min>1</min>
+                      <avg>2</avg>
+                      <max>3</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </sd>
+                    <ds>
+                      <min>2</min>
+                      <avg>3</avg>
+                      <max>4</max>
+                      <accuracy>accuracy-milliseconds</accuracy>
+                    </ds>
+                  </jitter>
+                  <packet-loss>
+                    <sd-count>5</sd-count>
+                    <ds-count>7</ds-count>
+                  </packet-loss>
+                </stats>
+              </sla-oper-entry>
+              <sla-oper-error-statistics>
+                <oper-id>167837954</oper-id>
+                <target-address>10.1.1.2</target-address>
+              </sla-oper-error-statistics>
+              <sla-oper-error-statistics>
+                <oper-id>167838210</oper-id>
+                <target-address>10.1.2.2</target-address>
+              </sla-oper-error-statistics>
+            </ip-sla-stats>
+            """)
+
+    def _rpc_other(request: Node) -> list[xml.Node]:
+        result: list[xml.Node] = []
+
+        tag = request.tag()
+        if eq_optional(tag, ITag('urn:juniper-rpc', 'get-interface-information')):
+            result.extend(_rpc_other_juniper_rpc_get_interface_information(request))
+
+        if not result:
+            result.append(xml.Node("rpc-error", [], None, [], [
+                xml.Node("error-type", [], None, [], [], "rpc", None),
+                xml.Node("error-message", [], None, [("xml:lang", "en")], [], "Not implemented", None),
+            ], None, None))
+
+        return result
+
+    def _rpc_other_juniper_rpc_get_interface_information(request: Node) -> list[xml.Node]:
+        for c1 in request.children():
+            if eq_optional(c1.tag(), ITag('urn:juniper-rpc', 'level-extra')):
+                v1 = c1.value()
+                if v1 is not None and isinstance(v1, str) and v1 == "detail":
+                    return _rpc_other_juniper_rpc_get_interface_information_level_extra_detail(request)
+        return []
+
+    def _rpc_other_juniper_rpc_get_interface_information_level_extra_detail(request: Node) -> list[xml.Node]:
+        interface_ids: list[(str, int, list[(str, int)])] = _juniper_generate_interfaces()
+
+        physical_interfaces: list[xml.Node] = []
+
+        for pintf_name, pintf_index, lintfs in interface_ids:
+
+            logical_interfaces: list[xml.Node] = []
+
+            for lintf_name, lintf_index in lintfs:
+                logical_interfaces.append(
+                    xml.Node("logical-interface", [], None, [], [
+                      xml.Node("name", [], None, [], [], lintf_name, None),
+                      xml.Node("local-index", [], None, [], [], str(lintf_index), None),
+                      xml.Node("snmp-index", [], None, [], [], str(lintf_index), None),
+                      xml.Node("generation", [], None, [], [], "142", None),
+                      xml.Node("if-config-flags", [], None, [], [
+                        xml.Node("iff-up", [], None, [], [], None, None),
+                        xml.Node("iff-snmp-traps", [], None, [], [], None, None),
+                        xml.Node("internal-flags", [], None, [], [], "0x4004000", None),
+                      ], None, None),
+                      xml.Node("encapsulation", [], None, [], [], "ENET2", None),
+                      xml.Node("policer-overhead", [], None, [], [], "", None),
+                      xml.Node("traffic-statistics", [], None, [], [
+                        xml.Node("input-bytes", [], None, [], [], "0", None),
+                        xml.Node("output-bytes", [], None, [], [], "0", None),
+                        xml.Node("input-packets", [], None, [], [], "0", None),
+                        xml.Node("output-packets", [], None, [], [], "0", None),
+                      ], None, None),
+                      xml.Node("local-traffic-statistics", [], None, [], [
+                        xml.Node("input-bytes", [], None, [], [], "0", None),
+                        xml.Node("output-bytes", [], None, [], [], "0", None),
+                        xml.Node("input-packets", [], None, [], [], "0", None),
+                        xml.Node("output-packets", [], None, [], [], "0", None),
+                      ], None, None),
+                      xml.Node("transit-traffic-statistics", [], None, [], [
+                        xml.Node("input-bytes", [], None, [], [], "0", None),
+                        xml.Node("input-bps", [], None, [], [], "0", None),
+                        xml.Node("output-bytes", [], None, [], [], "0", None),
+                        xml.Node("output-bps", [], None, [], [], "0", None),
+                        xml.Node("input-packets", [], None, [], [], "0", None),
+                        xml.Node("input-pps", [], None, [], [], "0", None),
+                        xml.Node("output-packets", [], None, [], [], "0", None),
+                        xml.Node("output-pps", [], None, [], [], "0", None),
+                      ], None, None),
+                      xml.Node("filter-information", [], None, [], [], None, None),
+                    ], None, None)
+                )
+
+            physical_interfaces.append(
+              xml.Node("physical-interface", [], None, [], [
+                xml.Node("name", [], None, [], [], pintf_name, None),
+                xml.Node("admin-status", [], None, [], [], "up", None),
+                xml.Node("oper-status", [], None, [], [], "up", None),
+                xml.Node("local-index", [], None, [], [], str(pintf_index), None),
+                xml.Node("snmp-index", [], None, [], [], str(pintf_index), None),
+                xml.Node("generation", [], None, [], [], "152", None),
+                xml.Node("link-level-type", [], None, [], [], "Ethernet", None),
+                xml.Node("mtu", [], None, [], [], "1514", None),
+                xml.Node("sonet-mode", [], None, [], [], "LAN-PHY", None),
+                xml.Node("mru", [], None, [], [], "1522", None),
+                xml.Node("source-filtering", [], None, [], [], "disabled", None),
+                xml.Node("speed", [], None, [], [], "10000mbps", None),
+                xml.Node("eth-switch-error", [], None, [], [], "none", None),
+                xml.Node("bpdu-error", [], None, [], [], "none", None),
+                xml.Node("ld-pdu-error", [], None, [], [], "none", None),
+                xml.Node("l2pt-error", [], None, [], [], "none", None),
+                xml.Node("loopback", [], None, [], [], "disabled", None),
+                xml.Node("if-flow-control", [], None, [], [], "enabled", None),
+                xml.Node("if-auto-negotiation", [], None, [], [], "enabled", None),
+                xml.Node("if-remote-fault", [], None, [], [], "online", None),
+                xml.Node("pad-to-minimum-frame-size", [], None, [], [], "Disabled", None),
+                xml.Node("if-device-flags", [], None, [], [
+                  xml.Node("ifdf-present", [], None, [], [], None, None),
+                  xml.Node("ifdf-running", [], None, [], [], None, None),
+                ], None, None),
+                xml.Node("ifd-specific-config-flags", [], None, [], [
+                  xml.Node("internal-flags", [], None, [], [], "0x100200", None),
+                ], None, None),
+                xml.Node("if-config-flags", [], None, [], [
+                  xml.Node("iff-snmp-traps", [], None, [], [], None, None),
+                  xml.Node("internal-flags", [], None, [], [], "0x4000", None),
+                ], None, None),
+                xml.Node("if-media-flags", [], None, [], [
+                  xml.Node("ifmf-none", [], None, [], [], None, None),
+                ], None, None),
+                xml.Node("physical-interface-cos-information", [], None, [], [
+                  xml.Node("physical-interface-cos-hw-max-queues", [], None, [], [], "8", None),
+                  xml.Node("physical-interface-cos-use-max-queues", [], None, [], [], "8", None),
+                ], None, None),
+                xml.Node("up-hold-time", [], None, [], [], "0", None),
+                xml.Node("down-hold-time", [], None, [], [], "0", None),
+                xml.Node("damp-half-life", [], None, [], [], "0", None),
+                xml.Node("damp-max-suppress", [], None, [], [], "0", None),
+                xml.Node("damp-reuse-level", [], None, [], [], "0", None),
+                xml.Node("damp-suppress-level", [], None, [], [], "0", None),
+                xml.Node("damp-suppress-state", [], None, [], [], "unsuppressed", None),
+                xml.Node("current-physical-address", [], None, [], [], "52:54:00:b7:bc:01", None),
+                xml.Node("hardware-physical-address", [], None, [], [], "52:54:00:b7:bc:01", None),
+                xml.Node("interface-flapped", [], None, [], [], "2024-01-30 12:53:53 UTC (00:03:07 ago)", None),
+                xml.Node("statistics-cleared", [], None, [], [], "Never", None),
+                xml.Node("traffic-statistics", [], None, [], [
+                  xml.Node("input-bytes", [], None, [], [], "0", None),
+                  xml.Node("input-bps", [], None, [], [], "0", None),
+                  xml.Node("output-bytes", [], None, [], [], "0", None),
+                  xml.Node("output-bps", [], None, [], [], "0", None),
+                  xml.Node("input-packets", [], None, [], [], "0", None),
+                  xml.Node("input-pps", [], None, [], [], "0", None),
+                  xml.Node("output-packets", [], None, [], [], "0", None),
+                  xml.Node("output-pps", [], None, [], [], "0", None),
+                  xml.Node("ipv6-transit-statistics", [], None, [], [
+                    xml.Node("input-bytes", [], None, [], [], "0", None),
+                    xml.Node("output-bytes", [], None, [], [], "0", None),
+                    xml.Node("input-packets", [], None, [], [], "0", None),
+                    xml.Node("output-packets", [], None, [], [], "0", None),
+                  ], None, None),
+                ], None, None),
+                xml.Node("active-alarms", [], None, [], [
+                  xml.Node("interface-alarms", [], None, [], [
+                    xml.Node("alarm-not-present", [], None, [], [], None, None),
+                  ], None, None),
+                ], None, None),
+                xml.Node("active-defects", [], None, [], [
+                  xml.Node("interface-alarms", [], None, [], [
+                    xml.Node("alarm-not-present", [], None, [], [], None, None),
+                  ], None, None),
+                ], None, None),
+                xml.Node("ethernet-pcs-statistics", [], None, [], [
+                  xml.Node("bit-error-seconds", [], None, [], [], "0", None),
+                  xml.Node("errored-blocks-seconds", [], None, [], [], "0", None),
+                ], None, None),
+                xml.Node("ethernet-fec-mode", [], None, [], [
+                  xml.Node("enabled_fec_mode", [], None, [], [], "", None),
+                ], None, None),
+                xml.Node("ethernet-fec-statistics", [], None, [], [
+                  xml.Node("fec_ccw_count", [], None, [], [], "0", None),
+                  xml.Node("fec_nccw_count", [], None, [], [], "0", None),
+                  xml.Node("fec_ccw_error_rate", [], None, [], [], "0", None),
+                  xml.Node("fec_nccw_error_rate", [], None, [], [], "0", None),
+                ], None, None),
+                xml.Node("interface-transmit-statistics", [], None, [], [], "Disabled", None),
+              ] + logical_interfaces, None, None)
+            )
+
+        return [xml.Node("interface-information", [(None, 'urn:juniper-rpc')], None, [], physical_interfaces, None, None)]
+
+    def _juniper_generate_interfaces() -> list[(str, int, list[(str, int)])]:
+        res: list[(str, int, list[(str, int)])] = []
+
+        source_config = config[SOURCE_TYPE_TAG_MOCK_NETCONF]
+        get_intf_config = source_config[PTag('tlm', 'juniper-rpc')][PTag('tlm', 'get-interface-information')]
+        total_interfaces = get_intf_config[PTag('tlm', 'number-of-interfaces')].def_int(0)
+
+        lcs = 3
+        pplc = 44
+        max_ports = lcs * pplc
+        max_subints = (total_interfaces + max_ports - 1) // max_ports
+
+        res = []
+
+        i = 0
+        intf_index = 0
+        while i < total_interfaces:
+            p = i // max_subints
+            x = 0
+            y = p // pplc
+            z = p % pplc
+            subints = min([total_interfaces - i, max_subints])
+            pintf = "xe-%d/%d/%d" % (x, y, z)
+            pintf_index = intf_index
+            intf_index += 1
+            subint_items: list[(str, int)] = []
+            for j in range(subints):
+                lintf = "xe-%d/%d/%d.%d" % (x, y, z, j)
+                subint_items.append((lintf, intf_index))
+                intf_index += 1
+            res.append((pintf, pintf_index, subint_items))
+            i += subints
+        return res
+
+    def rpc_action(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
+        callback(None)
+
+    def _gen_message_id() -> int:
+        message_id = next_message_id
+        next_message_id += 1
+        return message_id
+
+    def _on_client_connect(seqno: int):
+        if seqno != client_seqno:
+            return
+        log.debug("SOURCE mock-netconf CONNECTED", None)
+        source_mixin.on_started()
+
+    def _on_client_notif(node: xml.Node, seqno: int):
+        if seqno != client_seqno:
+            return
+        pass
+
+    def _on_source_mixin_closed():
+        _close_client()
+
+    def _connect_client():
+        log.debug("SOURCE mock-netconf CONNECT", None)
+        client_seqno += 1
+        after 0: _on_client_connect(client_seqno)
+
+    def _close_client():
+        log.debug("SOURCE mock-netconf DISCONNECT", None)
+        source_mixin.on_stopped()
+
+    # Workaround compiler ordering issue
+    source_mixin.on_closed = _on_source_mixin_closed
+
+    log.info("SOURCE mock-netconf CREATED", None)
+
+    _connect_client()
