@@ -1,7 +1,7 @@
 SHELL=/bin/bash
 SELF_DIR:=$(dir $(lastword $(MAKEFILE_LIST)))
 PROJECT_DIR:=$(realpath $(SELF_DIR)/../..)
-BUILD_PATH=$(PROJECT_DIR)/out
+BUILD_PATH=$(PROJECT_DIR)/telemetrify-core/out
 ARGS?=maapi-schema
 NCS_D?=ncs
 

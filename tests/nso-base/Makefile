@@ -3,7 +3,7 @@ CNT_PREFIX=$(TESTENV)
 
 SHELL=/bin/bash
 PROJECT_DIR:=/mnt
-BUILD_PATH=$(PROJECT_DIR)/out
+BUILD_PATH=$(PROJECT_DIR)/telemetrify-core/out
 #DOCKER_USER:=$(shell id -u):$(shell id -g)
 NCS_D?=ncs
 
