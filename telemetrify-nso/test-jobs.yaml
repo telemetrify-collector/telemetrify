@@ -1,24 +1,24 @@
-test-ios-xe-ipsla-mock-6.1.5:
+test-ios-xe-ipsla-mock-6.3.2_ps:
   extends: .test
   variables:
     TESTENV: "ios-xe-ipsla-mock"
-    NSO_VERSION: "6.1.5"
+    NSO_VERSION: "6.3.2_ps"
   needs:
-    - build-6.1.5
+    - build-6.3.2_ps
 
-test-juniper-rpc-mock-6.1.5:
+test-juniper-rpc-mock-6.3.2_ps:
   extends: .test
   variables:
     TESTENV: "juniper-rpc-mock"
-    NSO_VERSION: "6.1.5"
+    NSO_VERSION: "6.3.2_ps"
   needs:
-    - build-6.1.5
+    - build-6.3.2_ps
 
-test-vmanage-mock-6.1.5:
+test-vmanage-mock-6.3.2_ps:
   extends: .test
   variables:
     TESTENV: "vmanage-mock"
-    NSO_VERSION: "6.1.5"
+    NSO_VERSION: "6.3.2_ps"
   needs:
-    - build-6.1.5
+    - build-6.3.2_ps
 
