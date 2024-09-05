@@ -18,8 +18,8 @@ from telemetrify.nsoapi.proto import *
 from telemetrify.nsoapi.conf import *
 from telemetrify.common.utils import *
 
-CLIENT_PROTO_VSN = 81
-CLIENT_CONF_VSN = 0x08010000
+CLIENT_PROTO_VSN = 83
+CLIENT_CONF_VSN = 0x08030100
 
 IA_CLIENT_CDB = 5
 IA_CLIENT_MAAPI = 7

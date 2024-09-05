@@ -4,6 +4,6 @@
 # operator only sets these variables if not already set, thus you can easily
 # override them by explicitly setting them in your environment and they will be
 # overridden by variables in CI.
-export NSO_IMAGE_PATH ?= gitlab.dev.terastrm.net:4567/abs/nso-docker/
-export PKG_PATH ?= gitlab.dev.terastrm.net:4567/abs/
-export NSO_VERSION ?= 6.1.5
+export NSO_IMAGE_PATH ?= gitlab.dev.terastrm.net:4567/terastream/nso-docker/
+export PKG_PATH ?= gitlab.dev.terastrm.net:4567/terastream/
+export NSO_VERSION ?= 6.3.2_ps
