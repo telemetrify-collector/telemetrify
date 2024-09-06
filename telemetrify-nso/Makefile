@@ -13,6 +13,7 @@ Dockerfile: prepare-telemetrify
 prepare-telemetrify:
 	cp -rp ../telemetrify-nid-base/* .
 	cp -rp telemetrify-nid-addon/* .
+	mkdir -p telemetrify-ext/deps
 	cp -rp ../telemetrify-core telemetrify-ext/deps
 	$(MAKE) -C telemetrify-ext/deps/telemetrify-core test
 	$(MAKE) -f telemetrify-ext.mk prepare-telemetrify-pkg
