@@ -11,11 +11,10 @@ include nidpackage.mk
 Dockerfile: prepare-telemetrify
 
 prepare-telemetrify:
-	cp -rp ../telemetrify-nid-base/* .
-	cp -rp telemetrify-nid-addon/* .
-	mkdir -p telemetrify-ext/deps
-	cp -rp ../telemetrify-core telemetrify-ext/deps
-	$(MAKE) -C telemetrify-ext/deps/telemetrify-core test
+	cp -rp ../telemetrify-nid-base/. .
+	cp -rp telemetrify-nid-addon/. .
+	mkdir -p telemetrify-ext/deps/telemetrify_core
+	cp -rp ../telemetrify-core/. telemetrify-ext/deps/telemetrify_core # Workaround https://github.com/actonlang/acton/issues/1886
 	$(MAKE) -f telemetrify-ext.mk prepare-telemetrify-pkg
 
 .PHONY: prepare-telemetrify
