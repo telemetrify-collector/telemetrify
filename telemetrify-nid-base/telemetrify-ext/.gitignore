@@ -1,5 +1,5 @@
-.actonc.lock
-build.sh
+.acton.lock
 out
-zig-cache
-zig-out
+.build
+build.zig
+build.zig.zon

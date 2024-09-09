@@ -1,0 +1,7 @@
+{
+    "dependencies": {
+        "telemetrify_core": {
+            "path": "deps/telemetrify_core"
+        }
+    }
+}

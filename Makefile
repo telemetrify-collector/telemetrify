@@ -14,6 +14,7 @@ generate-test-jobs:
 
 clean:
 	$(MAKE) -C telemetrify-core clean
+	$(MAKE) -C telemetrify-nso clean-telemetrify
 .PHONY: clean
 
 run-nogc:
