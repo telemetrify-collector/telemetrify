@@ -332,15 +332,7 @@ def _netconf_to_xnode(xml_node: xml.Node, nsmaps: NsMaps, default_op: int) -> mo
             children.append(_netconf_to_xnode(xml_child, _nsmaps, default_op))
         return mod.XTree(_op, tag, _nsmaps.lookup, children)
     else:
-        val = None
-        _text = xml_node.text
-        _tail = xml_node.tail
-        if _text is not None or _tail is not None:
-            _val = _text if _text is not None else ""
-            if _tail is not None:
-                _val += _tail
-            val = _val
-        return mod.XLeaf(_op, tag, _nsmaps.lookup, val)
+        return mod.XLeaf(_op, tag, _nsmaps.lookup, xml_node.text)
 
 def node_to_netconf(node: mod.Node, cursor: schema.Cursor, ancestor_default_ns: ?str) -> list[xml.Node]:
     tag: ?mod.Tag = node.tag()

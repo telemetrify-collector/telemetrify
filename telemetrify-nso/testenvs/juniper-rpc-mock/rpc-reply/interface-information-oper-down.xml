@@ -1,0 +1,12 @@
+<rpc-reply xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+    <interface-information xmlns='urn:juniper-rpc'>
+        <physical-interface>
+            <name>xe-0/0/0</name>
+            <admin-status>up</admin-status>
+            <oper-status>down</oper-status>
+            <logical-interface>
+                <name>xe-0/0/0.0</name>
+            </logical-interface>
+        </physical-interface>
+    </interface-information>
+</rpc-reply>

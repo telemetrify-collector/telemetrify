@@ -712,7 +712,7 @@ actor test_cdb_wait_start(env: Env, opts: Opts):
 
 actor test_tnode(env: Env, opts: Opts):
     root = TTree(OP_NONE, PTag.root(), None, {})
-    dev1 = root.cont(None, PTag("ncs", "devices")).cont(None, PTag("ncs", "device")).elem(None, ["router1"]).leaf(None, PTag("x", "test"), 42)
+    dev1 = root.cont(None, PTag("ncs", "devices")).cont(None, PTag("ncs", "device")).elem(None, Key(["router1"])).leaf(None, PTag("x", "test"), 42)
     if dev1.req_int() != 42:
         await async env.exit(1)
     if root[PTag("ncs", "devices")][PTag("ncs", "device")][Key(["router1"])][PTag("x", "test")].req_int() != 42:
@@ -722,7 +722,7 @@ actor test_tnode(env: Env, opts: Opts):
         await async env.exit(1)
 
     merge_root = TTree(OP_MERGE, PTag.root(), None, {})
-    merge_root.cont(OP_MERGE, PTag("ncs", "devices")).cont(OP_MERGE, PTag("ncs", "device")).elem(OP_MERGE, ["router2"]).leaf(OP_MERGE, PTag("x", "test"), 43)
+    merge_root.cont(OP_MERGE, PTag("ncs", "devices")).cont(OP_MERGE, PTag("ncs", "device")).elem(OP_MERGE, Key(["router2"])).leaf(OP_MERGE, PTag("x", "test"), 43)
 
     root.merge(merge_root)
 
@@ -732,7 +732,7 @@ actor test_tnode(env: Env, opts: Opts):
         await async env.exit(1)
 
     delete_root = TTree(OP_NOCREATE, PTag.root(), None, {})
-    delete_root.cont(OP_NOCREATE, PTag("ncs", "devices")).cont(OP_NOCREATE, PTag("ncs", "device")).elem(OP_NOCREATE, ["router1"]).leaf(OP_DELETE, PTag("x", "test"), None)
+    delete_root.cont(OP_NOCREATE, PTag("ncs", "devices")).cont(OP_NOCREATE, PTag("ncs", "device")).elem(OP_NOCREATE, Key(["router1"])).leaf(OP_DELETE, PTag("x", "test"), None)
 
     root.merge(delete_root)
 

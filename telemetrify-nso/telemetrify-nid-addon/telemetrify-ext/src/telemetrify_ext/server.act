@@ -16,6 +16,7 @@ import telemetrify.main.server
 from telemetrify.common.mod import *
 from telemetrify.common.utils import *
 
+import telemetrify_ext.transform.backbone_interface_alarm_junos
 import telemetrify_ext.transform.cat8k
 import telemetrify_ext.transform.vmanage
 
@@ -24,6 +25,7 @@ import telemetrify_ext.resource.l3vpn_svc
 actor main(env):
     telemetrify.main.server.Server(env,
         {
+            telemetrify_ext.transform.backbone_interface_alarm_junos.TAG: telemetrify_ext.transform.backbone_interface_alarm_junos.BackboneInterfaceAlarmJunosTransformCtor(),
             telemetrify_ext.transform.cat8k.TAG: telemetrify_ext.transform.cat8k.IpSlaTransformCtor(),
             telemetrify_ext.transform.vmanage.TAG: telemetrify_ext.transform.vmanage.VmanageTransformCtor(),
         },

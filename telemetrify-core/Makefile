@@ -33,7 +33,7 @@ build:
 .PHONY: build-bin
 
 clean:
-	rm -rf out
+	rm -rf out .build build.zig build.zig.zon
 .PHONY: clean
 
 run-nogc:

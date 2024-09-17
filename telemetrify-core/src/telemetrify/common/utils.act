@@ -11,6 +11,8 @@
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+import time
+
 # Workaround actonc error:
 # ld.lld: error: undefined symbol: $EqOptG_new
 def eq_optional[T(Eq)](a: ?T, b: ?T) -> bool:
@@ -498,7 +500,7 @@ def dict_dict_try_pop[K1(Hashable), K2(Hashable), V](d1: dict[K1, dict[K2, V]], 
             del d1[k1]
         return v
 
-def optional_str[T](v: ?T, default: str) -> str:
+def optional_str[T](v: ?T, default: str = "None") -> str:
     return str(v) if v is not None else default
 
 def optional_repr[T](v: ?T, default: str = "None") -> str:
@@ -508,6 +510,11 @@ def optional_expect[T](v: ?T, error_msg: str) -> T:
     if v is not None:
         return v
     raise ValueError(error_msg)
+
+def optional_expect_or_throw[T](v: ?T, error_ctor: () -> Exception) -> T:
+    if v is not None:
+        return v
+    raise error_ctor()
 
 def iterable_first[T](iterable: Iterable[T]) -> ?T:
     for item: T in iterable:
@@ -894,7 +901,7 @@ def uint_to_bytes_le(v: int) -> bytes:
         v /= 0x100
     return bytes(bs)
 
-class Decimal64:
+class Decimal64(object):
     @property
     significand: int
     @property
@@ -972,7 +979,7 @@ extension Decimal64(Hashable):
     def __hash__(self) -> int:
         return safe_hash(hash(self.significand))
 
-class IPv4Address:
+class IPv4Address(object):
     @property
     data: (int, int, int, int)
 
@@ -1007,7 +1014,7 @@ extension IPv4Address(Hashable):
         d = self.data
         return safe_hash(2*hash(d.3) + 3*hash(d.2) + 5*hash(d.1) + 7*hash(d.0))
 
-class IPv6Address:
+class IPv6Address(object):
     @property
     data: (int, int, int, int, int, int, int, int)
 
@@ -1048,7 +1055,7 @@ extension IPv6Address(Hashable):
         d = self.data
         return safe_hash(2*hash(d.7) + 3*hash(d.6) + 5*hash(d.5) + 7*hash(d.4) + hash(d.3) + 11*hash(d.2) + 13*hash(d.1) + 17*hash(d.0))
 
-class IPv4Network:
+class IPv4Network(object):
     @property
     address: IPv4Address
     @property
@@ -1085,7 +1092,7 @@ extension IPv4Network(Hashable):
     def __hash__(self) -> int:
         return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
 
-class IPv6Network:
+class IPv6Network(object):
     @property
     address: IPv6Address
     @property
@@ -1122,7 +1129,7 @@ extension IPv6Network(Hashable):
     def __hash__(self) -> int:
         return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
 
-class DateTime:
+class DateTime(object):
     @property
     year: int
     @property
@@ -1262,6 +1269,26 @@ class DateTime:
     # def try_parse_iso(s: str):
     #     return DateTime.try_parse(s, "%Y-%m-%dT%H:%M:%S.%f%z")
 
+    @staticmethod
+    def from_std_datetime(dt: time.DateTime) -> DateTime:
+        _tz_h: ?int = None
+        _tz_m: ?int = None
+
+        dt_timezone = dt.timezone
+        if dt_timezone is not None:
+            # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+            # e.g. "-0:30" as the sign is carried by the 'hour' integer
+            # TODO: Test actual nso behavour
+            offset_s = dt_timezone.offset
+            if offset_s > 0:
+                _tz_h = offset_s // 3600
+                _tz_m = offset_s % 3600
+            else:
+                _tz_h = -(-offset_s // 3600)
+                _tz_m = -offset_s % 3600
+
+        return DateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.attosecond // 10**12, _tz_h, _tz_m)
+
 extension DateTime(Hashable):
     def __eq__(self, other: DateTime) -> bool:
         return \
@@ -1289,7 +1316,7 @@ extension DateTime(Hashable):
             (3 * hash(_tz_h)) if _tz_h is not None else 0 +
             (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
-class Date:
+class Date(object):
     @property
     year: int
     @property
@@ -1393,6 +1420,26 @@ class Date:
 
         return None
 
+    @staticmethod
+    def from_std_datetime(dt: time.DateTime) -> Date:
+        _tz_h: ?int = None
+        _tz_m: ?int = None
+
+        dt_timezone = dt.timezone
+        if dt_timezone is not None:
+            # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+            # e.g. "-0:30" as the sign is carried by the 'hour' integer
+            # TODO: Test actual nso behavour
+            offset_s = dt_timezone.offset
+            if offset_s > 0:
+                _tz_h = offset_s // 3600
+                _tz_m = offset_s % 3600
+            else:
+                _tz_h = -(-offset_s // 3600)
+                _tz_m = -offset_s % 3600
+
+        return Date(dt.year, dt.month, dt.day, _tz_h, _tz_m)
+
 extension Date(Hashable):
     def __eq__(self, other: Date) -> bool:
         return \
@@ -1412,7 +1459,7 @@ extension Date(Hashable):
             (3 * hash(_tz_h)) if _tz_h is not None else 0 +
             (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
-class Time:
+class Time(object):
     @property
     hour: int
     @property
@@ -1518,6 +1565,26 @@ class Time:
 
         return None
 
+    @staticmethod
+    def from_std_datetime(dt: time.DateTime) -> Time:
+        _tz_h: ?int = None
+        _tz_m: ?int = None
+
+        dt_timezone = dt.timezone
+        if dt_timezone is not None:
+            # The nso java-api seems to be missing a way to represent negative offsets less than one hour
+            # e.g. "-0:30" as the sign is carried by the 'hour' integer
+            # TODO: Test actual nso behavour
+            offset_s = dt_timezone.offset
+            if offset_s > 0:
+                _tz_h = offset_s // 3600
+                _tz_m = offset_s % 3600
+            else:
+                _tz_h = -(-offset_s // 3600)
+                _tz_m = -offset_s % 3600
+
+        return Time(dt.hour, dt.minute, dt.second, dt.attosecond // 10**12, _tz_h, _tz_m)
+
 extension Time(Hashable):
     def __eq__(self, other: Time) -> bool:
         return \
@@ -1539,7 +1606,7 @@ extension Time(Hashable):
             (3 * hash(_tz_h)) if _tz_h is not None else 0 +
             (2 * hash(_tz_m)) if _tz_m is not None else 0)
 
-class Duration:
+class Duration(object):
     @property
     year: int
     @property
@@ -1675,7 +1742,7 @@ extension Duration(Hashable):
             7 * hash(self.second) +
             5 * hash(self.microsecond))
 
-class Oid:
+class Oid(object):
     _ids: list[int]
 
     def __init__(self, ids: list[int]):

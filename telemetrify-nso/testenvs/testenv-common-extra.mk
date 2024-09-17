@@ -27,14 +27,25 @@ compare-oper-xml:
 	@if [ ! -e "expected/$(BASENAME)" ]; then echo "Missing expected/$(BASENAME)"; false; fi
 	@mkdir -p output
 	@$(MAKE) save-oper-xml FILE=output/$(BASENAME)
-	if [ -n "$(TRANSFORM)" ] ; then \
-		$(TRANSFORM) output/$(BASENAME); \
-	fi
 	diff expected/$(BASENAME) output/$(BASENAME)
 
 save-oper-xml:
 	@if [ -z "$(FILE)" ]; then echo "FILE variable must be set"; false; fi
 	@echo "Saving oper to $(FILE)"
-	docker exec -t $(CNT_PREFIX)-nso$(NSO) bash -lc "mkdir -p test/$(shell echo $(FILE) | xargs dirname)"
+	@docker exec -t $(CNT_PREFIX)-nso$(NSO) bash -lc "mkdir -p test/$(shell echo $(FILE) | xargs dirname)"
 	@$(MAKE) runcmdJ CMD="show $(CLIPATH) | display xml | save test/$(FILE)"
-	@docker cp $(CNT_PREFIX)-nso$(NSO):test/$(FILE) $(FILE)
+	@if [ -n "$(TRANSFORM)" ] ; then \
+		docker cp $(CNT_PREFIX)-nso$(NSO):test/$(FILE) $(FILE).orig; \
+		$(TRANSFORM) $(FILE).orig $(FILE); \
+		rm $(FILE).orig; \
+	else \
+		docker cp $(CNT_PREFIX)-nso$(NSO):test/$(FILE) $(FILE); \
+	fi
+
+replay-nc:
+	@docker exec -t $(CNT_PREFIX)-nso$(NSO) bash -lc "mkdir -p test/$(shell echo $(FILE) | xargs dirname)"
+	@docker cp $(FILE) $(CNT_PREFIX)-nso$(NSO):test/$(filename $(FILE))
+	docker exec -t $(CNT_PREFIX)-nso$(NSO) bash -lc "nc -q 0 localhost $(PORT) < /test/$$(basename ${FILE})"
+
+await-listener:
+	$(MAKE) try-until-timeout CMD="docker exec -t $(CNT_PREFIX)-nso$(NSO) bash -lc 'nc -z localhost $(PORT) && echo \"Found listener on port $(PORT).\" || (echo \"No listener found on port $(PORT).\"; exit 1)'"

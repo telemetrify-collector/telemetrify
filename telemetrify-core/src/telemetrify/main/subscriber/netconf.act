@@ -100,10 +100,13 @@ actor NetconfRpcPollSubscription(
             return
 
         if node is not None:
-            xnode = netconf.netconf_to_xnode(node, [], OP_MERGE)
-            log.debug("SUBSCRIBER netconf-rpc-poll POLL:", {"xnode": xnode})
-            flow_params = create_data_flow_params(base_flow_params, schema_path)
-            subscriber_base.write(uid, xnode, flow_params)
+            if node.tag == "rpc-reply":
+                xnode = netconf.netconf_to_xnode(node, [], OP_MERGE)
+                # Replace <rpc-reply> with root node
+                xnode = XTree(xnode.op(), ITag.root(), xnode.namespaces(), xnode.children())
+                log.debug("SUBSCRIBER netconf-rpc-poll POLL:", {"xnode": xnode})
+                flow_params = create_data_flow_params(base_flow_params, schema_path)
+                subscriber_base.write(uid, xnode, flow_params)
         else:
             log.error("SUBSCRIBER netconf-rpc-poll POLL interrupted", None)
 

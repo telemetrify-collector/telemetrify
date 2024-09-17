@@ -1,0 +1,105 @@
+# Copyright (C) Deutsche Telekom AG
+#
+# Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+#
+# 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+
+import logging
+import time
+
+from telemetrify.common.mod import *
+from telemetrify.common.utils import *
+from telemetrify.main.common import *
+from telemetrify.main.resource.shared_resources import *
+from telemetrify.main.transform.common import *
+from telemetrify.main.transform.ctor import *
+
+from telemetrify_ext.base.alarm import *
+
+YANG_NAME = 'backbone-interface-alarm-junos'
+
+PR = 'tlme'
+
+TAG = PTag(PR, YANG_NAME)
+
+class BackboneInterfaceAlarmJunosTransformCtor(AlarmTransformCtor):
+    def __init__(self):
+        AlarmTransformCtor.__init__(self, YANG_NAME, BackboneInterfaceAlarmJunosMapper.create)
+
+class BackboneInterfaceAlarmJunosMapper(AlarmMapper):
+    @property
+    log: logging.Logger
+    @property
+    interface_name: str
+    @property
+    alarm_id_backbone_interface_down: AlarmId
+
+    def __init__(self, log: logging.Logger, interface_name: str, alarm_id_backbone_interface_down: AlarmId):
+        self.log = log
+        self.interface_name = interface_name
+        self.alarm_id_backbone_interface_down = alarm_id_backbone_interface_down
+
+    @staticmethod
+    def create(config: TNode, log: logging.Logger) -> BackboneInterfaceAlarmJunosMapper:
+        c = config[TAG]
+        device_name = c[PTag(PR, 'device')].req_str()
+        interface_name = c[PTag(PR, 'interface-name')].req_str()
+        service_instance = c[PTag(PR, 'service-instance')].req_str()
+
+        return BackboneInterfaceAlarmJunosMapper(log, interface_name, AlarmId(device_name, 'tlme:backbone-interface-down', service_instance, None))
+
+    proc def map(self, input_node: TNode, flow_params: TNode) -> dict[AlarmId, AlarmState]:
+        if self.log.output_level >= logging.TRACE:
+            self.log.trace("map", {"input_node": input_node})
+
+        result = {}
+
+        JPR = 'jrpc'
+
+        physical_interface_list = input_node[PTag(JPR, 'interface-information')][PTag(JPR, 'physical-interface')]
+        physical_interface_elem = physical_interface_list[Key([self.interface_name])]
+        if physical_interface_elem:
+            is_interface_ok = False
+
+            pi_admin_status = physical_interface_elem[PTag(JPR, 'admin-status')].try_str()
+            pi_oper_status = physical_interface_elem[PTag(JPR, 'oper-status')].try_str()
+
+            # li_admin_status: ?str = None
+            # li_oper_status: ?str = None
+
+            # if is_interface_ok:
+            #     logical_interface_list = physical_interface_elem[PTag(JPR, 'logical-interface')]
+            #     logical_interface_elem = logical_interface_list[Key([self.interface_name + ".0"])]
+
+            is_interface_ok = eq_optional(pi_admin_status, 'up') and eq_optional(pi_oper_status, 'up')
+
+            timestamp: ?time.DateTime = None # TODO: Adapt flow_param timestamp to time.DateTime?
+
+            if is_interface_ok:
+                result[self.alarm_id_backbone_interface_down] = AlarmState(
+                    Alarm(SEVERITY_CLEARED, None), timestamp)
+            else:
+                alarm_text: ?str = None
+                if not eq_optional(pi_admin_status, 'up'):
+                    alarm_text = "Physical interface is administratively shutdown."
+                elif not eq_optional(pi_oper_status, 'up'):
+                    alarm_text = "Physical interface is operationally down."
+                # elif not eq_optional(pi_admin_status, 'up'):
+                #     alarm_text = "Logical interface is administratively shutdown."
+                # elif not eq_optional(pi_admin_status, 'up'):
+                #     alarm_text = "Logical interface is operationally down."
+
+                result[self.alarm_id_backbone_interface_down] = AlarmState(
+                    Alarm(SEVERITY_WARNING, alarm_text), timestamp)
+        # else:
+        #     result[self.alarm_id_backbone_interface_down] = AlarmState(
+        #         Alarm(SEVERITY_INDETERMINATE, 'Unknown status'), timestamp)
+
+        return result
