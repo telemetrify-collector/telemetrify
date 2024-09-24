@@ -1,4 +1,4 @@
-all: fxs
+all: fxs prepare-telemetrify-pkg
 .PHONY: all
 
 # Include standard NCS examples build definitions and rules
@@ -24,6 +24,24 @@ $(DIRS):
 		$(NCSCPATH) \
 		-c -o $@ $<
 
-clean:
+prepare-telemetrify-pkg:
+	$(MAKE) -C acton/telemetrify-ext build test
+	mkdir -p ../bin
+	cp -p acton/telemetrify-ext/out/bin/telemetrify_ext.server ../bin/
+.PHONY: prepare-telemetrify-pkg
+
+clean-telemetrify-pkg:
+	$(MAKE) -C acton/telemetrify-ext clean
+	rm -f ../bin/telemetrify_ext.server
+.PHONY: clean-telemetrify-pkg
+
+strip:
+	rm -rf acton/telemetrify-ext/out
+	rm -rf acton/telemetrify-ext/deps
+	rm -rf acton/telemetrify-ext/.build
+	rm -f acton/telemetrify-ext/.acton.lock
+.PHONY: strip
+
+clean: clean-telemetrify-pkg
 	rm -rf $(DIRS)
 .PHONY: clean
