@@ -3,6 +3,5 @@ Dockerfile
 .pylint.d/
 *.fxs
 tmp/
-/telemetrify-ext
-telemetrify-ext.mk
 README.telemetrify-nid-base.org
+/acton
