@@ -17,8 +17,10 @@ data-tree OR tags in =flow_params= for any in-flow signalling.
 
 2. Add entries to =packages/telemetrify/src/yang/telemetrify-ext.yang= (or other .yang) to augment custom transforms configuration cases into telemetrify model.
 
-3. Add acton files of custom transforms and resources to =telemetrify-ext/src/telemetrify_ext/transform= and =telemetrify-ext/src/telemetrify_ext/resource= respectively.
+3. Add acton files of custom transforms and resources to =packages/telemetrify/src/acton/telemetrify-ext/src/telemetrify_ext/transform= and =packages/telemetrify/src/acton/telemetrify-ext/src/telemetrify_ext/resource= respectively.
 
-4. Update =telemetrify-ext/src/telemetrify_ext/server.act= with any added transforms and resources.
+4. Update =packages/telemetrify/src/acton/telemetrify-ext/src/telemetrify_ext/server.act= with any added transforms and resources.
 
-5. Modify your nid-project build process to run the =prepare-telemetrify-pkg= target in =telemetrify-ext.mk= as a prerequisite to building the =packages/telemetrify= packages.
+5. Copy the =telemetrify-core= acton project to packages/telemetrify/src/acton/src/acton/telemetrify-ext/deps
+
+6. Make the =acton= compiler available to the packages build processes in the nid Dockerfile, e.g. installed through =actup --no-prompt --path=/acton=
