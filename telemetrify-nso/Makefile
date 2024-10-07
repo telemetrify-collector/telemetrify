@@ -18,7 +18,7 @@ Dockerfile: prepare-telemetrify
 
 prepare-telemetrify:
 	mkdir -p acton
-	if [ -n "$$(which rsyncx)" ]; then rsync -avE $(ACTON_DIST_PATH)/. acton; else cp -rp $(ACTON_DIST_PATH)/. acton; fi
+	if [ -n "$$(which rsync)" ]; then rsync -avE $(ACTON_DIST_PATH)/. acton; else cp -rp $(ACTON_DIST_PATH)/. acton; fi
 	cp -rp ../telemetrify-nid-base/. .
 	cp -rp telemetrify-nid-addon/. .
 	mkdir -p packages/telemetrify/src/acton/telemetrify-ext/deps/telemetrify_core
