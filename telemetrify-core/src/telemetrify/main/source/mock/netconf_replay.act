@@ -125,10 +125,13 @@ actor MockNetconfReplaySourceAct(
         log.debug("SOURCE mock-netconf-replay ACCEPT", {"receiver_id": receiver_id})
         receivers[receiver_id] = Receiver(receiver_id, c, _on_received_success, _on_received_error)
 
-    def _on_listener_defunct(c: net.TCPListener, errmsg: str):
-        log.warning("SOURCE mock-netconf-replay LISTEN failed", {"errmsg": errmsg})
-        # Retry after 1 sec
-        after 1: _create_listener()
+    def _on_listen(c: net.TCPListener, errmsg: ?str):
+        if errmsg is not None:
+            log.warning("SOURCE mock-netconf-replay LISTEN failed", {"errmsg": errmsg})
+            # Retry after 1 sec
+            after 1: _create_listener()
+        else:
+            log.debug("SOURCE mock-netconf-replay LISTEN success")
 
     def _create_listener():
         log.debug("SOURCE mock-netconf-replay LISTEN", None)
@@ -138,7 +141,7 @@ actor MockNetconfReplaySourceAct(
         port = source_config[PTag('tlm', 'port')].try_int()
 
         if address is not None and port is not None:
-            listener = net.TCPListener(listen_cap, address, port, _on_listener_defunct, _on_listener_accept)
+            listener = net.TCPListener(listen_cap, address, port, _on_listen, _on_listener_accept)
             log.debug("SOURCE mock-netconf-replay LISTEN setup", {"address": address, "port": port})
 
     def _close_client():
