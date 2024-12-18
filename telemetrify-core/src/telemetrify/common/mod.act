@@ -456,6 +456,10 @@ extension Keypath(Plus):
         # TODO: Future FrozenPlus protocol?
         raise Exception("Not implemented")
 
+    @staticmethod
+    def __zero__():
+        return Keypath([])
+
 class KeypathBuilder(object):
     pass
 
