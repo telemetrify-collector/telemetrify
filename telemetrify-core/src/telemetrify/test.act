@@ -874,7 +874,7 @@ class DeviceSettingsRefiner(Refiner):
                         self._authgroup_configs[authgroup_keys] = authconfig
                     else:
                         try_pop(self._authgroup_configs, authgroup_keys)
-                    set_update(updated, self._authgroup_devices.get(authgroup_keys, set([])))
+                    set_update(updated, self._authgroup_devices.get_def(authgroup_keys, set([])))
 
         updated_device_authgroup = input_subs[self.subscription_dependencies[1].identity]
         if updated_device_authgroup is not None:

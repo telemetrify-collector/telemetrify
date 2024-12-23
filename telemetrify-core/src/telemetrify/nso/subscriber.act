@@ -493,10 +493,10 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
                 input_subs: dict[SubscriptionIdentity, list[Keypath]] = {}
                 input_refiners: dict[int, (Refiner, list[Keypath])] = {}
                 for sub_spec in curr_refiner.subscription_dependencies:
-                    input_subs[sub_spec.identity] = updated_subs.get(sub_spec.identity, [])
+                    input_subs[sub_spec.identity] = updated_subs.get_def(sub_spec.identity, [])
                 for dependency_id in curr_refiner.refiner_dependencies:
                     dependency = _refiners[dependency_id]
-                    input_refiners[dependency_id] = (dependency, updated_refiners.get(dependency, []))
+                    input_refiners[dependency_id] = (dependency, updated_refiners.get_def(dependency, []))
                 updated_keys = curr_refiner.update(_root, input_subs, input_refiners)
                 updated_refiners[curr_refiner] = updated_keys
                 dependents = try_get(__refiner_dependents, curr_refiner)
@@ -513,14 +513,14 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
         trigger_callback_indexes: set[int] = set([])
         for refiner in scheduled_refiners:
             refiner_id = refiner.id()
-            set_update(trigger_callback_indexes, _callback_indexes.get(refiner_id, []))
+            set_update(trigger_callback_indexes, _callback_indexes.get_def(refiner_id, []))
         for callback_index in trigger_callback_indexes:
             dependency_ids: list[int], callback: action(dict[int, list[(Keypath, ?value)]]) -> None = callbacks[callback_index]
             args: dict[int, list[(Keypath, ?value)]] = {}
             for dependency_id in dependency_ids:
                 dependency = _refiners[dependency_id]
                 updates: list[(Keypath, ?value)] = []
-                for keys in updated_refiners.get(dependency, []):
+                for keys in updated_refiners.get_def(dependency, []):
                     updates.append((keys, dependency.state(keys)))
                 args[dependency_id] = updates
 
