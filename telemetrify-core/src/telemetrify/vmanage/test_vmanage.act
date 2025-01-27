@@ -291,7 +291,9 @@ actor main(env):
 
     def _cmd_poll(args):
         tcpccap = net.TCPConnectCap(net.TCPCap(net.NetCap(env.cap)))
-        scheme, host, port, path = uri.parse_http(args.get_str("url"))
+        u = uri.URI(args.get_str("url"))
+        host = u.host
+        port = u.port
 
         def _poll():
             if vh is not None:
@@ -311,7 +313,11 @@ actor main(env):
                 xn = vmanage.approute_to_xnode(ar_data)
                 print(xn)
 
-        vh = vmanage.VManageHTTPClient(tcpccap, host, port, args.get_str("username"), args.get_str("password"), _on_connect, log_handler)
+        if host != None and port != None:
+            vh = vmanage.VManageHTTPClient(tcpccap, host, port, args.get_str("username"), args.get_str("password"), _on_connect, log_handler)
+        else:
+            print("Invalid URL")
+            env.exit(1)
 
     def _parse_args():
         p = argparse.Parser()
