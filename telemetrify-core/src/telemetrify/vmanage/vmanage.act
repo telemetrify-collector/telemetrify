@@ -1484,7 +1484,7 @@ def _test_vmanage_json_to_xnode_minimal():
     measurements = d["data"]
     if isinstance(measurements, list):
         xn = approute_to_xnode(measurements)
-        testing.assertIsNotNone(xn, "xnode should not be None")
+        testing.assertNotNone(xn, "xnode should not be None")
         testing.assertEqual(xn.prsrc(0), exp.prsrc(0), "")
 
 def _test_vmanage_json_to_xnode_blob():
@@ -1492,4 +1492,4 @@ def _test_vmanage_json_to_xnode_blob():
     measurements = d["data"]
     if isinstance(measurements, list):
         xn = approute_to_xnode(measurements)
-        testing.assertIsNotNone(xn, "xnode should not be None")
+        testing.assertNotNone(xn, "xnode should not be None")
