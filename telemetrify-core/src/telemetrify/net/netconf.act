@@ -64,7 +64,8 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
     var p: ?process.Process = None
 
     def p_on_stderr(p, data):
-        log.debug("STDERR", {"data": data})
+        if data is not None:
+            log.debug("STDERR", {"data": data})
 
     def p_on_exit(p, exit_code, term_signal):
         log.debug("SSH process exited", {"exit_code": exit_code, "term_signal": term_signal})
@@ -208,21 +209,22 @@ actor Client(auth: WorldCap, address: str, port: int, username: str, password: ?
         if _on_notif is not None:
             _on_notif(self, root)
 
-    def p_on_stdout(p, data: bytes) -> None:
-        #log.trace("DATA:", {"data": data})
-        recv_buf.write_bytes(data)
-        try_read: bool = True
-        # while recv_buf.has_unread_bytes() and try_read: # actonc: Name try_read is not in scope
-        while recv_buf.has_unread_bytes():
-            if not try_read:
-                break
-            if framing == SEPARATOR_FRAMING:
-                try_read = _on_legacy_msg_data()
-            elif framing == CHUNKED_FRAMING:
-                try_read = _on_chunked_msg_data()
-            else:
-                try_read = False
-                _on_session_defunct_error("Framing type " + str(framing) + ": Not Implemented")
+    def p_on_stdout(p, data: ?bytes) -> None:
+        if data is not None:
+            #log.trace("DATA:", {"data": data})
+            recv_buf.write_bytes(data)
+            try_read: bool = True
+            # while recv_buf.has_unread_bytes() and try_read: # actonc: Name try_read is not in scope
+            while recv_buf.has_unread_bytes():
+                if not try_read:
+                    break
+                if framing == SEPARATOR_FRAMING:
+                    try_read = _on_legacy_msg_data()
+                elif framing == CHUNKED_FRAMING:
+                    try_read = _on_chunked_msg_data()
+                else:
+                    try_read = False
+                    _on_session_defunct_error("Framing type " + str(framing) + ": Not Implemented")
 
     def _on_legacy_msg_data() -> bool:
         i = recv_buf.find_bytes(LEGACY_SEPARATOR_BYTES)
