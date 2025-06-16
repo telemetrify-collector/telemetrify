@@ -71,7 +71,7 @@ actor MockNetconfReplaySourceAct(
 
     def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
         if log.output_level >= logging.TRACE:
-            log.trace("SOURCE mock-netconf-replay RPC", {"content": content.encode(), "add_rpc_attrs": list_str(add_rpc_attrs)})
+            log.trace("SOURCE mock-netconf-replay RPC", {"content": content.encode(), "add_rpc_attrs": str(add_rpc_attrs)})
 
         last_reply: xml.Node = current_reply
 

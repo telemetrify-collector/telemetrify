@@ -48,6 +48,7 @@ CDB_ERROR_FLAG_MASK = CDB_REL_FLAG_MASK
 _ERL_EXTERN_FMT = Version
 
 class ProtoError(Exception):
+    msg: str
     def __init__(self):
         pass
 
@@ -60,7 +61,7 @@ class MaapiProtoError(ProtoError):
         self.msg = msg
 
     def __str__(self) -> str:
-        return "MaapiProtoError(\"" + self.msg + "\")"
+        return f'MaapiProtoError("{self.msg}")'
 
     def __repr__(self):
         return self.__str__()
@@ -387,7 +388,7 @@ class BufferReader(object):
             size = self.read_u8()
             if isinstance(size, int):
                 if size > 8:
-                    return ValueError("Invalid SmallBig `int` size: " + str(size))
+                    return ValueError(f"Invalid SmallBig `int` size: {size}")
                 sign = self.read_u8()
                 if isinstance(sign, int):
                     b = self.read_bytes(size)
@@ -407,7 +408,7 @@ class BufferReader(object):
             else:
                 return size
         else:
-            return ValueError("Invalid `int` tag: " + str(tag))
+            return ValueError(f"Invalid `int` tag: {tag}")
 
     def read_atom(self, tag: int) -> value: # (str | IncompleteReadError)
         # if tag == Version:
@@ -489,7 +490,7 @@ class BufferReader(object):
         elif tag == LargeTuple:
             return self.read_u32_be()
         else:
-            return ValueError("Invalid `tuple` tag: " + str(tag))
+            return ValueError(f"Invalid `tuple` tag: {tag}")
 
     def read_list_size(self, tag: int) -> value: # (int | IncompleteReadError | ValueError)
         # if tag == Version:
@@ -520,7 +521,7 @@ class BufferReader(object):
         elif tag == List:
             return self.read_u32_be()
         else:
-            return ValueError("Invalid `list` tag: " + str(tag))
+            return ValueError(f"Invalid `list` tag: {tag}")
 
 class EObject:
     def __init__(self):
@@ -580,7 +581,7 @@ class EObject:
 
             # if tag == Compressed:
 
-            return ValueError("Invalid `EObject` tag: " + str(tag))
+            return ValueError(f"Invalid `EObject` tag: {tag}")
         return tag
 
 class EList(EObject):
@@ -599,10 +600,10 @@ class EList(EObject):
         for e in self.elems:
             #sl.append(str(e))
             unsafe_list_append(sl, str(e))
-        return "[" + ", ".join(sl) + "]"
+        return f"[{', '.join(sl)}]"
 
     def __repr__(self):
-        return "EList(" + repr(self.elems) + ", " + repr(self.is_proper) + ")"
+        return f"EList({repr(self.elems)}, {repr(self.is_proper)})"
 
     def encode(self, writer):
         size = len(self.elems)
@@ -680,10 +681,10 @@ class ETuple(EObject):
         for e in self.elems:
             #sl.append(str(e))
             unsafe_list_append(sl, str(e))
-        return "(" + ", ".join(sl) + ")"
+        return f"({', '.join(sl)})"
 
     def __repr__(self):
-        return "ETuple(" + repr(self.elems) + ")"
+        return f"ETuple({repr(self.elems)})"
 
     def encode(self, writer: BufferWriter):
         size: int = len(self.elems)
@@ -747,7 +748,7 @@ class EBinary(EObject):
         return self.data.decode()
 
     def __repr__(self):
-        return "EBinary(" + self.__str__() + ")"
+        return f"EBinary({self.__str__()})"
 
     @staticmethod
     def from_str(s: str):
@@ -774,7 +775,7 @@ class EAtom(EObject):
         return self.val
 
     def __repr__(self):
-        return "EAtom('" + self.__str__() + "')"
+        return f"EAtom('{self.__str__()}')"
 
     @staticmethod
     def from_bool(b: bool):
@@ -814,7 +815,7 @@ class EInt(EObject):
         return self.val.__str__()
 
     def __repr__(self):
-        return "EInt(" + self.__str__() + ")"
+        return f"EInt({self.__str__()})"
 
     def encode(self, writer):
         writer.write_int(self.val)
@@ -837,7 +838,7 @@ class EString(EObject):
         return self.data.decode()
 
     def __repr__(self):
-        return "EString(\"" + self.__str__() + "\")"
+        return f'EString("{self.__str__()}")'
 
     @staticmethod
     def from_str(s: str):
@@ -905,11 +906,7 @@ class ConfResponse(object):
         _error_msg: ?str = self.error_msg
         if _error_msg is not None:
             error_msg = _error_msg
-        return "ConfResponse(op=" + self.op.__str__() \
-            + ", term=" + term_str \
-            + ", err=" + str(self.is_error) \
-            + ", errcode=" + str(self.error_code) \
-            + ", errstr=" + error_msg + ")"
+        return f"ConfResponse(op={self.op}, term={term_str}, err={self.is_error}, errcode={self.error_code}, errstr={error_msg})"
 
     def __repr__(self):
         return self.__str__()

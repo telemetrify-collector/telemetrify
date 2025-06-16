@@ -235,7 +235,7 @@ actor IpSlaTransform(
 
     def _on_lookup_result(hostnames_lookup: dict[str, L3vpnSvcParams], ipv4_addresses_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
 
-        log.debug("lookup", {"hostnames": mapping_str(hostnames_lookup), "ipv4_addresses": mapping_str(ipv4_addresses_lookup)})
+        log.debug("lookup", {"hostnames": str(hostnames_lookup), "ipv4_addresses": str(ipv4_addresses_lookup)})
 
         try:
             sender_uid, _ip_sla_stats, flow_params = tasks.pop(task_id)

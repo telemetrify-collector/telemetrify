@@ -73,7 +73,7 @@ class TypeId:
         self.name = name
 
     def __str__(self) -> str:
-        return str(self.ns_hash) + ":" + self.name
+        return f"{self.ns_hash}:{self.name}"
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
@@ -81,11 +81,11 @@ class TypeId:
     def str_pretty(self, hash_to_name: dict[int, str]) -> str:
         cns = try_get(hash_to_name, self.ns_hash)
         if cns is not None:
-            return cns + ":" + self.name
+            return f"{cns}:{self.name}"
         return self.__str__()
 
     def prsrc(self):
-        return "TypeId(" + str(self.ns_hash) + ", \"" + self.name + "\")"
+        return f'TypeId({self.ns_hash}, "{self.name}")'
 
 extension TypeId(Hashable):
     def __eq__(self, other) -> bool:
@@ -116,7 +116,7 @@ class SchemaPath(object):
         return "".join(l)
 
     def __repr__(self) -> str:
-        return "SchemaPath(%s, %s)" % (list_repr(self.tags), list_optional_repr(self.mount_ids))
+        return f"SchemaPath({list_repr(self.tags)}, {list_optional_repr(self.mount_ids)})"
 
     def to_keypath(self) -> Keypath:
         l: list[Id] = []
@@ -188,7 +188,7 @@ class Schema:
         src_str += "roots: dict[HTag, Node] = {"
         for tag in self._root.children.keys():
             src_str += str(tag)
-            src_str += ": nodes_%d_%d, " % (tag.ns_hash, tag.name_hash)
+            src_str += f": nodes_{tag.ns_hash}_{tag.name_hash}, "
         src_str += "}\n"
         src_str += "nshash_to_namespace: dict[int, NamespaceDescription] = {"
         for nshash, ns in self._nshash_to_namespace.items():
@@ -205,8 +205,8 @@ class Schema:
             src_str += ns.prsrc()
             src_str += ", "
         src_str += "}\n"
-        src_str += "hash_to_name: dict[int, str] = %s\n" % str(self._hash_to_name)
-        src_str += "name_to_hash: dict[str, int] = %s\n" % str(self._name_to_hash)
+        src_str += f"hash_to_name: dict[int, str] = {self._hash_to_name}\n"
+        src_str += f"name_to_hash: dict[str, int] = {self._name_to_hash}\n"
         src_str += "mount_id_maps: dict[HTag, NamespaceMaps] = {"
         for tag, nsmaps in self._mount_id_maps.items():
             src_str += str(tag)
@@ -613,8 +613,8 @@ class NamespaceDescription:
 
     def __str__(self) -> str:
         return "NamespaceDescription(" \
-            + self.cns + "," + self.ns + "," + self.prefix + "," + str(self.ns_hash) + "," \
-            + optional_str(self.revision, "") + "," + self.module + ")"
+            + f"{self.cns},{self.ns},{self.prefix},{self.ns_hash}," \
+            + f"{optional_str(self.revision, '')},{self.module})"
 
     def __repr__(self):
         return self.__str__()
@@ -624,11 +624,10 @@ class NamespaceDescription:
         revision = self.revision
 
         if revision is not None:
-            revision_str = "\"" + revision + "\""
+            revision_str = f'"{revision}"'
 
-        return "NamespaceDescription(\"" \
-            + self.cns + "\",\"" + self.ns + "\",\"" + self.prefix + "\"," + str(self.ns_hash) + "," \
-            + revision_str + ",\"" + self.module + "\")"
+        return f'NamespaceDescription("{self.cns}","{self.ns}","{self.prefix}",{self.ns_hash},' \
+            + f'{revision_str},"{self.module}")'
 
     @staticmethod
     def from_ns_tuple(elems: list[EObject]) -> ?NamespaceDescription:
@@ -869,31 +868,31 @@ class Node(object):
         value_type = self.value_type
         if value_type is not None:
             if not value_type.type_id in types:
-                src_str = src_str + value_type.prsrc(types)
-            type_str = "types_%d_%s" % (value_type.type_id.ns_hash, value_type.type_id.name.replace('-', '_').replace('.', 'dot'))
+                src_str = f"{src_str}{value_type.prsrc(types)}"
+            type_str = f"types_{value_type.type_id.ns_hash}_{value_type.type_id.name.replace('-', '_').replace('.', 'dot')}"
 
         children_str = "{"
         for tag, child in self.children.items():
             src_str += child.prsrc(nodes, types)
             children_str += str(tag)
             children_str += ": "
-            children_str += "nodes_%d_%d, " % (child.tag.ns_hash, child.tag.name_hash)
+            children_str += f"nodes_{child.tag.ns_hash}_{child.tag.name_hash}, "
         children_str += "}"
 
         keys_str = "["
         for key in self.keys:
-            keys_str += "nodes_%d_%d, " % (key.tag.ns_hash, key.tag.name_hash)
+            keys_str += f"nodes_{key.tag.ns_hash}_{key.tag.name_hash}, "
         keys_str += "]"
 
-        src_str += "nodes_%d_%d" % (self.tag.ns_hash, self.tag.name_hash)
-        src_str += " = Node(" + str(self.tag) + ", "
-        src_str += str(self.min_occurs) + ", "
-        src_str += str(self.max_occurs) + ", "
-        src_str += str(self.flags) + ", "
-        src_str += str(self.conf_type) + ", "
-        src_str += type_str + ", "
-        src_str += keys_str + ", "
-        src_str += children_str + ")\n"
+        src_str += f"nodes_{self.tag.ns_hash}_{self.tag.name_hash}"
+        src_str += f" = Node({self.tag}, "
+        src_str += f"{self.min_occurs}, "
+        src_str += f"{self.max_occurs}, "
+        src_str += f"{self.flags}, "
+        src_str += f"{self.conf_type}, "
+        src_str += f"{type_str}, "
+        src_str += f"{keys_str}, "
+        src_str += f"{children_str})\n"
 
         return src_str
 
@@ -959,7 +958,7 @@ class Type(object):
         self.conf_type = conf_type
 
     def __str__(self) -> str:
-        return "Type(" + self.__str_common() + ")"
+        return f"Type({self.__str_common()})"
 
     def __repr__(self):
         return self.__str__()
@@ -969,8 +968,8 @@ class Type(object):
         _parent_type = self.parent_type
         if _parent_type is not None:
             parent_type_id = str(_parent_type.type_id)
-        return str(self.type_id) + ", " + parent_type_id \
-            + ", " + optional_str(self.conf_type, "None")
+        return f"{self.type_id}, {parent_type_id}" \
+            + f", {optional_str(self.conf_type, 'None')}"
 
     def prsrc(self, types: dict[TypeId, Type]) -> str:
         src_str = ""
@@ -980,10 +979,10 @@ class Type(object):
         parent = self.parent_type
         if parent is not None:
             if parent.type_id not in types:
-                src_str = src_str + parent.prsrc(types)
+                src_str = f"{src_str}{parent.prsrc(types)}"
                 types[parent.type_id] = parent
 
-            parent_str = "types_%d_%s" % (parent.type_id.ns_hash, parent.type_id.name.replace('-', '_').replace('.', 'dot'))
+            parent_str = f"types_{parent.type_id.ns_hash}_{parent.type_id.name.replace('-', '_').replace('.', 'dot')}"
 
         conf_type = self.conf_type
         if conf_type is not None:
@@ -991,7 +990,7 @@ class Type(object):
         else:
             conf_str = "None"
 
-        src_str = src_str + "types_%d_%s" % (self.type_id.ns_hash, self.type_id.name.replace('-', '_').replace('.', 'dot')) + " = Type(" + self.type_id.prsrc() + ", " + parent_str + ", " + conf_str + ")\n"
+        src_str = f"{src_str}types_{self.type_id.ns_hash}_{self.type_id.name.replace('-', '_').replace('.', 'dot')} = Type({self.type_id.prsrc()}, {parent_str}, {conf_str})\n"
 
         return src_str
 
@@ -1130,7 +1129,7 @@ class EnumType(Type):
         self.ordinal_to_name = _ordinal_to_name
 
     def __str__(self) -> str:
-        return "EnumType(" + self.__str_common() + ", " + str(self.name_to_ordinal) + ")"
+        return f"EnumType({self.__str_common()}, {self.name_to_ordinal})"
 
     def __repr__(self):
         return self.__str__()
@@ -1203,7 +1202,7 @@ class UnionType(Type):
         self.types = types
 
     def __str__(self) -> str:
-        return "UnionType(" + self.__str_common() + ", " + list_str(self.types) + ")"
+        return f"UnionType({self.__str_common()}, {self.types})"
 
     def __repr__(self):
         return self.__str__()
@@ -1269,7 +1268,7 @@ class RestrictedNumberType(Type):
         self.ranges = ranges
 
     def __str__(self) -> str:
-        return "RestrictedNumberType(" + self.__str_common() + ")"
+        return f"RestrictedNumberType({self.__str_common()})"
 
     def __repr__(self):
         return self.__str__()
@@ -1297,7 +1296,7 @@ class BitsType(Type):
         self.name_to_pos = _name_to_pos
 
     def __str__(self) -> str:
-        return "BitsType(" + self.__str_common() + ")"
+        return f"BitsType({self.__str_common()})"
 
     def __repr__(self):
         return self.__str__()
@@ -1415,7 +1414,7 @@ class Decimal64Type(Type):
         self.ranges = ranges
 
     def __str__(self) -> str:
-        return "Decimal64Type(" + self.__str_common() + ")"
+        return f"Decimal64Type({self.__str_common()})"
 
     def __repr__(self):
         return self.__str__()
@@ -1450,7 +1449,7 @@ class ListType(Type):
         self.elem_type = elem_type
 
     def __str__(self) -> str:
-        return "ListType(" + self.__str_common() + ", " + str(self.elem_type) + ")"
+        return f"ListType({self.__str_common()}, {self.elem_type})"
 
     def __repr__(self):
         return self.__str__()
@@ -1534,7 +1533,7 @@ class ListRestrictionType(Type):
         self.ranges = ranges
 
     def __str__(self) -> str:
-        return "ListRestrictionType(" + self.__str_common() + ")"
+        return f"ListRestrictionType({self.__str_common()})"
 
     def __repr__(self):
         return self.__str__()
@@ -1555,7 +1554,7 @@ class DisplayHintType(Type):
         self.conf_type = None
 
     def __str__(self) -> str:
-        return "DisplayHintType(" + self.__str_common() + ")"
+        return f"DisplayHintType({self.__str_common()})"
 
     def __repr__(self):
         return self.__str__()

@@ -121,7 +121,7 @@ actor VmanageTransform(
 
     def _on_lookup_result(params_lookup: dict[IPv4Address, L3vpnSvcParams], task_id: int):
 
-        log.debug("lookup", {"result": mapping_str(params_lookup)})
+        log.debug("lookup", {"result": str(params_lookup)})
 
         try:
             sender_uid, approutes, flow_params = tasks.pop(task_id)

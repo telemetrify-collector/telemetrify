@@ -68,7 +68,7 @@ class EventTester(object):
                 else:
                     self.report_result(True, None)
             else:
-                self.report_result(False, AssertionError("Expected events: " + list_str(self._expected_events) + " actual events: " + list_str(self._actual_events)))
+                self.report_result(False, AssertionError(f"Expected events: {self._expected_events} actual events: {self._actual_events}"))
 
     def expect(self, events: list[str], next_step: ?action() -> None):
         self._expected_events.extend(events)

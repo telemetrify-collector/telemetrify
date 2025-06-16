@@ -60,7 +60,7 @@ actor MockNetconfSourceAct(
 
     def rpc(content: xml.Node, add_rpc_attrs: list[(str, str)], callback: action(?xml.Node) -> None) -> None:
         if log.output_level >= logging.TRACE:
-            log.trace("SOURCE mock-netconf RPC", {"content": content.encode(), "add_rpc_attrs": list_str(add_rpc_attrs)})
+            log.trace("SOURCE mock-netconf RPC", {"content": content.encode(), "add_rpc_attrs": str(add_rpc_attrs)})
 
         reply_inner: list[xml.Node] = []
 
@@ -383,12 +383,12 @@ actor MockNetconfSourceAct(
             y = p // pplc
             z = p % pplc
             subints = min([total_interfaces - i, max_subints])
-            pintf = "xe-%d/%d/%d" % (x, y, z)
+            pintf = f"xe-{x}/{y}/{z}"
             pintf_index = intf_index
             intf_index += 1
             subint_items: list[(str, int)] = []
             for j in range(subints):
-                lintf = "xe-%d/%d/%d.%d" % (x, y, z, j)
+                lintf = f"xe-{x}/{y}/{z}.{j}"
                 subint_items.append((lintf, intf_index))
                 intf_index += 1
             res.append((pintf, pintf_index, subint_items))

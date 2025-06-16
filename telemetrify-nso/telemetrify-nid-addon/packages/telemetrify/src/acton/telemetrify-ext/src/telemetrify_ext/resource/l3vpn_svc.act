@@ -92,7 +92,7 @@ actor L3vpnSvcTrackerActor(shared_resources: SharedResources, log_handler: loggi
             if params is not None:
                 result[ipv4_address] = params
 
-        log.debug("found ", {"result": mapping_str(result)})
+        log.debug("found ", {"result": str(result)})
 
         result_cb(result)
 
@@ -112,7 +112,7 @@ actor L3vpnSvcTrackerActor(shared_resources: SharedResources, log_handler: loggi
             if params is not None:
                 ipv4_address_result[ipv4_address] = params
 
-        log.debug("found ", {"hostnames": mapping_str(hostname_result), "ipv4_addresses": mapping_str(ipv4_address_result)})
+        log.debug("found ", {"hostnames": str(hostname_result), "ipv4_addresses": str(ipv4_address_result)})
 
         result_cb(hostname_result, ipv4_address_result)
 

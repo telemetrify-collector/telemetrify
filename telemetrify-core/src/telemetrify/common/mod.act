@@ -33,7 +33,7 @@ def op_str(op: int) -> str:
     elif op == OP_NOCREATE:
         return "NOCREATE"
     else:
-        raise Exception("Not Implemented for op: " + str(op))
+        raise Exception(f"Not Implemented for op: {op}")
 
 class Id:
     pass
@@ -57,10 +57,10 @@ class ITag(Tag):
 
     def __str__(self) -> str:
         _ns = self.ns
-        return _ns + ":" + self.name if _ns is not None else self.name
+        return f"{_ns}:{self.name}" if _ns is not None else self.name
 
     def __repr__(self) -> str:
-        return "ITag(%s, %s)" % (optional_repr(self.ns), repr(self.name))
+        return f"ITag({optional_repr(self.ns)}, {repr(self.name)})"
 
     @staticmethod
     def root() -> ITag:
@@ -79,8 +79,8 @@ class ITag(Tag):
 
     def prsrc(self) -> str:
         _ns = self.ns
-        s_ns = '"' + _ns + '"' if _ns is not None else "None"
-        return 'ITag(' + s_ns + ', "' + self.name + '")'
+        s_ns = f'"{_ns}"' if _ns is not None else "None"
+        return f'ITag({s_ns}, "{self.name}")'
 
 extension ITag(Hashable):
     def __eq__(self, other: ITag) -> bool:
@@ -105,10 +105,10 @@ class PTag(Tag):
 
     def __str__(self) -> str:
         _prefix = self.prefix
-        return _prefix + ":" + self.name if _prefix is not None else self.name
+        return f"{_prefix}:{self.name}" if _prefix is not None else self.name
 
     def __repr__(self) -> str:
-        return "PTag(%s, %s)" % (optional_repr(self.prefix), repr(self.name))
+        return f"PTag({optional_repr(self.prefix)}, {repr(self.name)})"
 
     @staticmethod
     def root() -> PTag:
@@ -141,10 +141,10 @@ class MTag(Tag):
 
     def __str__(self) -> str:
         _module = self.module
-        return _module + ":" + self.name if _module is not None else self.name
+        return f"{_module}:{self.name}" if _module is not None else self.name
 
     def __repr__(self) -> str:
-        return "MTag(%s, %s)" % (optional_repr(self.module), repr(self.name))
+        return f"MTag({optional_repr(self.module)}, {repr(self.name)})"
 
     @staticmethod
     def root() -> MTag:
@@ -179,7 +179,7 @@ class HTag(Tag):
         return self.__repr__()
 
     def __repr__(self) -> str:
-        return "HTag(%s, %s)" % (repr(self.ns_hash), repr(self.name_hash))
+        return f"HTag({repr(self.ns_hash)}, {repr(self.name_hash)})"
 
     @staticmethod
     def root() -> HTag:
@@ -235,7 +235,7 @@ def _eq_value(a: value, b: value) -> bool:
         return a == b
     elif isinstance(a, Oid) and isinstance(b, Oid):
         return a == b
-    raise Exception("_eq_value: Not Implemented for types " + str(type(a)) + " == " + str(type(b)))
+    raise Exception(f"_eq_value: Not Implemented for types {type(a)} == {type(b)}")
 
 def _hash_value(v: value) -> int:
     # Looks like we need to do this for now?
@@ -279,7 +279,7 @@ def _hash_value(v: value) -> int:
         return hash(v)
     elif isinstance(v, list): # Leaf-list for completeness although not valid for keys
         return list_hash(v)
-    raise Exception("_hash_value: Not Implemented for type: " + str(type(v)) + " of value: " + str(v))
+    raise Exception(f"_hash_value: Not Implemented for type: {type(v)} of value: {v}")
 
 class Key(Id):
     _keys: list[value]
@@ -288,7 +288,7 @@ class Key(Id):
         self._keys = keys
 
     def __str__(self) -> str:
-        return "Key(" + list_str(self._keys) + ")"
+        return f"Key({self._keys})"
 
     def __repr__(self):
         return self.__str__()
@@ -359,7 +359,7 @@ class Keypath:
         return "".join(l)
 
     def __repr__(self):
-        return "Keypath(" + self.__str__() + ")"
+        return f"Keypath({self.__str__()})"
 
     def try_get_key(self, index: int) -> ?Key:
         if index < len(self):
@@ -472,18 +472,18 @@ class Node(object):
 
     def _str_compact(self, name: str) -> str:
         _tag = self.tag()
-        s_tag = (", " + str(_tag)) if _tag is not None else ""
+        s_tag = f", {_tag}" if _tag is not None else ""
 
         _keys = self.keys()
-        s_keys = (", " + list_str(_keys)) if _keys else ""
+        s_keys = f", {_keys}" if _keys else ""
 
         _value = self.value()
-        s_value = (", " + str(_value)) if _value is not None else ""
+        s_value = f", {_value}" if _value is not None else ""
 
         _children = self.children()
-        s_children = (", " + list_str(_children)) if _children else ""
+        s_children = f", {_children}" if _children else ""
 
-        return name + "(" + op_str(self.op()) + s_tag + s_keys + s_value + s_children + ")"
+        return f"{name}({op_str(self.op())}{s_tag}{s_keys}{s_value}{s_children})"
 
     def op(self) -> int:
         return OP_NONE
@@ -515,18 +515,18 @@ class Node(object):
 
     def _pretty_format_node_tree(self, parts: list[str], indent: str):
         _tag = self.tag()
-        s_tag = (", " + repr(_tag)) if _tag is not None else ""
+        s_tag = f", {repr(_tag)}" if _tag is not None else ""
 
         _keys = self.keys()
-        s_keys = (", keys=" + list_repr(_keys)) if _keys else ""
+        s_keys = f", keys={list_repr(_keys)}" if _keys else ""
 
         _value = self.value()
-        s_value = (", val=" + repr(_value)) if _value is not None else ""
+        s_value = f", val={repr(_value)}" if _value is not None else ""
 
-        parts.append(indent + "Node(" + op_str(self.op()) + s_tag + s_keys + s_value + ")\n")
+        parts.append(f"{indent}Node({op_str(self.op())}{s_tag}{s_keys}{s_value})\n")
 
         for child in self.children():
-            child._pretty_format_node_tree(parts, indent + "  ")
+            child._pretty_format_node_tree(parts, f"{indent}  ")
 
 class XNode(Node):
     @property
@@ -579,21 +579,21 @@ class XTree(XNode):
     def prsrc(self, indent: int) -> str:
         """Print source code of self and call children"""
         _tag = self._tag
-        s_tag = ", " + (_tag.prsrc() if _tag is not None else "None")
+        s_tag = f", {_tag.prsrc() if _tag is not None else 'None'}"
         children_strs = []
         for child in self._children:
             children_strs.append(child.prsrc(indent+1))
 
         _ns = self._namespaces
         # TODO: implement support for printing namespaces!?
-        s_ns = ", " + "None"
+        s_ns = ", None"
 
-        s_children = ", [\n" + ",\n".join(children_strs) + "]"
+        s_children = f", [\n{',\n'.join(children_strs)}]"
 
         s_indent = ""
         for i in range(0, indent, 1):
-            s_indent += "    "
-        return s_indent + "XTree(OP_" + op_str(self._op) + s_tag + s_ns + s_children + ")"
+            s_indent = f"{s_indent}    "
+        return f"{s_indent}XTree(OP_{op_str(self._op)}{s_tag}{s_ns}{s_children})"
 
 class XLeaf(XNode):
     @property
@@ -618,19 +618,19 @@ class XLeaf(XNode):
     def prsrc(self, indent: int) -> str:
         """Print source code"""
         _tag = self._tag
-        s_tag = ", " + (_tag.prsrc() if _tag is not None else "None")
+        s_tag = f", {_tag.prsrc() if _tag is not None else 'None'}"
 
         _ns = self._namespaces
         # TODO: implement support for printing namespaces!?
-        s_ns = ", " + "None"
+        s_ns = ", None"
 
         _val = self._value
-        s_val = ', "' + str(_val) + '"' if _val is not None else "None"
+        s_val = f', "{_val}"' if _val is not None else "None"
 
         s_indent = ""
         for i in range(0, indent, 1):
-            s_indent += "    "
-        return s_indent + "XLeaf(OP_" + op_str(self._op) + s_tag + s_ns + s_val + ")"
+            s_indent = f"{s_indent}    "
+        return f"{s_indent}XLeaf(OP_{op_str(self._op)}{s_tag}{s_ns}{s_val})"
 
 class TNode(Node):
     @property
@@ -1067,14 +1067,12 @@ class TTree(TNode):
 
     def __str__(self) -> str:
         _tag = self.tag()
-        s_tag = ", " + str(_tag) if _tag is not None else ""
+        s_tag = f", {_tag}" if _tag is not None else ""
 
         _keys = self.keys()
-        s_keys = ", " + list_str(_keys) if _keys else ""
+        s_keys = f", {_keys}" if _keys else ""
 
-        s_children = ", " + mapping_str(self._children)
-
-        return "TTree(" + op_str(self.op()) + s_tag + s_keys + s_children + ")"
+        return f"TTree({op_str(self.op())}{s_tag}{s_keys}, {self._children})"
 
     #
     # TNode
@@ -1426,7 +1424,7 @@ extension Id(Hashable):
         elif isinstance(self, Key):
             return isinstance(other, Key) and self == other
         else:
-            raise Exception("Id.__eq__: Not Implemented for types " + str(type(self)) + " == " + str(type(other)))
+            raise Exception(f"Id.__eq__: Not Implemented for types {type(self)} == {type(other)}")
 
     def __hash__(self):
         if isinstance(self, Tag):
@@ -1434,7 +1432,7 @@ extension Id(Hashable):
         elif isinstance(self, Key):
             return hash(self)
         else:
-            raise Exception("Id.__hash__: Not Implemented for type: " + type(self))
+            raise Exception(f"Id.__hash__: Not Implemented for type: {type(self)}")
 
 extension Tag(Hashable):
     def __eq__(self, other: Id):
@@ -1447,7 +1445,7 @@ extension Tag(Hashable):
         elif isinstance(self, HTag) and isinstance(other, HTag):
             return self == other
         else:
-            raise Exception("Tag.__eq__: Not Implemented for types " + str(type(self)) + " == " + str(type(other)))
+            raise Exception(f"Tag.__eq__: Not Implemented for types {type(self)} == {type(other)}")
 
     def __hash__(self):
         if isinstance(self, ITag):
@@ -1459,7 +1457,7 @@ extension Tag(Hashable):
         elif isinstance(self, HTag):
             return hash(self)
         else:
-            raise Exception("Tag.__hash__: Not Implemented for type: " + type(self))
+            raise Exception(f"Tag.__hash__: Not Implemented for type: {type(self)}")
 
 extension Keypath(Hashable):
     def __eq__(self, other) -> bool:

@@ -352,14 +352,6 @@ def get_or_create[A(Hashable), B](m: dict[A, B], a: A, b: () -> B) -> B:
     m[a] = c
     return c
 
-def mapping_str[A(Eq), B](m: Mapping[A, B]) -> str:
-    l: list[str] = []
-    #for k, v in m.items():
-    for p in m.items():
-        k, v = p
-        unsafe_list_append(l, str(k) + ": " + str(v))
-    return "{" + ", ".join(l) + "}"
-
 def list_pop[T](l: list[T]) -> T:
     res = l[-1]
     del l[-1]
@@ -411,23 +403,17 @@ def list_reversed[T](a: list[T]) -> list[T]:
     r.reverse()
     return r
 
-def list_str[T](a: list[T]) -> str:
-    l: list[str] = []
-    for x in a:
-        unsafe_list_append(l, str(x))
-    return "[" + ", ".join(l) + "]"
-
 def list_repr[T](a: list[T]) -> str:
     l: list[str] = []
     for x in a:
         unsafe_list_append(l, repr(x))
-    return "[" + ", ".join(l) + "]"
+    return f"[{', '.join(l)}]"
 
 def list_optional_repr[T](a: list[?T]) -> str:
     l: list[str] = []
     for x in a:
         unsafe_list_append(l, optional_repr(x))
-    return "[" + ", ".join(l) + "]"
+    return f"[{', '.join(l)}]"
 
 def set_update[T(Hashable)](target: set[T], source: Iterable[T]):
     for item in source:
@@ -446,12 +432,6 @@ def set_intersection[T(Hashable)](self: set[T], other: set[T]):
         if item in other:
             result.add(item)
     return result
-
-def set_str[T(Hashable)](a: set[T]) -> str:
-    l: list[str] = []
-    for x in a:
-        unsafe_list_append(l, str(x))
-    return "{" + ", ".join(l) + "}"
 
 def dict_list_append[K(Hashable), V](d: dict[K, list[V]], k: K, v: V):
     l = try_get(d, k)
@@ -843,7 +823,7 @@ def try_parse_hex(s: str) -> ?int:
 
 def to_byte_hexpair_str(v: int) -> str:
     # return nibble_to_hex(v >> 4 & 0xF) + nibble_to_hex(v & 0xF) # BUG: Runtime error on bitwise operations
-    return nibble_to_hex((v // 0x10) % 0x10) + nibble_to_hex(v % 0x10)
+    return f"{nibble_to_hex((v // 0x10) % 0x10)}{nibble_to_hex(v % 0x10)}"
 
 def nibble_to_hex(v: int) -> str:
     if v == 0:
@@ -886,7 +866,7 @@ def to_n_dec_str(v: int, min_dec: int) -> str:
     sl = []
     for i in range(0, min_dec - len(s), 1):
         unsafe_list_append(sl, "0")
-    return "".join(sl) + s
+    return f"{''.join(sl)}{s}"
 
 def uint_to_bytes_le(v: int) -> bytes:
     if v < 0:
@@ -988,7 +968,7 @@ class IPv4Address(object):
 
     def __str__(self) -> str:
         d = self.data
-        return str(d.0) + "." + str(d.1) + "." + str(d.2) + "." + str(d.3)
+        return f"{d.0}.{d.1}.{d.2}.{d.3}"
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
@@ -1024,8 +1004,8 @@ class IPv6Address(object):
     def __str__(self) -> str:
         # TODO: conventional format
         d = self.data
-        return hex(d.0) + ":" + hex(d.1) + ":" + hex(d.2) + ":" + hex(d.3) \
-            + ":" + hex(d.4) + ":" + hex(d.5) + ":" + hex(d.6) + ":" + hex(d.7)
+        return f"{hex(d.0)}:{hex(d.1)}:{hex(d.2)}:{hex(d.3)}" \
+            + f":{hex(d.4)}:{hex(d.5)}:{hex(d.6)}:{hex(d.7)}"
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
@@ -1066,7 +1046,7 @@ class IPv4Network(object):
         self.mask_len = mask_len
 
     def __str__(self) -> str:
-        return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
+        return f"{self.address}/{self.mask_len}" # TODO: conventional format
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
@@ -1103,7 +1083,7 @@ class IPv6Network(object):
         self.mask_len = mask_len
 
     def __str__(self) -> str:
-        return str(self.address) + "/" + str(self.mask_len) # TODO: conventional format
+        return f"{self.address}/{self.mask_len}" # TODO: conventional format
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
@@ -1172,12 +1152,12 @@ class DateTime(object):
                 # e.g. "-0:30" as the sign is carried by the 'hour' integer
                 # TODO: Test actual nso behavour
                 if tz_h == 0 and tz_m < 0:
-                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                    tz = f"-{tz_h}:{tz_m}"
                 else:
-                    tz = str(tz_h) + ":" + str(tz_m)
+                    tz = f"{tz_h}:{tz_m}"
 
-        return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + "T" \
-            + to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) \
+        return f"{to_n_dec_str(self.year, 4)}-{to_n_dec_str(self.month, 2)}-{to_n_dec_str(self.day, 2)}T" \
+            + f"{to_n_dec_str(self.hour, 2)}:{to_n_dec_str(self.minute, 2)}:{to_n_dec_str(self.second, 2)}.{to_n_dec_str(self.microsecond, 6)}" \
             + tz
 
     def __repr__(self):
@@ -1347,11 +1327,11 @@ class Date(object):
                 # e.g. "-0:30" as the sign is carried by the 'hour' integer
                 # TODO: Test actual nso behavour
                 if tz_h == 0 and tz_m < 0:
-                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                    tz = f"-{tz_h}:{tz_m}"
                 else:
-                    tz = str(tz_h) + ":" + str(tz_m)
+                    tz = f"{tz_h}:{tz_m}"
 
-        return to_n_dec_str(self.year, 4) + "-" + to_n_dec_str(self.month, 2) + "-" + to_n_dec_str(self.day, 2) + tz
+        return f"{to_n_dec_str(self.year, 4)}-{to_n_dec_str(self.month, 2)}-{to_n_dec_str(self.day, 2)}{tz}"
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
@@ -1493,11 +1473,11 @@ class Time(object):
                 # e.g. "-0:30" as the sign is carried by the 'hour' integer
                 # TODO: Test actual nso behavour
                 if tz_h == 0 and tz_m < 0:
-                    tz = "-" + str(tz_h) + ":" + str(tz_m)
+                    tz = f"-{tz_h}:{tz_m}"
                 else:
-                    tz = str(tz_h) + ":" + str(tz_m)
+                    tz = f"{tz_h}:{tz_m}"
 
-        return to_n_dec_str(self.hour, 2) + ":" + to_n_dec_str(self.minute, 2) + ":" + to_n_dec_str(self.second, 2) + "." + to_n_dec_str(self.microsecond, 6) + tz
+        return f"{to_n_dec_str(self.hour, 2)}:{to_n_dec_str(self.minute, 2)}:{to_n_dec_str(self.second, 2)}.{to_n_dec_str(self.microsecond, 6)}{tz}"
 
     def __repr__(self):
         return self.__str__() # TODO: Proper repr
