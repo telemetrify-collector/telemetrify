@@ -183,7 +183,7 @@ def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> f
 
 class _Session(object):
     def __init__(self, s1: _Loc, s2: _Loc):
-        self.name = "%s-%s" % (s1.name, s2.name)
+        self.name = f"{s1.name}-{s2.name}"
         self.s1 = s1
         self.s2 = s2
         self.distance = _haversine_distance(s1.latitude, s1.longitude, s2.latitude, s2.longitude)
@@ -256,7 +256,7 @@ class _MockAppRoute(object):
 #                "vip_idx": 394,
 #                "dst_port": 12407,
                 # TODO: should be using IP address, not name here
-                "name": sess.s1.code + ":public-internet-" + sess.s2.code + ":public-internet",
+                "name": f"{sess.s1.code}:public-internet-{sess.s2.code}:public-internet",
 #                "sla_class_list": "0",
 #                "tunnel_color": "public-internet:public-internet",
 #                "host_name": sess.s1.country.lower() + "-foo-" + sess.s1.code.lower() + "-1"

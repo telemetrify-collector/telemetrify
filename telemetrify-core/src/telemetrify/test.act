@@ -40,7 +40,7 @@ from telemetrify.main.config import *
 _OPT_RECORD_TO = '--record-to'
 
 _OPTS_HELP: dict[str, str] = {
-    _OPT_RECORD_TO: _OPT_RECORD_TO + " <filename>",
+    _OPT_RECORD_TO: f"{_OPT_RECORD_TO} <filename>",
 }
 
 class Opts(object):
@@ -127,7 +127,7 @@ actor main(env):
     path: str = args[0]
 
     def print_help_and_exit():
-        print("usage:", path.split("/", -1)[-1], "[ " + " | ".join(tests.keys()) + " ] [ " + " | ".join(_OPTS_HELP.values()) + " ]")
+        print("usage:", path.split("/", -1)[-1], f"[ {' | '.join(tests.keys())} ] [ {' | '.join(_OPTS_HELP.values())} ]")
         await async env.exit(1)
 
     if len(args) >= 2:
@@ -387,7 +387,7 @@ actor test_writer(env: Env, opts: Opts):
             schema = unsafe_get_shared_schema(shared_schema)
 
             for _name, _hash in schema._name_to_hash.items():
-                print(_name + " : " + str(_hash))
+                print(f"{_name} : {_hash}")
 
             c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), lambda c, t: _on_start_trans(c, shared_schema, t))
         else:
@@ -459,16 +459,16 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     log = logging.Logger(log_handler)
 
     def _on_connect_error(e):
-        log.error("MAAPI connect failed:" + str(e), None)
+        log.error(f"MAAPI connect failed:{e}", None)
 
     def _on_connect(c):
-        log.info("Current time:" + str(time.now()), None)
+        log.info(f"Current time:{time.now()}", None)
         log.info("MAAPI connected!!!!", None)
         c.start_user_session(UserSessionDescription("admin", "127.0.0.1", "system", [], None, False, UserIdentity(None, None, None, None)), _on_user_session)
 
     def _on_user_session(c, e):
         if e is None:
-            log.info("Current time:" + str(time.now()), None)
+            log.info(f"Current time:{time.now()}", None)
             log.info("MAAPI user session started!!!!", None)
             c.load_schema(_on_load_schema)
         else:
@@ -478,12 +478,12 @@ actor test_tsdb_writer(env: Env, opts: Opts):
     def _on_load_schema(c, e, shared_schema):
         if e is None and shared_schema is not None:
             schema: Schema = unsafe_get_shared_schema(shared_schema)
-            log.info("Current time:" + str(time.now()), None)
+            log.info(f"Current time:{time.now()}", None)
             log.info("MAAPI loaded schema!!!!", None)
             log.debug("", {"schema": schema})
 
             for _name, _hash in schema._name_to_hash.items():
-                log.debug(_name + " : " + str(_hash), None)
+                log.debug(f"{_name} : {_hash}", None)
 
             log.info("Starting TSDB client", None)
             tsdb_sess = tsdb.m3.Client(net.TCPConnectCap(net.TCPCap(net.NetCap(env.auth))), "m3db", 7201, lambda c: _on_tsdb_connect(c, shared_schema), _on_tsdb_error, log_handler)
@@ -496,7 +496,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
             await async env.exit(1)
 
     def _on_nc_error(c, e):
-        log.error("NETCONF client failed:" + str(e), None)
+        log.error(f"NETCONF client failed:{e}", None)
         await async env.exit(1)
 
     def dumb_push(cursor, name):
@@ -532,7 +532,7 @@ actor test_tsdb_writer(env: Env, opts: Opts):
         vmx_sess = telemetrify.net.netconf.Client(env.auth, "vmx", 830, "vrnetlab", "VR-netlab9", None, lambda c: _on_vmx_connect(c, shared_schema, writer), _on_nc_error, None, None)
 
     def _on_tsdb_error(c, e):
-        log.error("TSDB client failed: " + str(e), None)
+        log.error(f"TSDB client failed: {e}", None)
         await async env.exit(1)
 
     def _on_vmx_connect(c, shared_schema, writer):
@@ -892,7 +892,7 @@ class DeviceSettingsRefiner(Refiner):
                             dict_set_discard(self._authgroup_devices, authgroup_keys, device_keys)
                     updated.add(device_keys)
 
-        #print("UPDATED: " + list_str(list(iter(updated))))
+        #print(f"UPDATED: {list(iter(updated))}")
 
         return list(iter(updated))
 

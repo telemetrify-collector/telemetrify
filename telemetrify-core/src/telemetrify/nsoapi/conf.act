@@ -154,7 +154,7 @@ class EKeypath:
         self.elems = elems
 
     def __str__(self) -> str:
-        return "EKeypath(" + list_str(self.elems) + ")"
+        return f"EKeypath({self.elems})"
 
     def __repr__(self):
         return self.__str__()

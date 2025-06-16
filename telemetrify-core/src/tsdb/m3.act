@@ -40,7 +40,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
 
     def quick_init(on_response: action(Client, bool) -> None):
         def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
-            log.debug("HTTP response status: " + str(response.status), None)
+            log.debug(f"HTTP response status: {response.status}", None)
             log.trace(response.body.decode(), None)
 
             def _post_ready(timeout):
@@ -48,7 +48,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
                 http_client.post("/api/v1/services/m3db/namespace/ready", json.encode(json_dict).encode(), lambda c, r: _on_ready_response(c, r, timeout))
 
             def _on_ready_response(client: tsdb.http.Client, response: tsdb.http.Response, timeout: int):
-                log.trace("Namespace ready request:" + response.body.decode(), None)
+                log.trace(f"Namespace ready request:{response.body.decode()}", None)
 
                 if response.status != 200 and timeout > 0:
                     after 1: _post_ready(timeout - 1)
@@ -72,7 +72,7 @@ actor Client(auth: net.TCPConnectCap, address: str, port: int, on_connect: actio
         json_dict["timestamp"] = str(metric.timestamp)
 
         def _on_response(client: tsdb.http.Client, response: tsdb.http.Response):
-            log.debug("HTTP response status: " + str(response.status), None)
+            log.debug(f"HTTP response status: {response.status}", None)
             log.trace(response.body.decode(), None)
             await async on_response(self, response.status == 200)
 

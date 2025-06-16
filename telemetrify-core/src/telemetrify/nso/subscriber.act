@@ -44,7 +44,7 @@ class SubscriptionSpec(object):
         self.is_required = is_required
 
     def __str__(self) -> str:
-        return "SubscriptionSpec(" + str(self.identity) + ", is_required=" + str(self.is_required) + ")"
+        return f"SubscriptionSpec({self.identity}, is_required={self.is_required})"
 
     def __repr__(self):
         return self.__str__()
@@ -60,7 +60,7 @@ class SubscriptionIdentity(object):
         self.sub_type = sub_type
 
     def __str__(self) -> str:
-        return "SubscriptionIdentity(" + str(self.path) + ", " + sub_type_str(self.sub_type) + ")"
+        return f"SubscriptionIdentity({self.path}, {sub_type_str(self.sub_type)})"
 
     def __repr__(self):
         return self.__str__()
@@ -236,7 +236,7 @@ def make_base_path(subscription_specs: list[SubscriptionSpec], base_path: ?Keypa
 
         if base_path is not None:
             if not base_path.is_sub_path(common_path):
-                raise ValueError("Subscriptions: " + list_str(subscription_specs) + " are not decendents of base_path: " + str(base_path))
+                raise ValueError(f"Subscriptions: {subscription_specs} are not decendents of base_path: {base_path}")
             return base_path
         else:
             return common_path
@@ -263,7 +263,7 @@ class MirrorRefiner(Refiner):
             for sub_keypath in sub_keypaths:
                 _keypath = sub_keypath.get_slice(0, self.num_keys)
                 if len(_keypath) != self.num_keys:
-                    raise Exception("Broken invariant: MirrorRefiner received less than expected number of keys in updated keypath:" + str(len(_keypath)) + " != " + str(self.num_keys))
+                    raise Exception(f"Broken invariant: MirrorRefiner received less than expected number of keys in updated keypath:{len(_keypath)} != {self.num_keys}")
                 keypaths.add(_keypath)
 
         for keypath in keypaths:
@@ -355,7 +355,7 @@ class SubscriptionParams(object):
         self.ancestor_delete_fallback_origin = ancestor_delete_fallback_origin
 
     def __str__(self) -> str:
-        return "SubscriptionParams(" + str(self.identity) + ", " + optional_str(self.ancestor_delete_fallback_origin, "None") + ")"
+        return f"SubscriptionParams({self.identity}, {optional_str(self.ancestor_delete_fallback_origin, 'None')})"
 
     def __repr__(self):
         return self.__str__()
@@ -451,7 +451,7 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
                 merge_root = etagvals_to_merge_ttree(etvs, Cursor(_schema))
             except Exception as exc:
                 log.trace("Error converting subscription event etagvals", {"sub_id": sub_id, "etvs": etvs})
-                on_error(Exception("Get modifications to tnode conversion error: " + str(exc)))
+                on_error(Exception(f"Get modifications to tnode conversion error: {exc}"))
             else:
                 log.trace("Got subscription event merge root", {"sub_id": sub_id, "ttree": merge_root})
                 # Filter irrelevant parts of is-delete-only-sub
@@ -533,10 +533,10 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             _do_get_modifications()
         elif isinstance(v, Exception):
             log.error("Sub event error", {"msg": v.error_message})
-            on_error(Exception("Sub event error: " + str(v)))
+            on_error(Exception(f"Sub event error: {v}"))
         else:
             log.error("Sub event error", {"msg": v})
-            on_error(Exception("Sub event error: " + str(v)))
+            on_error(Exception(f"Sub event error: {v}"))
 
     def _do_get_modifications():
         #if _pending_sub_ids:
@@ -556,14 +556,14 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             _do_get_modifications()
         elif isinstance(v, Exception):
             log.error("Get modifications error", {"sub_id": sub_id, "exc": v})
-            on_error(Exception("Get modifications exception: " + str(v)))
+            on_error(Exception(f"Get modifications exception: {v}"))
         else:
             log.error("Get modifications error", {"sub_id": sub_id, "msg": v})
-            on_error(Exception("Get modifications error: " + str(v)))
+            on_error(Exception(f"Get modifications error: {v}"))
 
     def _on_sync_subscription_socket(c: CdbConnection, v: ?Exception):
         if v is not None:
-            on_error(Exception("Sub sync error: " + str(v)))
+            on_error(Exception(f"Sub sync error: {v}"))
         update()
 
     def _on_subscription_success(sub_ids: dict[SubscriptionIdentity, int]) -> None:

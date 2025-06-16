@@ -94,7 +94,7 @@ actor SharedResources(
     var resources: dict[PTag, SharedResourceData] = {}
 
     def request(tags: set[PTag], response_cb: action(dict[PTag, SharedResource]) -> None):
-        log.debug("request", {"tags": set_str(tags)})
+        log.debug("request", {"tags": str(tags)})
 
         response: dict[PTag, SharedResource] = {}
         for tag in tags:
@@ -112,7 +112,7 @@ actor SharedResources(
                     resources[tag] = new_resource_data
                     response[tag] = resource
 
-        log.debug("request - reply", {"tags": set_str(tags), "response": mapping_str(response)})
+        log.debug("request - reply", {"tags": str(tags), "response": str(response)})
 
         response_cb(response)
 
