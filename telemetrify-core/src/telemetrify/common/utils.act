@@ -387,7 +387,7 @@ def list_eq[T(Eq)](a: list[T], b: list[T]) -> bool:
 def list_hash[T(Hashable)](a: list[T]) -> int:
     h = 0
     for x in a:
-        h += hash(x)
+        h += int(hash(x))
     return safe_hash(h)
 
 pure def unsafe_list_append[T](target: list[T], item: T) -> None:
@@ -956,8 +956,8 @@ extension Decimal64(Hashable):
         #       our use-case(s) the exponent is usually fixed by (YANG) model?
         return self.significand == other.significand and self.exponent == other.exponent
 
-    def __hash__(self) -> int:
-        return safe_hash(hash(self.significand))
+    def hash(self, hasher):
+        self.significand.hash(hasher)
 
 class IPv4Address(object):
     @property
@@ -989,10 +989,12 @@ extension IPv4Address(Hashable):
             s.2 == o.2 and \
             s.3 == o.3
 
-    def __hash__(self) -> int:
-        #return hash(self.data)
+    def hash(self, hasher):
         d = self.data
-        return safe_hash(2*hash(d.3) + 3*hash(d.2) + 5*hash(d.1) + 7*hash(d.0))
+        d.0.hash(hasher)
+        d.1.hash(hasher)
+        d.2.hash(hasher)
+        d.3.hash(hasher)
 
 class IPv6Address(object):
     @property
@@ -1030,10 +1032,16 @@ extension IPv6Address(Hashable):
             s.6 == o.6 and \
             s.7 == o.7
 
-    def __hash__(self) -> int:
-        #return hash(self.data)
+    def hash(self, hasher):
         d = self.data
-        return safe_hash(2*hash(d.7) + 3*hash(d.6) + 5*hash(d.5) + 7*hash(d.4) + hash(d.3) + 11*hash(d.2) + 13*hash(d.1) + 17*hash(d.0))
+        d.0.hash(hasher)
+        d.1.hash(hasher)
+        d.2.hash(hasher)
+        d.3.hash(hasher)
+        d.4.hash(hasher)
+        d.5.hash(hasher)
+        d.6.hash(hasher)
+        d.7.hash(hasher)
 
 class IPv4Network(object):
     @property
@@ -1069,8 +1077,9 @@ extension IPv4Network(Hashable):
     def __eq__(self, other: IPv4Network) -> bool:
         return self.address == other.address and self.mask_len == other.mask_len
 
-    def __hash__(self) -> int:
-        return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
+    def hash(self, hasher):
+        self.address.hash(hasher)
+        self.mask_len.hash(hasher)
 
 class IPv6Network(object):
     @property
@@ -1106,8 +1115,9 @@ extension IPv6Network(Hashable):
     def __eq__(self, other: IPv6Network) -> bool:
         return self.address == other.address and self.mask_len == other.mask_len
 
-    def __hash__(self) -> int:
-        return safe_hash(hash(self.address) + 137 * hash(self.mask_len))
+    def hash(self, hasher):
+        self.address.hash(hasher)
+        self.mask_len.hash(hasher)
 
 class DateTime(object):
     @property
@@ -1282,19 +1292,20 @@ extension DateTime(Hashable):
             eq_optional(self.timezone_hour, other.timezone_hour) and \
             eq_optional(self.timezone_minute, other.timezone_minute)
 
-    def __hash__(self) -> int:
+    def hash(self, hasher):
+        self.year.hash(hasher)
+        self.month.hash(hasher)
+        self.day.hash(hasher)
+        self.hour.hash(hasher)
+        self.minute.hash(hasher)
+        self.second.hash(hasher)
+        self.microsecond.hash(hasher)
         _tz_h = self.timezone_hour
         _tz_m = self.timezone_minute
-        return safe_hash(
-            23 * hash(self.year) +
-            19 * hash(self.month) +
-            17 * hash(self.day) +
-            13 * hash(self.hour) +
-            11 * hash(self.minute) +
-            7 * hash(self.second) +
-            5 * hash(self.microsecond) +
-            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
-            (2 * hash(_tz_m)) if _tz_m is not None else 0)
+        if _tz_h is not None:
+            _tz_h.hash(hasher)
+        if _tz_m is not None:
+            _tz_m.hash(hasher)
 
 class Date(object):
     @property
@@ -1429,15 +1440,16 @@ extension Date(Hashable):
             eq_optional(self.timezone_hour, other.timezone_hour) and \
             eq_optional(self.timezone_minute, other.timezone_minute)
 
-    def __hash__(self) -> int:
+    def hash(self, hasher):
+        self.year.hash(hasher)
+        self.month.hash(hasher)
+        self.day.hash(hasher)
         _tz_h = self.timezone_hour
         _tz_m = self.timezone_minute
-        return safe_hash(
-            11 * hash(self.year) +
-            7 * hash(self.month) +
-            5 * hash(self.day) +
-            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
-            (2 * hash(_tz_m)) if _tz_m is not None else 0)
+        if _tz_h is not None:
+            _tz_h.hash(hasher)
+        if _tz_m is not None:
+            _tz_m.hash(hasher)
 
 class Time(object):
     @property
@@ -1575,16 +1587,17 @@ extension Time(Hashable):
             eq_optional(self.timezone_hour, other.timezone_hour) and \
             eq_optional(self.timezone_minute, other.timezone_minute)
 
-    def __hash__(self) -> int:
+    def hash(self, hasher):
+        self.hour.hash(hasher)
+        self.minute.hash(hasher)
+        self.second.hash(hasher)
+        self.microsecond.hash(hasher)
         _tz_h = self.timezone_hour
         _tz_m = self.timezone_minute
-        return safe_hash(
-            13 * hash(self.hour) +
-            11 * hash(self.minute) +
-            7 * hash(self.second) +
-            5 * hash(self.microsecond) +
-            (3 * hash(_tz_h)) if _tz_h is not None else 0 +
-            (2 * hash(_tz_m)) if _tz_m is not None else 0)
+        if _tz_h is not None:
+            _tz_h.hash(hasher)
+        if _tz_m is not None:
+            _tz_m.hash(hasher)
 
 class Duration(object):
     @property
@@ -1712,15 +1725,14 @@ extension Duration(Hashable):
             self.second == other.second and \
             self.microsecond == other.microsecond
 
-    def __hash__(self) -> int:
-        return safe_hash(
-            23 * hash(self.year) +
-            19 * hash(self.month) +
-            17 * hash(self.day) +
-            13 * hash(self.hour) +
-            11 * hash(self.minute) +
-            7 * hash(self.second) +
-            5 * hash(self.microsecond))
+    def hash(self, hasher):
+        self.year.hash(hasher)
+        self.month.hash(hasher)
+        self.day.hash(hasher)
+        self.hour.hash(hasher)
+        self.minute.hash(hasher)
+        self.second.hash(hasher)
+        self.microsecond.hash(hasher)
 
 class Oid(object):
     _ids: list[int]
@@ -1752,8 +1764,6 @@ extension Oid(Hashable):
                 return False
         return True
 
-    def __hash__(self) -> int:
-        _hash: int = 0
+    def hash(self, hasher):
         for _id in self._ids:
-            _hash = _hash * 7 + hash(_id)
-        return safe_hash(_hash)
+            _id.hash(hasher)

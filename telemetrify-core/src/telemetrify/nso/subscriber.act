@@ -69,8 +69,9 @@ extension SubscriptionIdentity(Hashable):
     def __eq__(self, other: SubscriptionIdentity) -> bool:
         return self.path == other.path and self.sub_type == other.sub_type
 
-    def __hash__(self) -> int:
-        return safe_hash(hash(self.path) + hash(self.sub_type))
+    def hash(self, hasher):
+        self.path.hash(hasher)
+        self.sub_type.hash(hasher)
 
 class Refiner(object):
     @property
@@ -114,8 +115,9 @@ extension Refiner(Hashable):
     def __eq__(self, other) -> bool:
         return self.priority == other.priority and self.id() == other.id()
 
-    def __hash__(self) -> int:
-        return safe_hash(self.id() + 1000002043 * self.priority)
+    def hash(self, hasher):
+        self.id().hash(hasher)
+        self.priority.hash(hasher)
 
 def _get_subtree_path_keys(node: TNode, path: Keypath) -> list[Keypath]:
     keys: list[Keypath] = []

@@ -89,9 +89,11 @@ extension ITag(Hashable):
         # ld.lld: error: undefined symbol: $EqOptG_new
         return self.name == other.name and eq_optional(self.ns, other.ns)
 
-    def __hash__(self) -> int:
+    def hash(self, hasher):
         _ns = self.ns
-        return safe_hash(hash(_ns) + hash(self.name) if _ns is not None else hash(self.name))
+        if _ns is not None:
+            _ns.hash(hasher)
+        self.name.hash(hasher)
 
 class PTag(Tag):
     @property
@@ -125,9 +127,11 @@ extension PTag(Hashable):
         # ld.lld: error: undefined symbol: $EqOptG_new
         return self.name == other.name and eq_optional(self.prefix, other.prefix)
 
-    def __hash__(self) -> int:
+    def hash(self, hasher):
         _prefix = self.prefix
-        return safe_hash(hash(_prefix) + hash(self.name) if _prefix is not None else hash(self.name))
+        if _prefix is not None:
+            _prefix.hash(hasher)
+        self.name.hash(hasher)
 
 class MTag(Tag):
     @property
@@ -161,9 +165,11 @@ extension MTag(Hashable):
         # ld.lld: error: undefined symbol: $EqOptG_new
         return self.name == other.name and eq_optional(self.module, other.module)
 
-    def __hash__(self) -> int:
+    def hash(self, hasher):
         _module = self.module
-        return safe_hash(hash(_module) + hash(self.name) if _module is not None else hash(self.name))
+        if _module is not None:
+            _module.hash(hasher)
+        self.name.hash(hasher)
 
 class HTag(Tag):
     @property
@@ -192,8 +198,9 @@ extension HTag(Hashable):
     def __eq__(self, other: HTag) -> bool:
         return self.name_hash == other.name_hash and self.ns_hash == other.ns_hash
 
-    def __hash__(self) -> int:
-        return safe_hash(self.ns_hash + self.name_hash)
+    def hash(self, hasher):
+        self.ns_hash.hash(hasher)
+        self.name_hash.hash(hasher)
 
 def _eq_optional_value(a: ?value, b: ?value):
     return a is not None and b is not None and _eq_value(a, b) or a is None and b is None
@@ -242,41 +249,41 @@ def _hash_value(v: value) -> int:
     # But it would be nice if we could express a `Hashable` constraint on a common super-type to all relevant key/leaf values
     # without needing to e.g. wrap `int`, `str` etc.
     if isinstance(v, int):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, str):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, bool):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, bytes):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, HTag):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, PTag):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, ITag):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, MTag):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, Decimal64):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, IPv4Address):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, IPv6Address):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, IPv4Network):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, IPv6Network):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, DateTime):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, Date):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, Time):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, Duration):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, Oid):
-        return hash(v)
+        return int(hash(v))
     elif isinstance(v, list): # Leaf-list for completeness although not valid for keys
         return list_hash(v)
     raise Exception(f"_hash_value: Not Implemented for type: {type(v)} of value: {v}")
@@ -314,11 +321,51 @@ extension Key(Hashable):
                 return False
         return True
 
-    def __hash__(self) -> int:
-        _hash: int = 0
+    def hash(self, hasher):
         for _key in self._keys:
-            _hash = _hash * 7 + _hash_value(_key)
-        return safe_hash(_hash)
+            # Handle all the value types that _hash_value supports
+            if isinstance(_key, int):
+                _key.hash(hasher)
+            elif isinstance(_key, str):
+                _key.hash(hasher)
+            elif isinstance(_key, bool):
+                _key.hash(hasher)
+            elif isinstance(_key, bytes):
+                _key.hash(hasher)
+            elif isinstance(_key, HTag):
+                _key.hash(hasher)
+            elif isinstance(_key, PTag):
+                _key.hash(hasher)
+            elif isinstance(_key, ITag):
+                _key.hash(hasher)
+            elif isinstance(_key, MTag):
+                _key.hash(hasher)
+            elif isinstance(_key, Decimal64):
+                _key.hash(hasher)
+            elif isinstance(_key, IPv4Address):
+                _key.hash(hasher)
+            elif isinstance(_key, IPv6Address):
+                _key.hash(hasher)
+            elif isinstance(_key, IPv4Network):
+                _key.hash(hasher)
+            elif isinstance(_key, IPv6Network):
+                _key.hash(hasher)
+            elif isinstance(_key, DateTime):
+                _key.hash(hasher)
+            elif isinstance(_key, Date):
+                _key.hash(hasher)
+            elif isinstance(_key, Time):
+                _key.hash(hasher)
+            elif isinstance(_key, Duration):
+                _key.hash(hasher)
+            elif isinstance(_key, Oid):
+                _key.hash(hasher)
+            elif isinstance(_key, list):
+                # For leaf-list values
+                for item in _key:
+                    item.hash(hasher)
+            else:
+                raise Exception(f"Key.hash: Not Implemented for type: {type(_key)} of value: {_key}")
 
 extension Key(Collection[value]):
     def __iter__(self) -> Iterator[value]:
@@ -1426,13 +1473,16 @@ extension Id(Hashable):
         else:
             raise Exception(f"Id.__eq__: Not Implemented for types {type(self)} == {type(other)}")
 
-    def __hash__(self):
+    def hash(self, hasher):
+        # Add a type discriminator first to avoid hash collisions between Tag and Key
         if isinstance(self, Tag):
-            return hash(self)
+            "Tag".hash(hasher)
+            # No need to call self.hash(hasher) since the concrete Tag types implement it
         elif isinstance(self, Key):
-            return hash(self)
+            "Key".hash(hasher)
+            # No need to call self.hash(hasher) since the Key type implements it
         else:
-            raise Exception(f"Id.__hash__: Not Implemented for type: {type(self)}")
+            raise Exception(f"Id.hash: Not Implemented for type: {type(self)}")
 
 extension Tag(Hashable):
     def __eq__(self, other: Id):
@@ -1447,23 +1497,16 @@ extension Tag(Hashable):
         else:
             raise Exception(f"Tag.__eq__: Not Implemented for types {type(self)} == {type(other)}")
 
-    def __hash__(self):
-        if isinstance(self, ITag):
-            return hash(self)
-        elif isinstance(self, PTag):
-            return hash(self)
-        elif isinstance(self, MTag):
-            return hash(self)
-        elif isinstance(self, HTag):
-            return hash(self)
-        else:
-            raise Exception(f"Tag.__hash__: Not Implemented for type: {type(self)}")
+    def hash(self, hasher):
+        # No need to add discriminator since the concrete types implement hash themselves
+        # This method should not be called since the concrete implementations exist
+        raise Exception(f"Tag.hash: Should not be called for type: {type(self)}")
 
 extension Keypath(Hashable):
     def __eq__(self, other) -> bool:
         #return self.path == other.path
         return list_eq(self.path, other.path)
 
-    def __hash__(self) -> int:
-        #return sum([hash(x) for x in self.path], 0)
-        return list_hash(self.path)
+    def hash(self, hasher):
+        for x in self.path:
+            x.hash(hasher)
