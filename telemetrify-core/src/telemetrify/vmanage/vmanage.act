@@ -111,7 +111,7 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
 ##############
 
 
-_vmanage_statistics_approute_blob1 = """{
+_vmanage_statistics_approute_blob1 = r"""{
   "header": {
     "generatedOn": 1695290859047,
     "viewKeys": {
@@ -1456,7 +1456,7 @@ def _test_vmanage_json_to_xnode_minimal():
                 XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", "latency"), None, "6"),
                 XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", "host_name"), None, "de-bsp-chemni-ce-2")])])])
 
-    _vmanage_statistics_approute_blob_minimal = """{
+    _vmanage_statistics_approute_blob_minimal = r"""{
     "header": {
         "generatedOn": 1695290859047
     },

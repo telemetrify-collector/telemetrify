@@ -57,7 +57,7 @@ actor MockNetconfSourceAct(
         source_mixin.on_closing()
 
     def get(path: str, cb: action(?http.Response) -> None) -> None:
-        body = """{
+        body = r"""{
         "header": {
             "generatedOn": 1695290859047
         },

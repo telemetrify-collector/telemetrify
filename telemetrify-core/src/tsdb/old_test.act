@@ -137,7 +137,7 @@ actor main(env):
 
         fake_ping = float(random.randint(10, 40))
 
-        print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"prom\"}, fake_ping)")
+        print(r'metric = tsdb.common.Metric("fake_ping", {"id": "prom"}, fake_ping)')
         metric = tsdb.common.Metric("fake_ping", {"id": "prom"}, fake_ping, time.time().second)
         metrics.append(metric)
 
@@ -158,7 +158,7 @@ actor main(env):
 
         fake_ping = float(random.randint(10, 40))
 
-        print("metric = tsdb.common.Metric(\"fake_ping\", {\"id\": \"m3-http\"}, fake_ping)")
+        print(r'metric = tsdb.common.Metric("fake_ping", {"id": "m3-http"}, fake_ping)')
         metric = tsdb.common.Metric("fake_ping", {"id": "m3-http"}, fake_ping, time.time().second)
         print("m3.send_metric(", metric, ", ", on_m3_response, ")")
         m3_send_start = time.time()
