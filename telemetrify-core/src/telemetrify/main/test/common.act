@@ -31,11 +31,10 @@ class EventTester(object):
     _actual_events: list[str]
     @property
     __next_step: ?action() -> None
-    @property
-    report_result: action(?bool, ?Exception) -> None
+    t: testing.AsyncT
 
-    def __init__(self, report_result: action(?bool, ?Exception) -> None):
-        self.report_result = report_result
+    def __init__(self, t: testing.AsyncT):
+        self.t = t
         #self.reset()
         self._expected_events = []
         self.__prev_index = 0
@@ -66,9 +65,9 @@ class EventTester(object):
                         _next_step()
                     after 0: _f()
                 else:
-                    self.report_result(True, None)
+                    self.t.success()
             else:
-                self.report_result(False, AssertionError(f"Expected events: {self._expected_events} actual events: {self._actual_events}"))
+                self.t.failure(AssertionError(f"Expected events: {self._expected_events} actual events: {self._actual_events}"))
 
     def expect(self, events: list[str], next_step: ?action() -> None):
         self._expected_events.extend(events)
@@ -133,10 +132,10 @@ actor MockSink(uid: int, on_closed: action() -> None):
 # SourceMixin
 #
 
-actor SourceMixinTester_1(report_result, log_handler):
-    log = logging.Logger(log_handler)
+actor _test_source_mixin_1(t: testing.AsyncT):
+    log = logging.Logger(t.log_handler)
 
-    var e = EventTester(report_result)
+    var e = EventTester(t)
 
     def on_closed():
         e.on_event("SOURCE CLOSED")
@@ -150,15 +149,15 @@ actor SourceMixinTester_1(report_result, log_handler):
 
             source.close()
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
-def _test_source_mixin_1(report_result, log_handler: logging.Handler) -> None:
-    SourceMixinTester_1(report_result, log_handler).test()
+    after 0: test()
 
-actor SourceMixinTester_2(report_result, log_handler):
-    log = logging.Logger(log_handler)
 
-    var e = EventTester(report_result)
+actor _test_source_mixin_2(t: testing.AsyncT):
+    log = logging.Logger(t.log_handler)
+
+    var e = EventTester(t)
 
     var source_act = MockSource(1, lambda: None)
     var source = Source(1, source_act.attach, source_act.detach, source_act.close)
@@ -173,7 +172,7 @@ actor SourceMixinTester_2(report_result, log_handler):
 
             source.attach(0, source_msg_trampoline)
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_1():
         try:
@@ -181,7 +180,7 @@ actor SourceMixinTester_2(report_result, log_handler):
 
             source_act.on_started()
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_2():
         try:
@@ -189,19 +188,19 @@ actor SourceMixinTester_2(report_result, log_handler):
 
             source_act.on_stopped()
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
-def _test_source_mixin_2(report_result, log_handler: logging.Handler) -> None:
-    SourceMixinTester_2(report_result, log_handler).test()
+    after 0: test()
+
 
 #
 # SubscriberSourceMixin
 #
 
-actor SubscriberSourceMixinTester_1(report_result, log_handler):
-    log = logging.Logger(log_handler)
+actor _test_subscriber_source_mixin_1(t: testing.AsyncT):
+    log = logging.Logger(t.log_handler)
 
-    var e = EventTester(report_result)
+    var e = EventTester(t)
 
     var source_act_1 = MockSource(1, lambda: None)
     var source_1 = Source(1, source_act_1.attach, source_act_1.detach, source_act_1.close)
@@ -230,7 +229,7 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
             source_act_1.on_started()
             m.update_source(source_1)
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_1():
         try:
@@ -239,7 +238,7 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
             e.expect(["STOP"], test_2)
             m.update_source(source_2)
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_2():
         try:
@@ -247,7 +246,7 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
             e.expect(["START"], test_3)
             source_act_2.on_started()
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_3():
         try:
@@ -255,7 +254,7 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
             _verify_source(source_2)
             e.step()
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def _verify_source(expected_source: Source):
         _actual_source = m.get_source()
@@ -264,8 +263,7 @@ actor SubscriberSourceMixinTester_1(report_result, log_handler):
         else:
             raise AssertionError("No actual source. Expected source_uid: " + str(expected_source.uid()))
 
-def _test_subscriber_source_mixin_1(report_result, log_handler: logging.Handler) -> None:
-    SubscriberSourceMixinTester_1(report_result, log_handler).test()
+    after 0: test()
 
 #
 # OutputCollectionMixin
@@ -277,10 +275,10 @@ def _create_sink_output_update(sink_uid: int) -> OutputUpdate:
     config = tnode_void()
     return OutputUpdate(config, sink)
 
-actor OutputCollectionMixinTester_1(report_result, log_handler):
-    log = logging.Logger(log_handler)
+actor _test_output_collection_mixin_1(t: testing.AsyncT):
+    log = logging.Logger(t.log_handler)
 
-    var e = EventTester(report_result)
+    var e = EventTester(t)
 
     owner_uid = 0
 
@@ -328,7 +326,7 @@ actor OutputCollectionMixinTester_1(report_result, log_handler):
             m = OutputCollectionMixin(owner_uid, request_resync, request_reset, output_upstream_msg_trampoline, on_quiescent, log)
             m.update([(sink_key_1, sub_sink_1), (sink_key_2, sub_sink_2)])
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_1():
         try:
@@ -336,7 +334,7 @@ actor OutputCollectionMixinTester_1(report_result, log_handler):
             e.expect(["RESET", "ON_RESET"], test_2)
             m.update([(sink_key_2, None)])
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_2():
         try:
@@ -344,7 +342,7 @@ actor OutputCollectionMixinTester_1(report_result, log_handler):
             e.expect(["RESET", "RESYNC", "ON_RESET", "ON_RESYNC"], test_3)
             m.update([(sink_key_3, sub_sink_3)])
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
     def test_3():
         try:
@@ -352,7 +350,6 @@ actor OutputCollectionMixinTester_1(report_result, log_handler):
             e.expect(["RESET", "ON_RESET", "ON_QUIESCENT"], None)
             m.update([(sink_key_3, None)])
         except Exception as ex:
-            report_result(False, ex)
+            t.failure(ex)
 
-def _test_output_collection_mixin_1(report_result, log_handler: logging.Handler) -> None:
-    OutputCollectionMixinTester_1(report_result, log_handler).test()
+    after 0: test()
