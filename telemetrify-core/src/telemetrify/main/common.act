@@ -128,7 +128,7 @@ class Message(object):
         return self.__repr__()
 
 class State(Message):
-    """"State change indication"""
+    """State change indication"""
     state: int
 
     def __init__(self, sender_uid: int, state: int):
@@ -139,7 +139,7 @@ class State(Message):
         return f"State({self.sender_uid}, {state_str(self.state)})"
 
 class Resync(Message):
-    """"Request a full data (i.e. replace or delete, not delta) update."""
+    """Request a full data (i.e. replace or delete, not delta) update."""
     _workaround_actonc_issue_1598: bool
 
     def __init__(self, sender_uid: int):
@@ -150,7 +150,7 @@ class Resync(Message):
         return f"Resync({self.sender_uid})"
 
 class Reset(Message):
-    """"Request a delete update prior to releasing one or more downstream nodes."""
+    """Request a delete update prior to releasing one or more downstream nodes."""
     _workaround_actonc_issue_1598: bool
 
     def __init__(self, sender_uid: int):
@@ -898,8 +898,8 @@ class SubscriberUpdate(object):
     def __str__(self) -> str:
         s = []
         for output_key, output_update in self.outputs:
-            unsafe_list_append(s, f"({output_key}, {optional_str(output_update, 'None')})")
-        return f"SubscriberUpdate({optional_str(self.config, 'None')}, {optional_str(self.source, 'None')}, {s})"
+            unsafe_list_append(s, "({output_key}, {output_update})")
+        return "SubscriberUpdate({self.config}, {self.source}, {s})"
 
     def __repr__(self):
         return self.__str__()

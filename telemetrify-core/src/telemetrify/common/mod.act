@@ -60,7 +60,7 @@ class ITag(Tag):
         return f"{_ns}:{self.name}" if _ns is not None else self.name
 
     def __repr__(self) -> str:
-        return f"ITag({optional_repr(self.ns)}, {repr(self.name)})"
+        return "ITag({self.ns}, {repr(self.name)})"
 
     @staticmethod
     def root() -> ITag:
@@ -110,7 +110,7 @@ class PTag(Tag):
         return f"{_prefix}:{self.name}" if _prefix is not None else self.name
 
     def __repr__(self) -> str:
-        return f"PTag({optional_repr(self.prefix)}, {repr(self.name)})"
+        return "PTag({self.prefix}, {repr(self.name)})"
 
     @staticmethod
     def root() -> PTag:
@@ -148,7 +148,7 @@ class MTag(Tag):
         return f"{_module}:{self.name}" if _module is not None else self.name
 
     def __repr__(self) -> str:
-        return f"MTag({optional_repr(self.module)}, {repr(self.name)})"
+        return "MTag({self.module}, {repr(self.name)})"
 
     @staticmethod
     def root() -> MTag:

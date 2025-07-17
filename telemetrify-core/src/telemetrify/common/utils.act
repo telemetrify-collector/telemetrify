@@ -412,7 +412,7 @@ def list_repr[T](a: list[T]) -> str:
 def list_optional_repr[T](a: list[?T]) -> str:
     l: list[str] = []
     for x in a:
-        unsafe_list_append(l, optional_repr(x))
+        unsafe_list_append(l, repr(x))
     return f"[{', '.join(l)}]"
 
 def set_update[T(Hashable)](target: set[T], source: Iterable[T]):
@@ -480,11 +480,7 @@ def dict_dict_try_pop[K1(Hashable), K2(Hashable), V](d1: dict[K1, dict[K2, V]], 
             del d1[k1]
         return v
 
-def optional_str[T](v: ?T, default: str = "None") -> str:
-    return str(v) if v is not None else default
-
-def optional_repr[T](v: ?T, default: str = "None") -> str:
-    return repr(v) if v is not None else default
+# optional_repr is no longer needed - repr() now handles optional values
 
 def optional_expect[T](v: ?T, error_msg: str) -> T:
     if v is not None:

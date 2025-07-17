@@ -128,6 +128,6 @@ def _strict_convert_node_value(node: Node, cursor: schema.Cursor) -> ?value:
             v = _type.netconf_to_value(_v, cursor, node.namespaces())
         # # TODO: Implement schema value validation
         # # if not _type.validate_value(cursor, v):
-        # #     raise ValueError("Failed value validation for " + str(cursor.get_ptag_keypath()) + " = " + optional_str(node.value()))
+        # #     raise ValueError("Failed value validation for {cursor.get_ptag_keypath()} = {node.value()}")
         return v
-    raise ValueError("Missing schema value type for " + str(cursor.get_ptag_keypath()) + " = " + optional_str(node.value()))
+    raise ValueError("Missing schema value type for {cursor.get_ptag_keypath()} = {node.value()}")

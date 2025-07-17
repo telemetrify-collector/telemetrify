@@ -102,7 +102,7 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
 #        if conn is not None:
 #            conn.close()
 
-    log.debug("VManageHTTPClient", {"host": host, "port": optional_str(port, "None"), "username": username})
+    log.debug("VManageHTTPClient", {"host": host, "port": port, "username": username})
     conn = http.Client(cap, host, _on_http_connect, _on_http_error, port=port, tls_verify=False, log_handler=log_handler)
 
 
@@ -111,160 +111,160 @@ actor VManageHTTPClient(cap: net.TCPConnectCap, host: str, port: ?int, username:
 ##############
 
 
-_vmanage_statistics_approute_blob1 = r"""{
-  "header": {
+_vmanage_statistics_approute_blob1 = """{{
+  "header": {{
     "generatedOn": 1695290859047,
-    "viewKeys": {
+    "viewKeys": {{
       "uniqueKey": [],
       "preferenceKey": "grid-raw_approutestatsstatistics"
-    },
+    }},
     "columns": [
-      {
+      {{
         "title": "Device IP",
         "property": "vdevice_name",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "title": "Host name",
         "property": "host_name",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "title": "Device Model",
         "property": "device_model",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "title": "Time",
         "property": "statcycletime",
         "displayFormat": "DD MMM YYYY h:mm:ss A z",
         "inputFormat": "unix-time",
         "dataType": "date"
-      },
-      {
+      }},
+      {{
         "title": "Entry_time",
         "property": "entry_time",
         "displayFormat": "DD MMM YYYY h:mm:ss A z",
         "inputFormat": "unix-time",
         "dataType": "date"
-      },
-      {
+      }},
+      {{
         "title": "Name",
         "property": "name",
         "dataType": "string"
-      }
+      }}
     ],
     "fields": [
-      {
+      {{
         "property": "vdevice_name",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "host_name",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "device_model",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "statcycletime",
         "dataType": "date"
-      },
-      {
+      }},
+      {{
         "property": "entry_time",
         "dataType": "date"
-      },
-      {
+      }},
+      {{
         "property": "vip_idx",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "local_system_ip",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "remote_system_ip",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "local_color",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "remote_color",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "proto",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "window",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "src_ip",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "dst_ip",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "src_port",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "dst_port",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "total",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "latency",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "loss_percentage",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "jitter",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "tx_pkts",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "rx_pkts",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "tx_octets",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "rx_octets",
         "dataType": "number"
-      },
-      {
+      }},
+      {{
         "property": "name",
         "dataType": "string"
-      },
-      {
+      }},
+      {{
         "property": "loss",
         "dataType": "number"
-      }
+      }}
     ],
-    "chart": {}
-  },
+    "chart": {{}}
+  }},
   "total_records": 30,
   "data": [
-    {
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -302,8 +302,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -341,8 +341,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -380,8 +380,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -419,8 +419,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -458,8 +458,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -497,8 +497,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -536,8 +536,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -575,8 +575,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -614,8 +614,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -653,8 +653,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -692,8 +692,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -731,8 +731,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -770,8 +770,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -809,8 +809,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -848,8 +848,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -887,8 +887,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -926,8 +926,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -965,8 +965,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1004,8 +1004,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1043,8 +1043,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1082,8 +1082,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1121,8 +1121,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1160,8 +1160,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1199,8 +1199,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1238,8 +1238,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1277,8 +1277,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1316,8 +1316,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-chemni-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1355,8 +1355,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1394,8 +1394,8 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-berlin-ce-2"
-    },
-    {
+    }},
+    {{
       "remote_color": "public-internet",
       "fec_re": 0,
       "vqoe_score": 10,
@@ -1433,9 +1433,9 @@ _vmanage_statistics_approute_blob1 = r"""{
       "sla_class_list": "0",
       "tunnel_color": "public-internet:public-internet",
       "host_name": "de-bsp-aachen-ce-3"
-    }
+    }}
   ]
-}"""
+}}"""
 
 def _test_vmanage_json_to_acton_dict():
     json.decode(_vmanage_statistics_approute_blob1)
@@ -1456,29 +1456,29 @@ def _test_vmanage_json_to_xnode_minimal():
                 XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", "latency"), None, "6"),
                 XLeaf(OP_MERGE, ITag("http://terastrm.net/ns/yang/vmanage", "host_name"), None, "de-bsp-chemni-ce-2")])])])
 
-    _vmanage_statistics_approute_blob_minimal = r"""{
-    "header": {
+    _vmanage_statistics_approute_blob_minimal = """{{
+    "header": {{
         "generatedOn": 1695290859047
-    },
+    }},
     "total_records": 30,
     "data": [
-        {
+        {{
         "latency": 5,
         "name": "10.100.1.1:public-internet-10.100.3.1:public-internet",
         "host_name": "de-bsp-aachen-ce-3"
-        },
-        {
+        }},
+        {{
         "latency": 3,
         "name": "10.100.3.1:public-internet-10.100.1.1:public-internet",
         "host_name": "de-bsp-chemni-ce-2"
-        },
-        {
+        }},
+        {{
         "latency": 6,
         "name": "10.100.3.1:public-internet-10.100.2.1:public-internet",
         "host_name": "de-bsp-chemni-ce-2"
-        }
+        }}
     ]
-    }"""
+    }}"""
 
     d = json.decode(_vmanage_statistics_approute_blob_minimal)
     measurements = d["data"]

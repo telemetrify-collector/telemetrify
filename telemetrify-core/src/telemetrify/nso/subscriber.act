@@ -357,7 +357,7 @@ class SubscriptionParams(object):
         self.ancestor_delete_fallback_origin = ancestor_delete_fallback_origin
 
     def __str__(self) -> str:
-        return f"SubscriptionParams({self.identity}, {optional_str(self.ancestor_delete_fallback_origin, 'None')})"
+        return "SubscriptionParams({self.identity}, {self.ancestor_delete_fallback_origin})"
 
     def __repr__(self):
         return self.__str__()
@@ -774,12 +774,10 @@ class STree(object):
                     op = OP_REPLACE
 
             if self.log.output_level >= logging.TRACE:
-                self.log.trace("_visit(" + (optional_str(root.tag(), "None") if root is not None else "None") +
-                            ", " + (optional_str(update.tag(), "None") if update is not None else "None") + ")" +
-                            ", " + op_str(op) +
-                            ", " + (str(sdata.identity) if sdata is not None else "None") +
-                            ", " + str(s_count) +
-                            ")", None)
+                rootTag = str(root.tag()) if root is not None else "None"
+                updateTag = str(update.tag()) if update is not None else "None"
+                sdataIdentity = str(sdata.identity) if sdata is not None else "None"
+                self.log.trace("_visit({rootTag}, {updateTag}), {op_str(op)}, {sdataIdentity}, {s_count})", None)
 
             def _get_c_snodes(c_id: Id) -> list[SNode]:
                 c_snodes: list[SNode] = []

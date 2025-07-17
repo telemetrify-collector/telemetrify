@@ -80,7 +80,7 @@ actor VManagePollSubscription(
             return
 
         log.debug("SUBSCRIBER vmanage-poll GET_REQUEST", None)
-        log.trace("SUBSCRIBER vmanage-poll POLL_PATH", {"poll_path": optional_str(poll_path, "None")})
+        log.trace("SUBSCRIBER vmanage-poll POLL_PATH", {"poll_path": poll_path})
 
         _source = subscriber_base.get_source()
         if poll_path is not None and _source is not None and isinstance(_source, VManageSource):
@@ -173,7 +173,7 @@ actor VManagePollSubscription(
 
     def _start():
         log.debug("SUBSCRIBER vmanage-poll START", None)
-        log.trace("SUBSCRIBER vmanage-poll POLL_PATH", {"poll_path": optional_str(poll_path, "None")})
+        log.trace("SUBSCRIBER vmanage-poll POLL_PATH", {"poll_path": poll_path})
         if poll_path is not None:
             curr_ts = time.monotonic()
             after 0: _do_poll(poller_seqno, curr_ts)

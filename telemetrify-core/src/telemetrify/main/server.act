@@ -71,8 +71,8 @@ class PendingSubscriberUpdate(object):
     def __repr__(self) -> str:
         s = []
         for output_key, output_config in self.output_configs.items():
-            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_config, "None") + ")")
-        return "PendingSubscriberUpdate(" + optional_str(self.config, "None") + ", " + optional_str(self.source_key, "None") + ", " + str(s) + ")"
+            unsafe_list_append(s, "({output_key}, {output_config})")
+        return "PendingSubscriberUpdate({self.config}, {self.source_key}, {s})"
 
     def is_delete(self):
         #return self.config is None and self.source_key is None and len(self.output) == 0 # actonc codegen error
@@ -125,8 +125,8 @@ class PendingTransformUpdate(object):
     def __repr__(self) -> str:
         s = []
         for output_key, output_config in self.output_configs.items():
-            unsafe_list_append(s, "(" + str(output_key) + ", " + optional_str(output_config, "None") + ")")
-        return "PendingTransformUpdate(" + optional_str(self.config, "None") + ", " + str(s) + ")"
+            unsafe_list_append(s, "({output_key}, {output_config})")
+        return "PendingTransformUpdate({self.config}, {s})"
 
     def is_delete(self):
         _config = self.config
@@ -396,7 +396,7 @@ actor SubscriberManager(
                 sub = _create_subscriber_type(sub_key, sub_type)
                 sub.update_config(_create_subscription_update(pending_update))
                 return sub
-        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: " + optional_str(sub_config, "None"))
+        raise Exception("Broken invariant: Attempted to create subscriber from invalid config: {sub_config}")
 
     def _create_subscriber_type(sub_key: Keypath, sub_type: Id) -> Subscriber:
         def close_cb():
@@ -507,7 +507,7 @@ actor Server(
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, logh, None)
         else:
-            log.error("MAAPI load schema failed:" + optional_str(e, ""), None)
+            log.error("MAAPI load schema failed: {e}", None)
             await async env.exit(1)
 
     def _on_cdb_connect_error(e):
@@ -587,7 +587,7 @@ actor Server(
             logh.set_output_level(level)
 
     def _on_config_cache_error(e):
-        log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
+        log.error("CdbCache failed: {e.error_message}", None)
         await async env.exit(1)
 
     log.info("Starting up...", None)

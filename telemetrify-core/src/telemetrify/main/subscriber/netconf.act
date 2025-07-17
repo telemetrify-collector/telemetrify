@@ -225,7 +225,7 @@ actor NetconfRpcPollSubscription(
 
     def _start():
         log.debug("SUBSCRIBER netconf-rpc-poll START", None)
-        log.trace("SUBSCRIBER netconf-rpc-poll RPC_XML", {"rpc_xml": optional_str(rpc_xml, "None")})
+        log.trace("SUBSCRIBER netconf-rpc-poll RPC_XML", {"rpc_xml": rpc_xml})
         if rpc_xml is not None:
             curr_ts = time.monotonic()
             after 0: _do_rpc_request(poller_seqno, curr_ts)
@@ -318,7 +318,7 @@ actor NetconfGetPollSubscription(
             return
         log.debug("SUBSCRIBER netconf-get-poll GET_REQUEST", None)
 
-        log.trace("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": optional_str(get_xml, "None")})
+        log.trace("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": get_xml})
         _source = subscriber_base.get_source()
         if get_xml is not None and _source is not None and isinstance(_source, NetconfSource):
             source: NetconfSource = _source
@@ -454,7 +454,7 @@ actor NetconfGetPollSubscription(
 
     def _start():
         log.debug("SUBSCRIBER netconf-get-poll START", None)
-        log.trace("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": optional_str(get_xml, "None")})
+        log.trace("SUBSCRIBER netconf-get-poll GET_XML", {"get_xml": get_xml})
         if get_xml is not None:
             curr_ts = time.monotonic()
             after 0: _do_get_request(poller_seqno, curr_ts)

@@ -186,29 +186,29 @@ class Schema:
         src_str = "from telemetrify.common.mod import HTag\n"
         src_str += "from telemetrify.nsoapi.schema import Schema, Node, Type, TypeId, NamespaceDescription, NamespaceMaps\n"
         src_str += self._root.prsrc({}, {})
-        src_str += r"roots: dict[HTag, Node] = {"
+        src_str += "roots: dict[HTag, Node] = {{"
         for tag in self._root.children.keys():
             src_str += str(tag)
             src_str += f": nodes_{tag.ns_hash}_{tag.name_hash}, "
-        src_str += r"}\n"
-        src_str += r"nshash_to_namespace: dict[int, NamespaceDescription] = {"
+        src_str += "}}\n"
+        src_str += "nshash_to_namespace: dict[int, NamespaceDescription] = {{"
         for nshash, ns in self._nshash_to_namespace.items():
             src_str += str(nshash)
             src_str += ": "
             src_str += ns.prsrc()
             src_str += ", "
-        src_str += r"}\n"
-        src_str += r"cns_to_namespace: dict[str, NamespaceDescription] = {"
+        src_str += "}}\n"
+        src_str += "cns_to_namespace: dict[str, NamespaceDescription] = {{"
         for cns, ns in self._cns_to_namespace.items():
             src_str += "\""
             src_str += cns
             src_str += "\": "
             src_str += ns.prsrc()
             src_str += ", "
-        src_str += r"}\n"
+        src_str += "}}\n"
         src_str += f"hash_to_name: dict[int, str] = {self._hash_to_name}\n"
         src_str += f"name_to_hash: dict[str, int] = {self._name_to_hash}\n"
-        src_str += r"mount_id_maps: dict[HTag, NamespaceMaps] = {"
+        src_str += "mount_id_maps: dict[HTag, NamespaceMaps] = {{"
         for tag, nsmaps in self._mount_id_maps.items():
             src_str += str(tag)
             src_str += ": "
@@ -555,7 +555,7 @@ class NamespaceMaps:
         self.module_to_namespace = module_to_namespace
 
     def prsrc(self) -> str:
-        src_str = r"NamespaceMaps({"
+        src_str = "NamespaceMaps({{"
 
         for ns, namespace in self.ns_to_namespace.items():
             src_str += "\""
@@ -564,7 +564,7 @@ class NamespaceMaps:
             src_str += namespace.prsrc()
             src_str += ", "
 
-        src_str += r"}, {"
+        src_str += "}}, {{"
         for prefix, namespace in self.prefix_to_namespace.items():
             src_str += "\""
             src_str += prefix
@@ -572,7 +572,7 @@ class NamespaceMaps:
             src_str += namespace.prsrc()
             src_str += ", "
 
-        src_str += r"}, {"
+        src_str += "}}, {{"
         for module, namespace in self.module_to_namespace.items():
             src_str += "\""
             src_str += module
@@ -580,7 +580,7 @@ class NamespaceMaps:
             src_str += namespace.prsrc()
             src_str += ", "
 
-        src_str += r"})"
+        src_str += "}})"
 
         return src_str
 
@@ -615,7 +615,7 @@ class NamespaceDescription:
     def __str__(self) -> str:
         return "NamespaceDescription(" \
             + f"{self.cns},{self.ns},{self.prefix},{self.ns_hash}," \
-            + f"{optional_str(self.revision, '')},{self.module})"
+            + f"{str(self.revision)},{self.module})"
 
     def __repr__(self):
         return self.__str__()
@@ -872,13 +872,13 @@ class Node(object):
                 src_str = f"{src_str}{value_type.prsrc(types)}"
             type_str = f"types_{value_type.type_id.ns_hash}_{value_type.type_id.name.replace('-', '_').replace('.', 'dot')}"
 
-        children_str = r"{"
+        children_str = "{{"
         for tag, child in self.children.items():
             src_str += child.prsrc(nodes, types)
             children_str += str(tag)
             children_str += ": "
             children_str += f"nodes_{child.tag.ns_hash}_{child.tag.name_hash}, "
-        children_str += r"}"
+        children_str += "}}"
 
         keys_str = "["
         for key in self.keys:
@@ -970,7 +970,7 @@ class Type(object):
         if _parent_type is not None:
             parent_type_id = str(_parent_type.type_id)
         return f"{self.type_id}, {parent_type_id}" \
-            + f", {optional_str(self.conf_type, 'None')}"
+            + f", {str(self.conf_type)}"
 
     def prsrc(self, types: dict[TypeId, Type]) -> str:
         src_str = ""

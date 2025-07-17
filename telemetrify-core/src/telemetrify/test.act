@@ -166,7 +166,7 @@ actor test_maapi_session_schema(env: Env, opts: Opts):
             print(shared_schema)
             c.end_user_session(_on_end_user_session)
         else:
-            print("MAAPI load schema failed:", optional_str(e, "None"))
+            print("MAAPI load schema failed: {e}")
             await async env.exit(1)
 
     def _on_end_user_session(c, e):
@@ -205,7 +205,7 @@ actor test_print_schema(env: Env, opts: Opts):
             print(schema.prsrc())
             c.end_user_session(_on_end_user_session)
         else:
-            print("MAAPI load schema failed:", optional_str(e, "None"))
+            print("MAAPI load schema failed: {e}")
             await async env.exit(1)
 
     def _on_end_user_session(c, e):
@@ -391,7 +391,7 @@ actor test_writer(env: Env, opts: Opts):
 
             c.start_trans(DB_RUNNING, MODE_READ_WRITE, UserIdentity(None, None, None, None), lambda c, t: _on_start_trans(c, shared_schema, t))
         else:
-            print("MAAPI load schema failed:", optional_str(e, "None"))
+            print("MAAPI load schema failed: {e}")
             await async env.exit(1)
 
     def _on_start_trans(c, schema, thandle):
@@ -804,7 +804,7 @@ actor test_etv_tnode(env: Env, opts: Opts):
 
             await async env.exit(0)
         else:
-            print("MAAPI load schema failed:", optional_str(e, "None"))
+            print("MAAPI load schema failed: {e}")
             await async env.exit(1)
 
     print("Starting up...")
@@ -821,7 +821,7 @@ class DeviceSettings(object):
         self.password = password
 
     def __str__(self) -> str:
-        return "DeviceSettings(username=" + optional_str(self.username, "") + ", password=" + optional_str(self.password, "") + ")"
+        return "DeviceSettings(username={self.username}, password={self.password})"
 
     def __repr__(self):
         return self.__str__()
@@ -916,7 +916,7 @@ actor test_subscriber(env: Env, opts: Opts):
             cdb_connection = telemetrify.nsoapi.cdb.CdbConnection(env, 4569, "telemetrify",
                 action lambda c: _on_cdb_sub_connect(c, shared_schema), _on_cdb_connect_error, None, opts.record_to)
         else:
-            print("MAAPI load schema failed:", optional_str(e, "None"))
+            print("MAAPI load schema failed: {e}")
             await async env.exit(1)
 
     def _on_cdb_connect_error(e):
@@ -942,7 +942,7 @@ actor test_subscriber(env: Env, opts: Opts):
                 print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
 
     def _on_config_cache_error(e):
-        print("CdbCache failed:", optional_str(e.error_message, ""))
+        print("CdbCache failed: {e.error_message}")
         await async env.exit(1)
 
     print("Starting up...")

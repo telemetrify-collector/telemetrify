@@ -187,7 +187,7 @@ actor L3vpnSvcTrackerActor(shared_resources: SharedResources, log_handler: loggi
                             try_pop(lan_interface_ipv4_address_params, lan_interface_ipv4_address)
 
     def _on_config_cache_error(e):
-        log.error("CdbCache failed", {"error_message": optional_str(e.error_message, "")})
+        log.error("CdbCache failed", {"error_message": e.error_message})
         # TODO
 
     def _on_acquired_shared_resources(env, shared_schema):
@@ -371,15 +371,9 @@ class L3vpnSvcParams(object):
 
     def __str__(self) -> str:
         return "L3vpnSvcParams(" \
-            + self.hostname \
-            + ", " + self.vpn_id \
-            + ", " + self.site_id \
-            + ", " + self.device_reference \
-            + ", " + optional_str(self.wan_interface_ipv4_address, "None") \
-            + ", " + optional_str(self.lan_interface_ipv4_address, "None") \
-            + ", " + optional_str(self.is_bidirectional, "None") \
-            + ", " + optional_str(self.customer_name, "None") \
-            + ")"
+            + "{self.hostname}, {self.vpn_id}, {self.site_id}, {self.device_reference}, " \
+            + "{self.wan_interface_ipv4_address}, {self.lan_interface_ipv4_address}, " \
+            + "{self.is_bidirectional}, {self.customer_name})"
 
     def __repr__(self):
         return self.__str__()

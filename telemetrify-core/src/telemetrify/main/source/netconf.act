@@ -138,7 +138,7 @@ actor NetconfSourceAct(
         username = source_config[PTag('tlm', 'username')].try_str()
         password = source_config[PTag('tlm', 'password')].try_str()
         key: ?str = None # TODO
-        log.debug("SOURCE netconf CONNECT", {"address": optional_str(address, "None"), "port": optional_str(port, "None"), "username": optional_str(username, "None"), "password": optional_str(password, "None")})
+        log.debug("SOURCE netconf CONNECT", {"address": address, "port": port, "username": username, "password": password})
 
         if address is not None and port is not None and \
                 username is not None and (password is not None or key is not None):
