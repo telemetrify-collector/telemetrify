@@ -532,11 +532,11 @@ actor CdbCache(cdb_sub_conn: CdbConnection,
             _pending_sub_ids = v
             _do_get_modifications()
         elif isinstance(v, Exception):
-            log.error("Sub event error", {"msg": v.error_message})
-            on_error(Exception(f"Sub event error: {v}"))
+            log.error("Sub event error", {"msg": v.msg})
+            on_error(Exception("Sub event error: {v}"))
         else:
             log.error("Sub event error", {"msg": v})
-            on_error(Exception(f"Sub event error: {v}"))
+            on_error(Exception("Sub event error: {v}"))
 
     def _do_get_modifications():
         #if _pending_sub_ids:

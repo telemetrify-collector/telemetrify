@@ -587,7 +587,7 @@ actor Server(
             logh.set_output_level(level)
 
     def _on_config_cache_error(e):
-        log.error("CdbCache failed:" + optional_str(e.error_message, ""), None)
+        log.error("CdbCache failed: {e.msg}", None)
         await async env.exit(1)
 
     log.info("Starting up...", None)

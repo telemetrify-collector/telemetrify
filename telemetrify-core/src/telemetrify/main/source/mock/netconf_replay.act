@@ -107,7 +107,7 @@ actor MockNetconfReplaySourceAct(
         try:
             root = xml.decode(text)
         except Exception as ex:
-            log.warning("SOURCE mock-netconf-replay RECEIVED invalid xml data", {"data": text, "errmsg": ex.error_message})
+            log.warning("SOURCE mock-netconf-replay RECEIVED invalid xml data", {"data": text, "errmsg": ex.msg})
         else:
             _root: xml.Node = root
             if log.output_level >= logging.TRACE:

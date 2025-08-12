@@ -766,7 +766,7 @@ actor test_etv_tnode(env: Env, opts: Opts):
                     root.merge(merge_root)
                     print("New root:\n" + str(root))
                 elif isinstance(merge_root, Exception):
-                    print("Error: " + merge_root.error_message)
+                    print("Error: " + merge_root.msg)
                     await async env.exit(1)
 
             do_merge(EList([
@@ -942,7 +942,7 @@ actor test_subscriber(env: Env, opts: Opts):
                 print("  " + str(k) + ": " + (str(v) if v is not None else "DELETED"))
 
     def _on_config_cache_error(e):
-        print("CdbCache failed:", optional_str(e.error_message, ""))
+        print("CdbCache failed:", e.msg)
         await async env.exit(1)
 
     print("Starting up...")

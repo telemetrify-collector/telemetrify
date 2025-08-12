@@ -187,7 +187,7 @@ actor L3vpnSvcTrackerActor(shared_resources: SharedResources, log_handler: loggi
                             try_pop(lan_interface_ipv4_address_params, lan_interface_ipv4_address)
 
     def _on_config_cache_error(e):
-        log.error("CdbCache failed", {"error_message": optional_str(e.error_message, "")})
+        log.error("CdbCache failed", {"error_message": e.msg})
         # TODO
 
     def _on_acquired_shared_resources(env, shared_schema):
