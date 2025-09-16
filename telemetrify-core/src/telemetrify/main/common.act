@@ -384,6 +384,25 @@ class SubscriberMixin(object):
             on_closed: proc() -> None,
             log: logging.Logger):
 
+        self.state = STATE_STOPPED
+        self._start_fn = start
+        self._stop_fn = stop
+        self._update_sub_config_fn = update_sub_config
+        self.write_reset = write_reset
+        self.on_closed_fn = on_closed
+        self.log = log
+
+        # Initialize all attributes first - use dummy placeholders for mixins
+        # because they need self references in their real constructors and we
+        # cannot use 'self' before all attributes are initialized. We leak e.g.
+        # the method self._on_source_start which could do anything to self and
+        # it's not tractable to analyze that.
+        dummy_source_mixin = SubscriberSourceMixin(uid, lambda: None, lambda: None, source_msg_trampoline)
+        dummy_output_mixin = OutputCollectionMixin(uid, resync_source, lambda: [], output_upstream_msg_trampoline, lambda: None, log)
+
+        self.source_mixin = dummy_source_mixin
+        self.output_mixin = dummy_output_mixin
+        # Now safe to create the real mixins with self references
         self.source_mixin = SubscriberSourceMixin(
             uid,
             self._on_source_start,
@@ -397,16 +416,6 @@ class SubscriberMixin(object):
             output_upstream_msg_trampoline,
             self._on_outputs_quiescent,
             log)
-
-        self.state = STATE_STOPPED
-
-        self._start_fn = start
-        self._stop_fn = stop
-        self._update_sub_config = update_sub_config
-        self.write_reset = write_reset
-        self.on_closed_fn = on_closed
-
-        self.log = log
 
     def get_source(self) -> ?Source:
         return self.source_mixin.get_source()
@@ -943,7 +952,17 @@ class TransformMixin(ServerMixin):
             on_closed: proc() -> None,
             log: logging.Logger):
 
+        self.state = STATE_RUNNING
+        self.on_closed = on_closed
+        self.log = log
+
+        # Now initialize parent class
         ServerMixin.__init__(self, uid)
+
+        # Initialize TransformMixin's own attributes first
+        dummy_output_mixin = OutputCollectionMixin(uid, lambda: None, lambda: [], output_upstream_msg_trampoline, lambda: None, log)
+        self.output_mixin = dummy_output_mixin
+        # Replace with the real output_mixin with self references
         self.output_mixin = OutputCollectionMixin(
             uid,
             self._on_request_resync,
@@ -951,9 +970,6 @@ class TransformMixin(ServerMixin):
             output_upstream_msg_trampoline,
             self._on_outputs_quiescent,
             log)
-        self.state = STATE_RUNNING
-        self.on_closed = on_closed
-        self.log = log
 
     def write(self, sender_uid: int, node: Node, flow_params: TNode) -> None:
         self.output_mixin.write(sender_uid, node, flow_params)

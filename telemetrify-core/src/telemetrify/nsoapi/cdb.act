@@ -76,6 +76,8 @@ CDB_GET_MODS_WANT_ANCESTOR_DELETE: i64 = 1 << 5
 
 class CdbException(ProtoError):
     def __init__(self, op: int, error_code: int, error_msg: ?str, conf_path: ?str):
+        self.error_message = error_msg if error_msg is not None else "CDB exception"
+        self.msg = error_msg if error_msg is not None else ""
         self.op = op
         self.error_code = error_code
         self.error_msg = error_msg

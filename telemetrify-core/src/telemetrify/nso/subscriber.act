@@ -914,6 +914,7 @@ class SData(object):
     def __init__(self, identity: SubscriptionIdentity, is_required: bool, num_keys: int, ancestor_delete_fallback_origin: ?SubscriptionIdentity):
         self.identity = identity
         self.is_required = is_required
+        self.num_keys = num_keys
         self.ancestor_delete_fallback_origin = ancestor_delete_fallback_origin
 
 actor _SubscriptionSetup(cdb_sub_conn: CdbConnection, subscription_specs: list[SubscriptionSpec], shared_schema: SharedSchema,

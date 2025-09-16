@@ -204,6 +204,7 @@ class Response(object):
     body: bytes
 
     def __init__(self, method: str, version: bytes, status: int, headers: dict[str, str], body: bytes) -> None:
+        self.method = method
         self.version = version
         self.status = status
         self.headers = headers

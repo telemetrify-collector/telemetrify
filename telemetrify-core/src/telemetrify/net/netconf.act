@@ -297,6 +297,7 @@ class NsMaps(object):
         for _prefix, _ns in namespaces:
             _nsmap[_prefix if _prefix is not None else ""] = _ns
         self.nsmap = _nsmap
+        self.parent = parent
 
     def lookup(self, prefix: ?str) -> ?str:
         _inst = self

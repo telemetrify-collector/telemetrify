@@ -50,14 +50,17 @@ _ERL_EXTERN_FMT = Version
 class ProtoError(Exception):
     msg: str
     def __init__(self):
-        pass
+        self.error_message = "Protocol error"
+        self.msg = ""
 
 class ServerVersionError(ProtoError):
     def __init__(self):
-        pass
+        self.error_message = "Server version error"
+        self.msg = ""
 
 class MaapiProtoError(ProtoError):
     def __init__(self, msg):
+        self.error_message = msg
         self.msg = msg
 
     def __str__(self) -> str:
