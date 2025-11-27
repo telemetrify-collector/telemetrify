@@ -21,29 +21,29 @@ from telemetrify.nsoapi.proto import *
 
 
 # confd_cs_node.flags
-CS_NODE_IS_LIST: i64 = 1
-CS_NODE_IS_WRITE: i64 = 1 << 1
-CS_NODE_IS_CDB: i64 = 1 << 2
-CS_NODE_IS_ACTION: i64 = 1 << 3
-CS_NODE_IS_PARAM: i64 = 1 << 4
-CS_NODE_IS_RESULT: i64 = 1 << 5
-CS_NODE_IS_NOTIF: i64 = 1 << 6
-CS_NODE_IS_CASE: i64 = 1 << 7
-CS_NODE_IS_CONTAINER: i64 = 1 << 8
-CS_NODE_HAS_WHEN: i64 = 1 << 9
-CS_NODE_HAS_DISPLAY_WHEN: i64 = 1 << 10
-CS_NODE_META_DATA: i64 = 1 << 11
-CS_NODE_IS_WRITE_ALL: i64 = 1 << 12
-CS_NODE_IS_LEAF_LIST: i64 = 1 << 13
-CS_NODE_IS_LEAFREF: i64 = 1 << 14
-CS_NODE_HAS_MOUNT_POINT: i64 = 1 << 15
-CS_NODE_IS_STRING_AS_BINARY: i64 = 1 << 16
+CS_NODE_IS_LIST: int = 1
+CS_NODE_IS_WRITE: int = 1 << 1
+CS_NODE_IS_CDB: int = 1 << 2
+CS_NODE_IS_ACTION: int = 1 << 3
+CS_NODE_IS_PARAM: int = 1 << 4
+CS_NODE_IS_RESULT: int = 1 << 5
+CS_NODE_IS_NOTIF: int = 1 << 6
+CS_NODE_IS_CASE: int = 1 << 7
+CS_NODE_IS_CONTAINER: int = 1 << 8
+CS_NODE_HAS_WHEN: int = 1 << 9
+CS_NODE_HAS_DISPLAY_WHEN: int = 1 << 10
+CS_NODE_META_DATA: int = 1 << 11
+CS_NODE_IS_WRITE_ALL: int = 1 << 12
+CS_NODE_IS_LEAF_LIST: int = 1 << 13
+CS_NODE_IS_LEAFREF: int = 1 << 14
+CS_NODE_HAS_MOUNT_POINT: int = 1 << 15
+CS_NODE_IS_STRING_AS_BINARY: int = 1 << 16
 
 # confd value range flags
-CONFD_RANGE_MIN_INCLUSIVE: i64 = 1
-CONFD_RANGE_MIN_EXCLUSIVE: i64 = 1 << 1
-CONFD_RANGE_MAX_INCLUSIVE: i64 = 1 << 2
-CONFD_RANGE_MAX_EXCLUSIVE: i64 = 1 << 3
+CONFD_RANGE_MIN_INCLUSIVE: int = 1
+CONFD_RANGE_MIN_EXCLUSIVE: int = 1 << 1
+CONFD_RANGE_MAX_INCLUSIVE: int = 1 << 2
+CONFD_RANGE_MAX_EXCLUSIVE: int = 1 << 3
 
 # NODE_NP_CONTAINER = 1
 # NODE_P_CONTAINER = 2
@@ -828,7 +828,7 @@ class Node(object):
     @property
     max_occurs: int
     @property
-    flags: i64
+    flags: int
     @property
     conf_type: int
     @property
@@ -838,7 +838,7 @@ class Node(object):
     @property
     children: dict[HTag, Node]
 
-    def __init__(self, tag: HTag, min_occurs: int, max_occurs: int, flags: i64, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[HTag, Node]):
+    def __init__(self, tag: HTag, min_occurs: int, max_occurs: int, flags: int, conf_type: int, value_type: ?Type, keys: list[Node], children: dict[HTag, Node]):
         self.tag = tag
         self.min_occurs = min_occurs
         self.max_occurs = max_occurs
@@ -1643,7 +1643,7 @@ class IdentityType(Type):
         return False
 
 class TypeRange:
-    def __init__(self, lo: ?value, hi: ?value, flags: i64):
+    def __init__(self, lo: ?value, hi: ?value, flags: int):
         self.lo = lo
         self.hi = hi
         self.flags = flags
@@ -3152,7 +3152,7 @@ actor SchemaBuilder(log_handler: ?logging.Handler):
                     tag,
                     raw_node.min_occurs,
                     raw_node.max_occurs,
-                    i64(raw_node.info_flags),
+                    int(raw_node.info_flags),
                     raw_node.conf_type,
                     type_descr,
                     keys,
