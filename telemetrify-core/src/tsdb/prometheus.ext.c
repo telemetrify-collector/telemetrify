@@ -42,7 +42,7 @@ B_bytes tsdbQ_prometheusQ_pack(B_list metric_data) {
             B_tuple sample = (B_tuple)samples->data[j];
 
             new_sample->value = ((B_float)sample->components[0])->val;
-            new_sample->timestamp = from$int((B_int)sample->components[1]);
+            new_sample->timestamp = fromB_int((B_int)sample->components[1]);
 
             samples_pb[j] = new_sample;
         }
